@@ -1,0 +1,31 @@
+Package: longy
+Title: Longitudinal Causal Inference via IPW, G-Computation, and TMLE
+Version: 0.1.0
+Authors@R:
+    person("Joshua", "Nugent", role = c("aut", "cre"),
+           email = "joshuanugent@example.com")
+Description: Estimates causal effects in longitudinal settings with
+    time-varying treatments, confounders, informative censoring, and
+    intermittent outcome measurement. Implements inverse probability
+    weighting (IPW) with stabilized weights, influence-curve-based
+    inference, and weight diagnostics. Designed for long-format
+    (one row per person-time) data with a pipe-friendly modular API.
+License: MIT + file LICENSE
+Encoding: UTF-8
+LazyData: true
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Depends:
+    R (>= 3.5.0)
+Imports:
+    data.table,
+    stats,
+    utils
+Suggests:
+    SuperLearner,
+    testthat (>= 3.0),
+    ggplot2,
+    survey,
+    knitr,
+    rmarkdown
+Config/testthat/edition: 3

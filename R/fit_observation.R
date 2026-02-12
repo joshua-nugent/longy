@@ -1,0 +1,125 @@
+#' Fit Observation Models (g_R)
+#'
+#' Models P(R(t) = 1 | past) — the probability that the outcome is measured at
+#' time t. This handles intermittent missingness, which is distinct from
+#' absorbing censoring.
+#'
+#' The risk set is the most restrictive: regime-consistent through t,
+#' uncensored through t, and treatment at t consistent with regime.
+#'
+#' @param obj A `longy_data` object.
+#' @param regime Character. Name of the regime.
+#' @param covariates Character vector. Predictor columns.
+#' @param learners Character vector. SuperLearner library.
+#' @param sl_control List. Additional SuperLearner arguments.
+#' @param adaptive_cv Logical. Adaptive CV fold selection.
+#' @param min_obs Integer. Minimum observations for model fitting.
+#' @param bounds Numeric(2). Prediction bounds.
+#' @param verbose Logical. Progress messages.
+#'
+#' @return Modified `longy_data` object with observation fits stored.
+#' @export
+fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
+                            sl_control = list(), adaptive_cv = TRUE,
+                            min_obs = 50L, bounds = c(0.005, 0.995),
+                            verbose = TRUE) {
+  stopifnot(inherits(obj, "longy_data"))
+
+  nodes <- obj$nodes
+
+  # If no observation column, skip
+  if (is.null(nodes$observation)) {
+    if (verbose) .vmsg("  No observation column defined, skipping fit_observation()")
+    obj$fits$observation <- NULL
+    return(obj)
+  }
+
+  if (!regime %in% names(obj$regimes)) {
+    stop(sprintf("Regime '%s' not found.", regime), call. = FALSE)
+  }
+
+  reg <- obj$regimes[[regime]]
+  dt <- obj$data
+  time_vals <- obj$meta$time_values
+
+  if (is.null(covariates)) {
+    covariates <- c(nodes$baseline, nodes$timevarying)
+  }
+
+  dt <- .add_tracking_columns(dt, nodes, reg)
+
+  results <- vector("list", length(time_vals))
+
+  for (i in seq_along(time_vals)) {
+    tt <- time_vals[i]
+    dt_t <- dt[dt[[nodes$time]] == tt, ]
+
+    # Risk set: consistent through t-1, uncensored through t-1
+    if (i == 1) {
+      still_in <- rep(TRUE, nrow(dt_t))
+    } else {
+      still_in <- dt_t$.longy_consist_prev == 1L & dt_t$.longy_uncens_prev == 1L
+      still_in[is.na(still_in)] <- FALSE
+    }
+
+    # Regime-consistent at t AND uncensored at t
+    still_in <- still_in & dt_t$.longy_regime_consist == 1L
+    still_in <- still_in & dt_t$.longy_uncens == 1L
+
+    n_risk <- sum(still_in)
+    if (n_risk == 0) {
+      if (verbose) .vmsg("  g_R time %d: 0 at risk, skipping", tt)
+      next
+    }
+
+    X <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
+    Y <- dt_t[[nodes$observation]][still_in]
+
+    if (length(unique(Y)) > 1 && n_risk >= min_obs) {
+      cv_folds <- 10L
+      if (adaptive_cv) {
+        cv_info <- .adaptive_cv_folds(Y)
+        cv_folds <- cv_info$V
+      }
+      fit <- .safe_sl(Y = Y, X = X, learners = learners,
+                      cv_folds = cv_folds, verbose = verbose)
+      p_r <- .bound(fit$predictions, bounds[1], bounds[2])
+      method <- fit$method
+    } else {
+      p_r <- rep(mean(Y), n_risk)
+      method <- "marginal"
+    }
+
+    marg_r <- mean(Y)
+
+    results[[i]] <- data.table::data.table(
+      .id = dt_t[[nodes$id]][still_in],
+      .time = tt,
+      .n_risk = n_risk,
+      .observed = Y,
+      .marg_r = marg_r,
+      .p_r = p_r,
+      .method = method
+    )
+
+    if (verbose) {
+      .vmsg("  g_R time %d: n_risk=%d, marg=%.3f, method=%s",
+            tt, n_risk, marg_r, method)
+    }
+  }
+
+  results <- data.table::rbindlist(results[!vapply(results, is.null, logical(1))])
+  data.table::setnames(results, ".id", nodes$id)
+
+  obj$fits$observation <- list(
+    regime = regime,
+    predictions = results,
+    covariates = covariates,
+    learners = learners,
+    bounds = bounds
+  )
+
+  .remove_tracking_columns(obj$data)
+
+  obj
+}
