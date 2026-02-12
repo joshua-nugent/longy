@@ -29,6 +29,7 @@ weight_diagnostics <- function(obj, by_time = TRUE) {
       p95 = round(stats::quantile(.final_weight, 0.95), 2),
       p99 = round(stats::quantile(.final_weight, 0.99), 2),
       ess = round(.ess(.final_weight), 1),
+      cv = round(stats::sd(.final_weight) / mean(.final_weight), 2),
       mean_sw_a = round(mean(.sw_a), 2),
       mean_sw_c = round(mean(.sw_c), 2),
       mean_csw_ac = round(mean(.csw_ac), 2),
@@ -46,7 +47,8 @@ weight_diagnostics <- function(obj, by_time = TRUE) {
       max_weight = round(max(.final_weight), 2),
       p01 = round(stats::quantile(.final_weight, 0.01), 2),
       p99 = round(stats::quantile(.final_weight, 0.99), 2),
-      ess = round(.ess(.final_weight), 1)
+      ess = round(.ess(.final_weight), 1),
+      cv = round(stats::sd(.final_weight) / mean(.final_weight), 2)
     )]
   }
 
