@@ -17,7 +17,7 @@ weight_diagnostics <- function(obj, by_time = TRUE) {
   w_dt <- obj$weights$weights_dt
 
   if (by_time) {
-    diag <- w_dt[, .(
+    diag <- w_dt[, list(
       n = .N,
       mean_weight = mean(.final_weight),
       median_weight = stats::median(.final_weight),
@@ -37,7 +37,7 @@ weight_diagnostics <- function(obj, by_time = TRUE) {
     data.table::setnames(diag, ".time", "time")
     data.table::setkey(diag, time)
   } else {
-    diag <- w_dt[, .(
+    diag <- w_dt[, list(
       n = .N,
       mean_weight = mean(.final_weight),
       median_weight = stats::median(.final_weight),
@@ -82,7 +82,7 @@ positivity_diagnostics <- function(obj, threshold = 0.025) {
   }
 
   # Summary by time
-  summary_dt <- flagged[, .(
+  summary_dt <- flagged[, list(
     n_flagged = .N,
     min_p_a = min(.p_a),
     max_p_a = max(.p_a),

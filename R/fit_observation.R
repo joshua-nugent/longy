@@ -86,7 +86,7 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
       p_r <- .bound(fit$predictions, bounds[1], bounds[2])
       method <- fit$method
     } else {
-      p_r <- rep(mean(Y), n_risk)
+      p_r <- .bound(rep(mean(Y), n_risk), bounds[1], bounds[2])
       method <- "marginal"
     }
 

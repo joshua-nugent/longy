@@ -89,7 +89,7 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
         p_c <- .bound(fit$predictions, bounds[1], bounds[2])
         method <- fit$method
       } else {
-        p_c <- rep(mean(Y), n_risk)
+        p_c <- .bound(rep(mean(Y), n_risk), bounds[1], bounds[2])
         method <- "marginal"
       }
 

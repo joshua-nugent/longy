@@ -1,7 +1,7 @@
 # Internal utility functions for longy
 # None of these are exported
 
-#' Bound values to [lower, upper]
+#' Bound values to a range
 #' @noRd
 .bound <- function(x, lower = 0.005, upper = 0.995) {
   pmin(pmax(x, lower), upper)

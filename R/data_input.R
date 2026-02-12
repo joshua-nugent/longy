@@ -124,7 +124,7 @@ longy_data <- function(data,
   if (length(baseline) > 0) {
     data.table::setkeyv(dt, c(id, time))
     for (bvar in baseline) {
-      n_unique <- dt[, .(nu = data.table::uniqueN(get(bvar), na.rm = TRUE)),
+      n_unique <- dt[, list(nu = data.table::uniqueN(get(bvar), na.rm = TRUE)),
                      by = c(id)]
       if (any(n_unique$nu > 1)) {
         bad_n <- sum(n_unique$nu > 1)

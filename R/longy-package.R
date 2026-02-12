@@ -1,5 +1,25 @@
 #' @keywords internal
+#' @import data.table
 "_PACKAGE"
+
+# Suppress R CMD check NOTEs for non-standard evaluation symbols
+utils::globalVariables(c(
+  # data.table columns used in :=, .SD, etc.
+  ".N", ".SD", ".time",
+  ".longy_regime_consist", ".longy_cum_consist",
+  ".longy_uncens", ".longy_cum_uncens",
+  ".longy_consist_prev", ".longy_uncens_prev",
+  ".longy_check_surv", ".longy_fold",
+  ".sw_a", ".sw_c", ".sw_ac", ".csw_ac", ".sw_r", ".final_weight",
+  ".marg_a", ".marg_c", ".marg_r",
+  ".p_a", ".p_c", ".p_r",
+  ".treatment", ".censored", ".observed",
+  ".n_risk", ".method", ".id",
+  # ggplot2 aes variables
+  "time", "estimate", "ci_lower", "ci_upper",
+  # data.table special vars
+  "nu", "nfold"
+))
 
 #' Simulated Longitudinal Dataset with Known Causal Effects
 #'
@@ -22,7 +42,8 @@
 #' }
 #'
 #' The dataset has an attribute `"true_effects"` containing a data.frame with
-#' columns `time`, `EY1` (E[Y_t(a=1)]), and `EY0` (E[Y_t(a=0)]) computed by
+#' columns `time`, `EY1` (expected outcome under always-treat), and
+#' `EY0` (expected outcome under never-treat) computed by
 #' large-sample Monte Carlo simulation under the known DGP.
 #'
 #' @source Simulated via \code{data-raw/make_sim_longy.R}

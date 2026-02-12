@@ -77,7 +77,7 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
       p_a <- .bound(fit$predictions, bounds[1], bounds[2])
       method <- fit$method
     } else {
-      p_a <- rep(mean(Y), n_risk)
+      p_a <- .bound(rep(mean(Y), n_risk), bounds[1], bounds[2])
       method <- "marginal"
     }
 

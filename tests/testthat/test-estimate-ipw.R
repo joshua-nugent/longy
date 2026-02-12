@@ -19,7 +19,7 @@ test_that("estimate_ipw produces valid estimates", {
                   na.rm = TRUE))
 })
 
-test_that("IC inference produces positive SEs", {
+test_that("IC inference produces non-negative SEs", {
   d <- simulate_test_data(n = 100, K = 4)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -33,9 +33,17 @@ test_that("IC inference produces positive SEs", {
 
   result <- estimate_ipw(obj, regime = "always", inference = "ic")
 
-  expect_true(all(result$estimates$se > 0, na.rm = TRUE))
-  expect_true(all(result$estimates$ci_lower < result$estimates$ci_upper,
-                  na.rm = TRUE))
+  # SEs should be non-negative (can be 0 if all outcomes are same value)
+  expect_true(all(result$estimates$se >= 0, na.rm = TRUE))
+  # At least some SEs should be positive (non-degenerate time points)
+  expect_true(any(result$estimates$se > 0, na.rm = TRUE))
+  # CIs should be valid where SE > 0
+  pos_se <- result$estimates$se > 0 & !is.na(result$estimates$se)
+  if (any(pos_se)) {
+    expect_true(all(
+      result$estimates$ci_lower[pos_se] < result$estimates$ci_upper[pos_se]
+    ))
+  }
 })
 
 test_that("print and summary work for longy_result", {

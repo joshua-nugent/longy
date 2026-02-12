@@ -14,13 +14,12 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 Depends:
     R (>= 3.5.0)
 Imports:
     data.table,
-    stats,
-    utils
+    stats
 Suggests:
     SuperLearner,
     testthat (>= 3.0),

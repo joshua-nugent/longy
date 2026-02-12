@@ -100,7 +100,7 @@ estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
 
 #' @export
 print.longy_result <- function(x, ...) {
-  cat(sprintf("longy IPW result — regime: %s\n", x$regime))
+  cat(sprintf("longy IPW result -- regime: %s\n", x$regime))
   cat(sprintf("Inference: %s | CI level: %.0f%%\n\n",
               x$inference, x$ci_level * 100))
 
@@ -162,7 +162,7 @@ plot.longy_result <- function(x, ...) {
     p <- p +
       ggplot2::labs(
         x = "Time", y = "Estimate",
-        title = sprintf("IPW Estimate — %s", x$regime)
+        title = sprintf("IPW Estimate -- %s", x$regime)
       ) +
       ggplot2::theme_minimal(base_size = 13)
 
@@ -172,7 +172,7 @@ plot.longy_result <- function(x, ...) {
   # Base R fallback
   plot(est$time, est$estimate, type = "b", pch = 19,
        xlab = "Time", ylab = "Estimate",
-       main = sprintf("IPW Estimate — %s", x$regime))
+       main = sprintf("IPW Estimate -- %s", x$regime))
   if ("ci_lower" %in% names(est) && "ci_upper" %in% names(est)) {
     graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,
                      angle = 90, code = 3, length = 0.05, col = "gray50")
