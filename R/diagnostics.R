@@ -19,34 +19,34 @@ weight_diagnostics <- function(obj, by_time = TRUE) {
   if (by_time) {
     diag <- w_dt[, list(
       n = .N,
-      mean_weight = mean(.final_weight),
-      median_weight = stats::median(.final_weight),
-      sd_weight = stats::sd(.final_weight),
-      min_weight = min(.final_weight),
-      max_weight = max(.final_weight),
-      p01 = stats::quantile(.final_weight, 0.01),
-      p05 = stats::quantile(.final_weight, 0.05),
-      p95 = stats::quantile(.final_weight, 0.95),
-      p99 = stats::quantile(.final_weight, 0.99),
-      ess = .ess(.final_weight),
-      mean_sw_a = mean(.sw_a),
-      mean_sw_c = mean(.sw_c),
-      mean_csw_ac = mean(.csw_ac),
-      mean_sw_r = mean(.sw_r)
+      mean_weight = round(mean(.final_weight), 2),
+      median_weight = round(stats::median(.final_weight), 2),
+      sd_weight = round(stats::sd(.final_weight), 2),
+      min_weight = round(min(.final_weight), 2),
+      max_weight = round(max(.final_weight), 2),
+      p01 = round(stats::quantile(.final_weight, 0.01), 2),
+      p05 = round(stats::quantile(.final_weight, 0.05), 2),
+      p95 = round(stats::quantile(.final_weight, 0.95), 2),
+      p99 = round(stats::quantile(.final_weight, 0.99), 2),
+      ess = round(.ess(.final_weight), 1),
+      mean_sw_a = round(mean(.sw_a), 2),
+      mean_sw_c = round(mean(.sw_c), 2),
+      mean_csw_ac = round(mean(.csw_ac), 2),
+      mean_sw_r = round(mean(.sw_r), 2)
     ), by = .time]
     data.table::setnames(diag, ".time", "time")
     data.table::setkey(diag, time)
   } else {
     diag <- w_dt[, list(
       n = .N,
-      mean_weight = mean(.final_weight),
-      median_weight = stats::median(.final_weight),
-      sd_weight = stats::sd(.final_weight),
-      min_weight = min(.final_weight),
-      max_weight = max(.final_weight),
-      p01 = stats::quantile(.final_weight, 0.01),
-      p99 = stats::quantile(.final_weight, 0.99),
-      ess = .ess(.final_weight)
+      mean_weight = round(mean(.final_weight), 2),
+      median_weight = round(stats::median(.final_weight), 2),
+      sd_weight = round(stats::sd(.final_weight), 2),
+      min_weight = round(min(.final_weight), 2),
+      max_weight = round(max(.final_weight), 2),
+      p01 = round(stats::quantile(.final_weight, 0.01), 2),
+      p99 = round(stats::quantile(.final_weight, 0.99), 2),
+      ess = round(.ess(.final_weight), 1)
     )]
   }
 
