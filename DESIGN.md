@@ -32,7 +32,11 @@ Long format only: one row per (subject, time). All variables are columns.
 - **time**: integer time index
 - **outcome** (Y): the event/measurement of interest
 - **treatment** (A): binary intervention variable
-- **censoring** (C): absorbing dropout indicators (can be multiple)
+- **censoring** (C): absorbing dropout indicators (can be multiple). When multiple
+  censoring sources exist, each is modeled independently and weights are multiplied.
+  The package does not model within-interval ordering of censoring events — if
+  multiple sources can trigger in the same interval, the data should record only
+  the first censoring event.
 - **observation** (R): intermittent outcome measurement indicator
 - **baseline** (W): time-invariant covariates
 - **timevarying** (L): time-varying covariates

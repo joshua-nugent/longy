@@ -10,7 +10,11 @@
 #' @param treatment Character. Column name for binary treatment (0/1).
 #' @param censoring Character vector. Column name(s) for absorbing censoring
 #'   indicators (1 = censored). Once censored, subject is gone. Can be NULL
-#'   if no censoring.
+#'   if no censoring. When multiple censoring sources are provided, each is
+#'   modeled separately and their weights are multiplied. **Important**: if
+#'   multiple censoring events can occur within the same interval, the data
+#'   should be prepared so that only the first censoring event is recorded.
+#'   The package does not model within-interval ordering of censoring sources.
 #' @param observation Character. Column name for intermittent outcome
 #'   measurement indicator (1 = observed). Subject can return after R=0.
 #'   If NULL, assumes outcome is always observed when uncensored.

@@ -32,7 +32,11 @@ longy_data(
 
 \item{censoring}{Character vector. Column name(s) for absorbing censoring
 indicators (1 = censored). Once censored, subject is gone. Can be NULL
-if no censoring.}
+if no censoring. When multiple censoring sources are provided, each is
+modeled separately and their weights are multiplied. \strong{Important}: if
+multiple censoring events can occur within the same interval, the data
+should be prepared so that only the first censoring event is recorded.
+The package does not model within-interval ordering of censoring sources.}
 
 \item{observation}{Character. Column name for intermittent outcome
 measurement indicator (1 = observed). Subject can return after R=0.
