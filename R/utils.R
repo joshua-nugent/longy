@@ -67,7 +67,8 @@
 #' @param verbose Logical
 #' @return List with predictions (numeric vector) and fit object
 #' @noRd
-.safe_sl <- function(Y, X, family = stats::binomial(), learners = NULL,
+.safe_sl <- function(Y, X, family = stats::binomial(),
+                     learners = c("SL.glm", "SL.mean"),
                      cv_folds = 10L, verbose = FALSE) {
   X <- as.data.frame(X)
 
