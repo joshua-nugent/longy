@@ -22,7 +22,9 @@
 #'   }
 #' @param covariates Character vector. Predictor columns for nuisance models.
 #'   If NULL, uses all baseline + timevarying.
-#' @param learners Character vector. SuperLearner library names.
+#' @param learners Character vector. SuperLearner library names (default
+#'   `c("SL.glm", "SL.mean")`). Set to NULL to use plain glm without
+#'   SuperLearner.
 #' @param stabilized Logical. Use stabilized weights.
 #' @param truncation Numeric. Weight truncation cap.
 #' @param truncation_quantile Numeric. Quantile-based weight truncation.
@@ -58,7 +60,7 @@ longy <- function(data,
                   outcome_type = "binary",
                   regimes = list(always = 1L, never = 0L),
                   covariates = NULL,
-                  learners = NULL,
+                  learners = c("SL.glm", "SL.mean"),
                   stabilized = TRUE,
                   truncation = NULL,
                   truncation_quantile = NULL,

@@ -17,7 +17,7 @@ longy(
   outcome_type = "binary",
   regimes = list(always = 1L, never = 0L),
   covariates = NULL,
-  learners = NULL,
+  learners = c("SL.glm", "SL.mean"),
   stabilized = TRUE,
   truncation = NULL,
   truncation_quantile = NULL,
@@ -64,7 +64,9 @@ always observed.}
 \item{covariates}{Character vector. Predictor columns for nuisance models.
 If NULL, uses all baseline + timevarying.}
 
-\item{learners}{Character vector. SuperLearner library names.}
+\item{learners}{Character vector. SuperLearner library names (default
+\code{c("SL.glm", "SL.mean")}). Set to NULL to use plain glm without
+SuperLearner.}
 
 \item{stabilized}{Logical. Use stabilized weights.}
 
