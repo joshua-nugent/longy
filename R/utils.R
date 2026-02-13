@@ -75,12 +75,15 @@
   # If SuperLearner is available and learners specified, try it
   if (!is.null(learners) && length(learners) > 0 &&
       requireNamespace("SuperLearner", quietly = TRUE)) {
+    # SuperLearner looks up learner and screening functions in env=;
+    # point it at the SuperLearner namespace so SL.glm, All, etc. are found
     fit <- tryCatch(
       {
         sl_fit <- SuperLearner::SuperLearner(
           Y = Y, X = X, family = family,
           SL.library = learners,
-          cvControl = list(V = cv_folds)
+          cvControl = list(V = cv_folds),
+          env = asNamespace("SuperLearner")
         )
         list(
           predictions = as.numeric(sl_fit$SL.predict),
