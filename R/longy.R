@@ -51,6 +51,10 @@
 #' @param outcome_range Numeric(2) or NULL. Range for scaling continuous
 #'   outcomes to \code{[0,1]} in TMLE. If NULL, uses empirical range.
 #'   Ignored for binary/survival outcomes.
+#' @param sl_fn Character. Which SuperLearner implementation to use:
+#'   \code{"SuperLearner"} (default, sequential CV) or \code{"ffSL"}
+#'   (future-factorial, parallelizes fold x algorithm combinations via
+#'   \code{future.apply}).
 #' @param verbose Logical. Print progress.
 #'
 #' @return An S3 object of class \code{"longy_results"} (a named list of
@@ -93,8 +97,10 @@ longy <- function(data,
                   bounds = c(0.005, 0.995),
                   g_bounds = c(0.01, 1),
                   outcome_range = NULL,
+                  sl_fn = "ffSL",
                   verbose = TRUE) {
 
+  sl_fn <- match.arg(sl_fn, c("SuperLearner", "ffSL"))
   estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle", "both", "all"))
   do_ipw <- estimator %in% c("ipw", "both", "all")
   do_gcomp <- estimator %in% c("gcomp", "both", "all")
@@ -166,14 +172,16 @@ longy <- function(data,
       r_obj <- fit_treatment(r_obj, regime = rname, covariates = covariates,
                              learners = learners, adaptive_cv = adaptive_cv,
                              min_obs = min_obs, bounds = bounds,
-                             times = times, verbose = verbose)
+                             times = times, sl_fn = sl_fn,
+                             verbose = verbose)
 
       if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C)...",
                           cur_step + 2L, n_steps)
       r_obj <- fit_censoring(r_obj, regime = rname, covariates = covariates,
                              learners = learners, adaptive_cv = adaptive_cv,
                              min_obs = min_obs, bounds = bounds,
-                             times = times, verbose = verbose)
+                             times = times, sl_fn = sl_fn,
+                             verbose = verbose)
       cur_step <- cur_step + 2L
     }
 
@@ -184,7 +192,8 @@ longy <- function(data,
       r_obj <- fit_observation(r_obj, regime = rname, covariates = covariates,
                                learners = learners, adaptive_cv = adaptive_cv,
                                min_obs = min_obs, bounds = bounds,
-                               times = times, verbose = verbose)
+                               times = times, sl_fn = sl_fn,
+                               verbose = verbose)
 
       if (verbose) .vmsg("Step %d/%d: Computing weights and estimating (IPW)...",
                           cur_step + 2L, n_steps)
@@ -210,7 +219,8 @@ longy <- function(data,
       r_obj <- fit_outcome(r_obj, regime = rname, covariates = covariates,
                            learners = learners, adaptive_cv = adaptive_cv,
                            min_obs = min_obs, bounds = bounds,
-                           times = times, verbose = verbose)
+                           times = times, sl_fn = sl_fn,
+                           verbose = verbose)
       cur_step <- cur_step + 1L
     }
 

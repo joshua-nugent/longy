@@ -67,18 +67,33 @@
 #' @param obs_weights Numeric vector of observation/sampling weights (same
 #'   length as Y). Passed as \code{obsWeights} to SuperLearner and
 #'   \code{weights} to glm. NULL means equal weights.
+#' @param sl_fn Character. Which SuperLearner implementation to use:
+#'   \code{"SuperLearner"} (default, sequential) or \code{"ffSL"}
+#'   (future-factorial, parallelizes fold x algorithm combinations).
 #' @param verbose Logical
 #' @return List with predictions (numeric vector) and fit object
 #' @noRd
 .safe_sl <- function(Y, X, family = stats::binomial(),
                      learners = c("SL.glm", "SL.mean"),
                      cv_folds = 10L, obs_weights = NULL,
+                     sl_fn = "SuperLearner",
                      verbose = FALSE) {
   X <- as.data.frame(X)
 
   # If SuperLearner is available and learners specified, try it
   if (!is.null(learners) && length(learners) > 0 &&
       requireNamespace("SuperLearner", quietly = TRUE)) {
+
+    # Determine which SL function to call
+    use_ffSL <- identical(sl_fn, "ffSL")
+    if (use_ffSL && !requireNamespace("future.apply", quietly = TRUE)) {
+      warning("future.apply not available; falling back to standard SuperLearner.",
+              call. = FALSE)
+      use_ffSL <- FALSE
+    }
+
+    sl_call_fn <- if (use_ffSL) .ffSL else SuperLearner::SuperLearner
+
     # SuperLearner looks up learner and screening functions in env=;
     # point it at the SuperLearner namespace so SL.glm, All, etc. are found
     fit <- tryCatch(
@@ -92,7 +107,7 @@
         if (!is.null(obs_weights)) {
           sl_args$obsWeights <- obs_weights
         }
-        sl_fit <- do.call(SuperLearner::SuperLearner, sl_args)
+        sl_fit <- do.call(sl_call_fn, sl_args)
         list(
           predictions = as.numeric(sl_fit$SL.predict),
           fit = sl_fit,

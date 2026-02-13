@@ -18,6 +18,8 @@
 #' @param times Numeric vector. If provided, only fit models through
 #'   `max(times)`. Saves computation when estimation is only needed at
 #'   early time points.
+#' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
+#'   (default) or \code{"ffSL"} (future-factorial parallel).
 #' @param verbose Logical. Print progress.
 #'
 #' @return Modified `longy_data` object with treatment fits stored.
@@ -25,7 +27,8 @@
 fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
                           sl_control = list(), adaptive_cv = TRUE,
                           min_obs = 50L, bounds = c(0.005, 0.995),
-                          times = NULL, verbose = TRUE) {
+                          times = NULL, sl_fn = "SuperLearner",
+                          verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
 
   if (!regime %in% names(obj$regimes)) {
@@ -87,7 +90,7 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
       }
       fit <- .safe_sl(Y = Y, X = X, learners = learners,
                       cv_folds = cv_folds, obs_weights = ow,
-                      verbose = verbose)
+                      sl_fn = sl_fn, verbose = verbose)
       p_a <- .bound(fit$predictions, bounds[1], bounds[2])
       method <- fit$method
       sl_risk <- fit$sl_risk
@@ -137,6 +140,7 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
     covariates = covariates,
     learners = learners,
     bounds = bounds,
+    sl_fn = sl_fn,
     sl_info = sl_info
   )
 

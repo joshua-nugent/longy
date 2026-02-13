@@ -16,6 +16,8 @@
 #' @param min_obs Integer. Minimum observations for model fitting.
 #' @param bounds Numeric(2). Prediction bounds.
 #' @param times Numeric vector. If provided, only fit through `max(times)`.
+#' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
+#'   (default) or \code{"ffSL"} (future-factorial parallel).
 #' @param verbose Logical. Progress messages.
 #'
 #' @return Modified `longy_data` object with observation fits stored.
@@ -23,7 +25,8 @@
 fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
                             sl_control = list(), adaptive_cv = TRUE,
                             min_obs = 50L, bounds = c(0.005, 0.995),
-                            times = NULL, verbose = TRUE) {
+                            times = NULL, sl_fn = "SuperLearner",
+                            verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
 
   nodes <- obj$nodes
@@ -95,7 +98,7 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
       }
       fit <- .safe_sl(Y = Y, X = X, learners = learners,
                       cv_folds = cv_folds, obs_weights = ow,
-                      verbose = verbose)
+                      sl_fn = sl_fn, verbose = verbose)
       p_r <- .bound(fit$predictions, bounds[1], bounds[2])
       method <- fit$method
       sl_risk <- fit$sl_risk
@@ -145,6 +148,7 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
     covariates = covariates,
     learners = learners,
     bounds = bounds,
+    sl_fn = sl_fn,
     sl_info = sl_info
   )
 

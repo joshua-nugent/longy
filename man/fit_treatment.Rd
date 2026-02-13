@@ -14,6 +14,7 @@ fit_treatment(
   min_obs = 50L,
   bounds = c(0.005, 0.995),
   times = NULL,
+  sl_fn = "SuperLearner",
   verbose = TRUE
 )
 }
@@ -41,6 +42,9 @@ threshold, uses marginal mean.}
 \item{times}{Numeric vector. If provided, only fit models through
 \code{max(times)}. Saves computation when estimation is only needed at
 early time points.}
+
+\item{sl_fn}{Character. SuperLearner implementation: \code{"SuperLearner"}
+(default) or \code{"ffSL"} (future-factorial parallel).}
 
 \item{verbose}{Logical. Print progress.}
 }

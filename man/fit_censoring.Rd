@@ -14,6 +14,7 @@ fit_censoring(
   min_obs = 50L,
   bounds = c(0.005, 0.995),
   times = NULL,
+  sl_fn = "SuperLearner",
   verbose = TRUE
 )
 }
@@ -36,6 +37,9 @@ baseline + timevarying covariates.}
 \item{bounds}{Numeric(2). Prediction bounds.}
 
 \item{times}{Numeric vector. If provided, only fit through \code{max(times)}.}
+
+\item{sl_fn}{Character. SuperLearner implementation: \code{"SuperLearner"}
+(default) or \code{"ffSL"} (future-factorial parallel).}
 
 \item{verbose}{Logical. Progress messages.}
 }

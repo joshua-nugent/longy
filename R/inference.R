@@ -142,20 +142,24 @@
                              covariates = obj$fits$treatment$covariates,
                              learners = obj$fits$treatment$learners,
                              bounds = obj$fits$treatment$bounds,
+                             sl_fn = obj$fits$treatment$sl_fn,
                              verbose = FALSE)
       if (length(obj$fits$censoring) > 0) {
         cov_c <- obj$fits$censoring[[1]]$covariates
         lrn_c <- obj$fits$censoring[[1]]$learners
         bnd_c <- obj$fits$censoring[[1]]$bounds
+        slfn_c <- obj$fits$censoring[[1]]$sl_fn
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, verbose = FALSE)
+                               bounds = bnd_c, sl_fn = slfn_c,
+                               verbose = FALSE)
       }
       if (!is.null(obj$fits$observation)) {
         b_obj <- fit_observation(b_obj, regime = regime,
                                  covariates = obj$fits$observation$covariates,
                                  learners = obj$fits$observation$learners,
                                  bounds = obj$fits$observation$bounds,
+                                 sl_fn = obj$fits$observation$sl_fn,
                                  verbose = FALSE)
       }
       b_obj <- compute_weights(b_obj, regime = regime,
@@ -297,6 +301,7 @@
                            learners = outcome_fit$learners,
                            bounds = outcome_fit$bounds,
                            times = times,
+                           sl_fn = outcome_fit$sl_fn,
                            verbose = FALSE)
       b_obj
     }, error = function(e) NULL)
@@ -388,6 +393,7 @@
                              covariates = obj$fits$treatment$covariates,
                              learners = obj$fits$treatment$learners,
                              bounds = obj$fits$treatment$bounds,
+                             sl_fn = obj$fits$treatment$sl_fn,
                              verbose = FALSE)
 
       # Fit censoring model
@@ -395,9 +401,11 @@
         cov_c <- obj$fits$censoring[[1]]$covariates
         lrn_c <- obj$fits$censoring[[1]]$learners
         bnd_c <- obj$fits$censoring[[1]]$bounds
+        slfn_c <- obj$fits$censoring[[1]]$sl_fn
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, verbose = FALSE)
+                               bounds = bnd_c, sl_fn = slfn_c,
+                               verbose = FALSE)
       }
 
       # Fit outcome model
@@ -405,7 +413,9 @@
                            covariates = outcome_fit$covariates,
                            learners = outcome_fit$learners,
                            bounds = outcome_fit$bounds,
-                           times = times, verbose = FALSE)
+                           times = times,
+                           sl_fn = outcome_fit$sl_fn,
+                           verbose = FALSE)
 
       # Run TMLE (point estimates only)
       tmle_result <- estimate_tmle(b_obj, regime = regime, times = times,

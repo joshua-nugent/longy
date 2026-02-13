@@ -22,6 +22,8 @@
 #' @param times Numeric vector. If provided, only fit models for these target
 #'   times. Saves computation when estimation is only needed at specific
 #'   time points.
+#' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
+#'   (default) or \code{"ffSL"} (future-factorial parallel).
 #' @param verbose Logical. Print progress.
 #'
 #' @return Modified \code{longy_data} object with outcome fits stored in
@@ -30,7 +32,8 @@
 fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
                         sl_control = list(), adaptive_cv = TRUE,
                         min_obs = 50L, bounds = c(0.005, 0.995),
-                        times = NULL, verbose = TRUE) {
+                        times = NULL, sl_fn = "SuperLearner",
+                        verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
 
   if (!regime %in% names(obj$regimes)) {
@@ -135,7 +138,8 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
         }
         fit <- .safe_sl(Y = Y_train, X = X_train, family = family,
                         learners = learners, cv_folds = cv_folds,
-                        obs_weights = ow, verbose = verbose)
+                        obs_weights = ow, sl_fn = sl_fn,
+                        verbose = verbose)
         method <- fit$method
         sl_risk <- fit$sl_risk
         sl_coef <- fit$sl_coef
@@ -237,6 +241,7 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
     covariates = covariates,
     learners = learners,
     bounds = bounds,
+    sl_fn = sl_fn,
     sl_info = sl_info,
     family = if (is_binary) "binomial" else "gaussian"
   )

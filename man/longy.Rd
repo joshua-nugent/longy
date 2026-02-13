@@ -33,6 +33,7 @@ longy(
   bounds = c(0.005, 0.995),
   g_bounds = c(0.01, 1),
   outcome_range = NULL,
+  sl_fn = "SuperLearner",
   verbose = TRUE
 )
 }
@@ -112,6 +113,11 @@ covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.}
 \item{outcome_range}{Numeric(2) or NULL. Range for scaling continuous
 outcomes to \code{[0,1]} in TMLE. If NULL, uses empirical range.
 Ignored for binary/survival outcomes.}
+
+\item{sl_fn}{Character. Which SuperLearner implementation to use:
+\code{"SuperLearner"} (default, sequential CV) or \code{"ffSL"}
+(future-factorial, parallelizes fold x algorithm combinations via
+\code{future.apply}).}
 
 \item{verbose}{Logical. Print progress.}
 }
