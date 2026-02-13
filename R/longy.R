@@ -160,3 +160,74 @@ print.longy_results <- function(x, ...) {
   }
   invisible(x)
 }
+
+#' Plot longy Results Across Regimes
+#'
+#' Creates a plot comparing IPW estimates over time across all regimes,
+#' with confidence intervals shown as ribbons.
+#'
+#' @param x A `longy_results` object (list of `longy_result` objects).
+#' @param ... Additional arguments (unused).
+#'
+#' @return A ggplot2 object if ggplot2 is available, otherwise NULL (base plot).
+#' @export
+plot.longy_results <- function(x, ...) {
+  # Combine estimates from all regimes into one data.frame
+  all_est <- lapply(names(x), function(rname) {
+    est <- as.data.frame(x[[rname]]$estimates)
+    est$regime <- rname
+    est
+  })
+  combined <- do.call(rbind, all_est)
+
+  if (requireNamespace("ggplot2", quietly = TRUE)) {
+    p <- ggplot2::ggplot(combined,
+           ggplot2::aes(x = time, y = estimate, colour = regime, fill = regime))
+
+    if ("ci_lower" %in% names(combined) && "ci_upper" %in% names(combined)) {
+      p <- p + ggplot2::geom_ribbon(
+        ggplot2::aes(ymin = ci_lower, ymax = ci_upper),
+        alpha = 0.15, colour = NA
+      )
+    }
+
+    p <- p +
+      ggplot2::geom_line(linewidth = 0.8) +
+      ggplot2::geom_point(size = 2) +
+      ggplot2::labs(
+        x = "Time", y = "Estimate",
+        colour = "Regime", fill = "Regime",
+        title = "IPW Estimates by Regime"
+      ) +
+      ggplot2::theme_minimal(base_size = 13)
+
+    return(p)
+  }
+
+  # Base R fallback
+  regimes <- names(x)
+  cols <- seq_along(regimes)
+  y_range <- range(combined$estimate, na.rm = TRUE)
+  if ("ci_lower" %in% names(combined) && "ci_upper" %in% names(combined)) {
+    y_range <- range(c(combined$ci_lower, combined$ci_upper), na.rm = TRUE)
+  }
+
+  first <- TRUE
+  for (i in seq_along(regimes)) {
+    est <- combined[combined$regime == regimes[i], ]
+    if (first) {
+      plot(est$time, est$estimate, type = "b", pch = 19, col = cols[i],
+           xlab = "Time", ylab = "Estimate", ylim = y_range,
+           main = "IPW Estimates by Regime")
+      first <- FALSE
+    } else {
+      graphics::lines(est$time, est$estimate, type = "b", pch = 19, col = cols[i])
+    }
+    if ("ci_lower" %in% names(est) && "ci_upper" %in% names(est)) {
+      graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,
+                       angle = 90, code = 3, length = 0.05, col = cols[i])
+    }
+  }
+  graphics::legend("topleft", legend = regimes, col = cols, lty = 1, pch = 19)
+  invisible(NULL)
+}
