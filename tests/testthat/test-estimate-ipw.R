@@ -81,6 +81,61 @@ test_that("estimate_ipw handles specific time points", {
   expect_equal(result$estimates$time, c(0, 2))
 })
 
+test_that("sandwich inference produces valid SEs", {
+  skip_if_not_installed("survey")
+  d <- simulate_test_data(n = 100, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  result <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+
+  expect_true(all(result$estimates$se >= 0, na.rm = TRUE))
+  expect_true(any(result$estimates$se > 0, na.rm = TRUE))
+  expect_true(all(
+    result$estimates$ci_lower <= result$estimates$estimate &
+    result$estimates$estimate <= result$estimates$ci_upper,
+    na.rm = TRUE
+  ))
+})
+
+test_that("sandwich and IC inference give similar SEs", {
+  skip_if_not_installed("survey")
+  d <- simulate_test_data(n = 200, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  ic_result <- estimate_ipw(obj, regime = "always", inference = "ic")
+  sw_result <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+
+  # Point estimates must be identical (same Hajek estimator)
+  expect_equal(ic_result$estimates$estimate, sw_result$estimates$estimate)
+
+  # SEs should be in the same ballpark (within factor of 3)
+  ic_se <- ic_result$estimates$se
+  sw_se <- sw_result$estimates$se
+  valid <- ic_se > 0 & sw_se > 0 & !is.na(ic_se) & !is.na(sw_se)
+  if (any(valid)) {
+    ratio <- ic_se[valid] / sw_se[valid]
+    expect_true(all(ratio > 0.3 & ratio < 3),
+                info = sprintf("SE ratios: %s",
+                               paste(round(ratio, 2), collapse = ", ")))
+  }
+})
+
 test_that("no-confounding recovery: IPW close to truth", {
   d <- simulate_no_confounding(n = 500, K = 3)
   # Make all outcomes observed for simplicity

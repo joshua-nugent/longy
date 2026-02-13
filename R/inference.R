@@ -33,6 +33,8 @@
     sum_w <- sum(wi)
 
     # IC_i = w_i * (Y_i - psi_hat) / sum(w)
+    # For the Hajek estimator, Var(psi) = sum(IC^2) with finite-sample
+    # correction n/(n-1), where n is the number in the weighted set.
     ic <- wi * (yi - psi_hat) / sum_w
 
     if (!is.null(cluster) && cluster %in% names(dt_t)) {
@@ -41,9 +43,9 @@
                          by = id_col)
       cl_ic <- tapply(ic, merged_cl[[cluster]], sum)
       n_cl <- length(cl_ic)
-      se <- sqrt(sum(cl_ic^2) / n_cl^2) * sqrt(n_cl / (n_cl - 1))
+      se <- sqrt(sum(cl_ic^2)) * sqrt(n_cl / (n_cl - 1))
     } else {
-      se <- sqrt(mean(ic^2) / n_i)
+      se <- sqrt(sum(ic^2)) * sqrt(n_i / (n_i - 1))
     }
 
     results[[j]] <- data.table::data.table(
