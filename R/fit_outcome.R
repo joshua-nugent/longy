@@ -2,9 +2,9 @@
 #'
 #' Fits outcome models E\code{[Y | covariates, A]} backward in time using iterated
 #' conditional expectations (ICE). At each time t, a model is fit for the
-#' pseudo-outcome Q (initially Y, then predictions from t+1) on the risk set
-#' (regime-consistent and uncensored through t). Counterfactual predictions
-#' are obtained by setting A to the regime value.
+#' pseudo-outcome Q (initially Y, then predictions from t+1) on all uncensored
+#' subjects through t. Counterfactual predictions are obtained by setting A to
+#' the regime value.
 #'
 #' @param obj A \code{longy_data} object with at least one regime defined.
 #' @param regime Character. Name of the regime to fit for.
@@ -57,7 +57,7 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
   }
 
   if (is.null(covariates)) {
-    covariates <- c(nodes$baseline, nodes$timevarying)
+    covariates <- c(nodes$baseline, nodes$timevarying, nodes$treatment)
   }
 
   # Build cumulative regime-consistency and uncensored tracking
@@ -81,9 +81,10 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
     tt <- time_vals_rev[i]
     dt_t <- dt[dt[[time_col]] == tt, ]
 
-    # Risk set: regime-consistent through t AND uncensored through t
-    # At time t, consistency requires A(s)=regime for s=0..t AND C(s)=0 for s=0..t
-    still_in <- dt_t$.longy_cum_consist == 1L & dt_t$.longy_cum_uncens == 1L
+    # Risk set: ALL uncensored subjects through t (not regime-restricted).
+    # Including off-regime subjects lets the model learn from treatment variation;
+    # counterfactual predictions set A = regime value for everyone.
+    still_in <- dt_t$.longy_cum_uncens == 1L
     still_in[is.na(still_in)] <- FALSE
 
     n_risk <- sum(still_in)
@@ -182,21 +183,10 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
                          sl_risk = sl_risk, sl_coef = sl_coef,
                          n_risk = n_risk, n_train = n_train)
 
-    # Update pseudo-outcome Q for earlier time steps:
-    # For subjects in the risk set at this time, their Q value in the data
-    # is now the counterfactual prediction (for use in fitting at t-1)
-    if (i < n_times) {
-      pred_dt <- data.table::data.table(.id = risk_ids, .new_Q = preds)
-      data.table::setnames(pred_dt, ".id", id_col)
-      # Update Q in the PREVIOUS time step's rows
-      prev_tt <- time_vals_rev[i + 1]
-      prev_idx <- which(dt[[time_col]] == prev_tt)
-      prev_ids <- dt[[id_col]][prev_idx]
-      # Match predictions to previous time rows
-      match_idx <- match(prev_ids, pred_dt[[id_col]])
-      has_match <- !is.na(match_idx)
-      dt$.longy_Q[prev_idx[has_match]] <- pred_dt$.new_Q[match_idx[has_match]]
-    }
+    # NOTE: No backward pseudo-outcome propagation. Each time t fits Y_t
+    # directly. L_t mediates past treatment effects, so a correctly specified
+    # concurrent model gives E[Y_t(a)] at each time. Backward regression
+    # (iterated conditional expectations) will be added for TMLE targeting.
   }
 
   # Combine predictions

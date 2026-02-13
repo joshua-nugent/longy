@@ -52,7 +52,7 @@ Modified \code{longy_data} object with outcome fits stored in
 \description{
 Fits outcome models E\code{[Y | covariates, A]} backward in time using iterated
 conditional expectations (ICE). At each time t, a model is fit for the
-pseudo-outcome Q (initially Y, then predictions from t+1) on the risk set
-(regime-consistent and uncensored through t). Counterfactual predictions
-are obtained by setting A to the regime value.
+pseudo-outcome Q (initially Y, then predictions from t+1) on all uncensored
+subjects through t. Counterfactual predictions are obtained by setting A to
+the regime value.
 }

@@ -1,3 +1,30 @@
+#' Dispatch bootstrap replicates via future.apply (if available) or lapply
+#'
+#' When \code{future.apply} is installed and a non-sequential
+#' \code{future::plan()} is active, replicates run in parallel via
+#' \code{future_lapply}. Otherwise falls back to sequential \code{lapply}.
+#'
+#' @param n_boot Integer number of replicates
+#' @param one_boot_fn Function(b) returning a numeric vector of estimates
+#' @param verbose Logical. Print a progress message.
+#' @return List of length \code{n_boot} (each element a numeric vector or NULL)
+#' @noRd
+.run_bootstrap <- function(n_boot, one_boot_fn, verbose) {
+  use_future <- requireNamespace("future.apply", quietly = TRUE) &&
+    requireNamespace("future", quietly = TRUE) &&
+    !inherits(future::plan(), "sequential")
+  if (verbose) {
+    .vmsg("  Running %d bootstrap replicates (%s)...",
+          n_boot, if (use_future) "parallel" else "sequential")
+  }
+  if (use_future) {
+    future.apply::future_lapply(seq_len(n_boot), one_boot_fn,
+                                future.seed = TRUE)
+  } else {
+    lapply(seq_len(n_boot), one_boot_fn)
+  }
+}
+
 #' Influence-Curve Based Inference for IPW Estimator
 #'
 #' Computes standard errors and confidence intervals using the influence curve.
@@ -83,19 +110,14 @@
 #' @return data.table with se, ci_lower, ci_upper
 #' @noRd
 .bootstrap_inference <- function(obj, regime, times, n_boot = 200L,
-                                 ci_level = 0.95) {
+                                 ci_level = 0.95, verbose = FALSE) {
   nodes <- obj$nodes
   id_col <- nodes$id
   ids <- unique(obj$data[[id_col]])
   n <- length(ids)
 
-  boot_estimates <- matrix(NA_real_, nrow = n_boot, ncol = length(times))
-
-  for (b in seq_len(n_boot)) {
+  one_boot <- function(b) {
     boot_ids <- sample(ids, n, replace = TRUE)
-    # Create bootstrap dataset
-    boot_id_dt <- data.table::data.table(.boot_orig_id = boot_ids,
-                                          .boot_new_id = seq_len(n))
 
     boot_rows <- lapply(seq_len(n), function(i) {
       rows <- obj$data[obj$data[[id_col]] == boot_ids[i], ]
@@ -105,7 +127,6 @@
     })
     boot_dt <- data.table::rbindlist(boot_rows)
 
-    # Re-run pipeline on bootstrap data
     boot_obj <- tryCatch({
       b_obj <- longy_data(
         data = boot_dt,
@@ -144,15 +165,13 @@
       b_obj
     }, error = function(e) NULL)
 
-    if (is.null(boot_obj)) next
+    if (is.null(boot_obj)) return(rep(NA_real_, length(times)))
 
-    # Compute point estimates
-    for (k in seq_along(times)) {
-      tt <- times[k]
-      est <- .hajek_estimate(boot_obj, tt)
-      boot_estimates[b, k] <- est
-    }
+    vapply(times, function(tt) .hajek_estimate(boot_obj, tt), numeric(1))
   }
+
+  boot_list <- .run_bootstrap(n_boot, one_boot, verbose)
+  boot_estimates <- do.call(rbind, boot_list)
 
   # Percentile CIs
   alpha <- 1 - ci_level
@@ -250,16 +269,9 @@
   n <- length(ids)
   outcome_fit <- obj$fits$outcome
 
-  boot_estimates <- matrix(NA_real_, nrow = n_boot, ncol = length(times))
-
-  for (b in seq_len(n_boot)) {
-    if (verbose && b %% 50 == 0) {
-      .vmsg("  Bootstrap replicate %d/%d", b, n_boot)
-    }
-
+  one_boot <- function(b) {
     boot_ids <- sample(ids, n, replace = TRUE)
 
-    # Create bootstrap dataset
     boot_rows <- lapply(seq_len(n), function(i) {
       rows <- obj$data[obj$data[[id_col]] == boot_ids[i], ]
       rows <- data.table::copy(rows)
@@ -268,7 +280,6 @@
     })
     boot_dt <- data.table::rbindlist(boot_rows)
 
-    # Re-run outcome pipeline on bootstrap data
     boot_obj <- tryCatch({
       b_obj <- longy_data(
         data = boot_dt,
@@ -290,18 +301,17 @@
       b_obj
     }, error = function(e) NULL)
 
-    if (is.null(boot_obj)) next
+    if (is.null(boot_obj)) return(rep(NA_real_, length(times)))
 
-    # Compute point estimates from bootstrap outcome predictions
     pred_dt <- boot_obj$fits$outcome$predictions
-    for (k in seq_along(times)) {
-      tt <- times[k]
+    vapply(times, function(tt) {
       q_t <- pred_dt[pred_dt$.time == tt, ]
-      if (nrow(q_t) > 0) {
-        boot_estimates[b, k] <- mean(q_t$.Q_hat)
-      }
-    }
+      if (nrow(q_t) > 0) mean(q_t$.Q_hat) else NA_real_
+    }, numeric(1))
   }
+
+  boot_list <- .run_bootstrap(n_boot, one_boot, verbose)
+  boot_estimates <- do.call(rbind, boot_list)
 
   # Percentile CIs
   alpha <- 1 - ci_level

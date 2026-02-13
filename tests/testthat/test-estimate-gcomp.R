@@ -195,6 +195,61 @@ test_that("longy() with estimator = 'both' returns IPW and G-comp", {
   expect_s3_class(results$always_gcomp, "longy_result")
 })
 
+test_that("G-comp continuous outcome recovers known truth at each time", {
+  # Clean DGP: no censoring, always observed, continuous outcome
+  # L1 ~ N(0.3*W1 + 0.1*t, 1), A ~ Bern(plogis(0.5*L1))
+  # Y = 0.5*L1 + 0.3*A + 0.2*W1 + N(0,1)
+  # Truth: E[Y_t(a)] = 0.5*(0.1*t) + 0.3*a + 0 = 0.05*t + 0.3*a
+  set.seed(42)
+  n <- 3000; K <- 5
+  rows <- vector("list", n * K)
+  idx <- 1L
+  for (i in seq_len(n)) {
+    W1 <- rnorm(1)
+    for (tt in 0:(K - 1)) {
+      L1 <- rnorm(1, mean = 0.3 * W1 + 0.1 * tt)
+      A <- rbinom(1, 1, plogis(0.5 * L1))
+      Y <- 0.5 * L1 + 0.3 * A + 0.2 * W1 + rnorm(1)
+      rows[[idx]] <- data.frame(id = i, time = tt, W1 = W1, L1 = L1,
+                                A = A, C = 0L, R = 1L, Y = Y)
+      idx <- idx + 1L
+    }
+  }
+  d <- do.call(rbind, rows)
+
+  obj1 <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                     treatment = "A", censoring = "C", observation = "R",
+                     baseline = "W1", timevarying = "L1",
+                     outcome_type = "continuous", verbose = FALSE)
+  obj1 <- define_regime(obj1, "always", static = 1L)
+  obj1 <- fit_outcome(obj1, regime = "always", verbose = FALSE)
+  res1 <- estimate_gcomp(obj1, regime = "always", n_boot = 0, verbose = FALSE)
+
+  obj0 <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                     treatment = "A", censoring = "C", observation = "R",
+                     baseline = "W1", timevarying = "L1",
+                     outcome_type = "continuous", verbose = FALSE)
+  obj0 <- define_regime(obj0, "never", static = 0L)
+  obj0 <- fit_outcome(obj0, regime = "never", verbose = FALSE)
+  res0 <- estimate_gcomp(obj0, regime = "never", n_boot = 0, verbose = FALSE)
+
+  # Check at each time point (absolute tolerance)
+  for (r in seq_len(nrow(res1$estimates))) {
+    tt <- res1$estimates$time[r]
+    truth_a1 <- 0.3 + 0.05 * tt
+    expect_true(abs(res1$estimates$estimate[r] - truth_a1) < 0.05,
+                label = sprintf("G-comp a=1 at t=%d: est=%.3f truth=%.3f",
+                                tt, res1$estimates$estimate[r], truth_a1))
+  }
+  for (r in seq_len(nrow(res0$estimates))) {
+    tt <- res0$estimates$time[r]
+    truth_a0 <- 0.05 * tt
+    expect_true(abs(res0$estimates$estimate[r] - truth_a0) < 0.05,
+                label = sprintf("G-comp a=0 at t=%d: est=%.3f truth=%.3f",
+                                tt, res0$estimates$estimate[r], truth_a0))
+  }
+})
+
 test_that("fit_outcome errors without regime", {
   d <- simulate_test_data(n = 50, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
@@ -214,6 +269,31 @@ test_that("estimate_gcomp errors without fitted outcome model", {
   obj <- define_regime(obj, "always", static = 1L)
   expect_error(estimate_gcomp(obj, regime = "always"),
                "Outcome model not fitted")
+})
+
+test_that("G-comp bootstrap runs in parallel with future.apply", {
+  skip_if_not_installed("future")
+  skip_if_not_installed("future.apply")
+
+  d <- simulate_test_data(n = 100, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  old_plan <- future::plan()
+  on.exit(future::plan(old_plan), add = TRUE)
+  future::plan(future::multisession, workers = 2)
+
+  result <- estimate_gcomp(obj, regime = "always", n_boot = 20, verbose = FALSE)
+
+  expect_s3_class(result, "longy_result")
+  expect_true("se" %in% names(result$estimates))
+  expect_true(all(result$estimates$se > 0, na.rm = TRUE))
+  expect_true("ci_lower" %in% names(result$estimates))
+  expect_true("ci_upper" %in% names(result$estimates))
 })
 
 test_that("G-comp print method works", {

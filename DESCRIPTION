@@ -25,6 +25,8 @@ Suggests:
     testthat (>= 3.0),
     ggplot2,
     survey,
+    future,
+    future.apply,
     knitr,
     rmarkdown
 Config/testthat/edition: 3
