@@ -122,6 +122,56 @@ test_that("longy_data rejects continuous Y when outcome_type = 'binary'", {
   )
 })
 
+test_that("longy_data auto-detects observation from outcome NAs", {
+  d <- simulate_test_data(n = 100, K = 4)
+  # Drop the R column, keep NAs in Y (from both censoring and intermittent)
+  d$R <- NULL
+
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+
+  # Should auto-detect and create .obs column
+  expect_equal(obj$nodes$observation, ".obs")
+  expect_true(".obs" %in% names(obj$data))
+  # .obs should be 1 where Y is not NA, 0 where Y is NA
+  expect_true(all(obj$data$.obs %in% c(0L, 1L)))
+  expect_true(all(obj$data$.obs[!is.na(obj$data$Y)] == 1L))
+  expect_true(all(obj$data$.obs[is.na(obj$data$Y)] == 0L))
+})
+
+test_that("longy_data skips auto-detect when no outcome NAs among uncensored", {
+  d <- simulate_no_censoring(n = 50, K = 3)
+  d$Y[is.na(d$Y)] <- 0L  # fill all NAs
+
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = NULL,
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+
+  expect_null(obj$nodes$observation)
+  expect_false(".obs" %in% names(obj$data))
+})
+
+test_that("longy() end-to-end without explicit observation column", {
+  d <- simulate_test_data(n = 100, K = 3)
+  d$R <- NULL  # remove R, let auto-detection handle it
+
+  results <- longy(
+    data = d,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = NULL,
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(always = 1L),
+    verbose = FALSE
+  )
+
+  expect_s3_class(results, "longy_results")
+  expect_true(nrow(results$always$estimates) > 0)
+  expect_true(all(is.finite(results$always$estimates$estimate)))
+})
+
 test_that("set_crossfit assigns folds at subject level", {
   d <- simulate_test_data(n = 50, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",

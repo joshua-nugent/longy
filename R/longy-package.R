@@ -19,6 +19,8 @@ utils::globalVariables(c(
   ".longy_Q", ".longy_regime_a", ".target_time",
   # .compute_cumulative_g columns
   ".g_a", ".g_c", ".g_point", ".g_cum",
+  # Auto-detected observation column
+  ".obs",
   # TMLE columns
   ".Q_star", ".Q_star_0", ".Q_star_next",
   ".H", ".aug", ".indicator", ".Y_T",

@@ -41,7 +41,9 @@ The package does not model within-interval ordering of censoring sources.}
 
 \item{observation}{Character. Column name for intermittent outcome
 measurement indicator (1 = observed). Subject can return after R=0.
-If NULL, assumes outcome is always observed when uncensored.}
+If NULL, auto-detected from NA values in the outcome column among
+uncensored rows. If NAs are found, an observation column is created
+automatically.}
 
 \item{baseline}{Character vector. Column names for time-invariant covariates.}
 

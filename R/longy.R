@@ -9,8 +9,9 @@
 #' @param outcome Character. Outcome column.
 #' @param treatment Character. Binary treatment column.
 #' @param censoring Character vector. Censoring column(s) (absorbing). NULL if none.
-#' @param observation Character. Intermittent observation column. NULL if outcome
-#'   always observed.
+#' @param observation Character. Intermittent observation column. NULL to
+#'   auto-detect from NA values in the outcome column (see
+#'   \code{\link{longy_data}}).
 #' @param baseline Character vector. Baseline covariate columns.
 #' @param timevarying Character vector. Time-varying covariate columns.
 #' @param sampling_weights Character. Column name for external sampling/survey

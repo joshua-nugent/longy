@@ -49,8 +49,9 @@ longy(
 
 \item{censoring}{Character vector. Censoring column(s) (absorbing). NULL if none.}
 
-\item{observation}{Character. Intermittent observation column. NULL if outcome
-always observed.}
+\item{observation}{Character. Intermittent observation column. NULL to
+auto-detect from NA values in the outcome column (see
+\code{\link{longy_data}}).}
 
 \item{baseline}{Character vector. Baseline covariate columns.}
 

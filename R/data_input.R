@@ -17,7 +17,9 @@
 #'   The package does not model within-interval ordering of censoring sources.
 #' @param observation Character. Column name for intermittent outcome
 #'   measurement indicator (1 = observed). Subject can return after R=0.
-#'   If NULL, assumes outcome is always observed when uncensored.
+#'   If NULL, auto-detected from NA values in the outcome column among
+#'   uncensored rows. If NAs are found, an observation column is created
+#'   automatically.
 #' @param baseline Character vector. Column names for time-invariant covariates.
 #' @param timevarying Character vector. Column names for time-varying covariates.
 #' @param sampling_weights Character. Column name for external sampling/survey
@@ -92,6 +94,27 @@ longy_data <- function(data,
       if (!all(c_vals_nona %in% c(0L, 1L, 0, 1))) {
         stop(sprintf("Censoring column '%s' must be binary {0, 1}.", cvar),
              call. = FALSE)
+      }
+    }
+  }
+
+  # --- Auto-detect observation from outcome NAs ---
+  if (is.null(observation)) {
+    # Check for NAs in outcome among uncensored rows
+    if (!is.null(censoring) && length(censoring) > 0) {
+      censored <- Reduce(`|`, lapply(censoring, function(cv) dt[[cv]] == 1L))
+      censored[is.na(censored)] <- TRUE
+      uncensored_na <- !censored & is.na(dt[[outcome]])
+    } else {
+      uncensored_na <- is.na(dt[[outcome]])
+    }
+    if (any(uncensored_na)) {
+      observation <- ".obs"
+      dt[, .obs := as.integer(!is.na(get(outcome)))]
+      if (verbose) {
+        n_miss <- sum(uncensored_na)
+        .vmsg("Auto-detected intermittent missingness: %d uncensored rows with NA outcome. Created observation column '.obs'.",
+              n_miss)
       }
     }
   }
