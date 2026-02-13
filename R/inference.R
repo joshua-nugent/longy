@@ -32,20 +32,25 @@
     n_i <- nrow(merged)
     sum_w <- sum(wi)
 
-    # IC_i = w_i * (Y_i - psi_hat) / sum(w)
-    # For the Hajek estimator, Var(psi) = sum(IC^2) with finite-sample
-    # correction n/(n-1), where n is the number in the weighted set.
+    # Person-level IC (small scale: psi_hat - psi ≈ sum(ic))
     ic <- wi * (yi - psi_hat) / sum_w
 
+    # Scale to ltmle convention (large scale: psi_hat - psi ≈ mean(IC))
+    # so that var(IC)/n gives the right variance. Uses centered variance
+    # (robust in finite samples). Follows ltmle's HouseholdIC approach.
+    IC <- ic * n_i
+
     if (!is.null(cluster) && cluster %in% names(dt_t)) {
-      # Cluster-robust: sum IC within clusters, then compute variance
+      # Cluster-robust: sum IC within clusters, rescale by n_cl/n_i,
+      # then var/n_cl (ltmle's HouseholdIC pattern)
       merged_cl <- merge(merged, dt_t[, c(id_col, cluster), with = FALSE],
                          by = id_col)
-      cl_ic <- tapply(ic, merged_cl[[cluster]], sum)
-      n_cl <- length(cl_ic)
-      se <- sqrt(sum(cl_ic^2)) * sqrt(n_cl / (n_cl - 1))
+      cl_IC <- tapply(IC, merged_cl[[cluster]], sum)
+      n_cl <- length(cl_IC)
+      cl_IC <- as.numeric(cl_IC) * n_cl / n_i
+      se <- sqrt(stats::var(cl_IC) / n_cl)
     } else {
-      se <- sqrt(sum(ic^2)) * sqrt(n_i / (n_i - 1))
+      se <- sqrt(stats::var(IC) / n_i)
     }
 
     results[[j]] <- data.table::data.table(
