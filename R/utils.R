@@ -64,12 +64,16 @@
 #' @param family Model family (default binomial)
 #' @param learners Character vector of SL learner names
 #' @param cv_folds Number of CV folds
+#' @param obs_weights Numeric vector of observation/sampling weights (same
+#'   length as Y). Passed as \code{obsWeights} to SuperLearner and
+#'   \code{weights} to glm. NULL means equal weights.
 #' @param verbose Logical
 #' @return List with predictions (numeric vector) and fit object
 #' @noRd
 .safe_sl <- function(Y, X, family = stats::binomial(),
                      learners = c("SL.glm", "SL.mean"),
-                     cv_folds = 10L, verbose = FALSE) {
+                     cv_folds = 10L, obs_weights = NULL,
+                     verbose = FALSE) {
   X <- as.data.frame(X)
 
   # If SuperLearner is available and learners specified, try it
@@ -79,12 +83,16 @@
     # point it at the SuperLearner namespace so SL.glm, All, etc. are found
     fit <- tryCatch(
       {
-        sl_fit <- SuperLearner::SuperLearner(
+        sl_args <- list(
           Y = Y, X = X, family = family,
           SL.library = learners,
           cvControl = list(V = cv_folds),
           env = asNamespace("SuperLearner")
         )
+        if (!is.null(obs_weights)) {
+          sl_args$obsWeights <- obs_weights
+        }
+        sl_fit <- do.call(SuperLearner::SuperLearner, sl_args)
         list(
           predictions = as.numeric(sl_fit$SL.predict),
           fit = sl_fit,
@@ -106,7 +114,12 @@
   # Fallback: glm
   df <- X
   df$.Y <- Y
-  glm_fit <- stats::glm(.Y ~ ., data = df, family = family)
+  if (!is.null(obs_weights)) {
+    glm_fit <- stats::glm(.Y ~ ., data = df, family = family,
+                           weights = obs_weights)
+  } else {
+    glm_fit <- stats::glm(.Y ~ ., data = df, family = family)
+  }
   preds <- as.numeric(stats::predict(glm_fit, newdata = X, type = "response"))
   list(predictions = preds, fit = glm_fit, method = "glm")
 }

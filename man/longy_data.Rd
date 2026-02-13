@@ -49,8 +49,11 @@ If NULL, assumes outcome is always observed when uncensored.}
 
 \item{sampling_weights}{Character. Column name for external sampling/survey
 weights (e.g., to generalize from the study to a target population). Must
-be positive and constant within subject. These weights multiply the final
-IPW weight but do NOT affect nuisance model fitting. NULL if none.}
+be non-negative (zero allowed to exclude subjects) and constant within
+subject. These weights are used in nuisance model fitting (as observation
+weights in glm/SuperLearner), in computing marginal rates for stabilized
+weights, and multiply the final IPW weight. Follows ltmle's
+\code{observation.weights} convention. NULL if none.}
 
 \item{outcome_type}{Character. One of \code{"binary"}, \code{"continuous"}, \code{"survival"}.}
 

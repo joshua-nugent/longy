@@ -83,6 +83,12 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
       # Model P(uncensored) = P(C=0) => Y = 1 - C
       Y <- 1L - dt_t[[cvar]][still_in]
 
+      # Extract sampling weights for at-risk subjects (NULL if none)
+      ow <- NULL
+      if (!is.null(nodes$sampling_weights)) {
+        ow <- dt_t[[nodes$sampling_weights]][still_in]
+      }
+
       if (length(unique(Y)) > 1 && n_risk >= min_obs) {
         cv_folds <- 10L
         if (adaptive_cv) {
@@ -90,19 +96,21 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
           cv_folds <- cv_info$V
         }
         fit <- .safe_sl(Y = Y, X = X, learners = learners,
-                        cv_folds = cv_folds, verbose = verbose)
+                        cv_folds = cv_folds, obs_weights = ow,
+                        verbose = verbose)
         p_c <- .bound(fit$predictions, bounds[1], bounds[2])
         method <- fit$method
         sl_risk <- fit$sl_risk
         sl_coef <- fit$sl_coef
       } else {
-        p_c <- .bound(rep(mean(Y), n_risk), bounds[1], bounds[2])
+        marg <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
+        p_c <- .bound(rep(marg, n_risk), bounds[1], bounds[2])
         method <- "marginal"
         sl_risk <- NULL
         sl_coef <- NULL
       }
 
-      marg_c <- mean(Y)
+      marg_c <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
 
       results[[i]] <- data.table::data.table(
         .id = dt_t[[nodes$id]][still_in],

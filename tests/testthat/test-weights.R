@@ -142,7 +142,7 @@ test_that("sampling weights multiply into final weight", {
                tolerance = 1e-10)
 })
 
-test_that("sampling weights must be positive and constant within subject", {
+test_that("sampling weights must be non-negative and constant within subject", {
   d <- simulate_test_data(n = 50, K = 3)
 
   # Negative weight
@@ -151,7 +151,7 @@ test_that("sampling weights must be positive and constant within subject", {
   expect_error(
     longy_data(d, id = "id", time = "time", outcome = "Y",
                treatment = "A", sampling_weights = "sw", verbose = FALSE),
-    "positive"
+    "non-negative"
   )
 
   # Varying within subject
@@ -188,4 +188,63 @@ test_that("sampling weights affect IPW estimates", {
   est_sw <- res_sw$always$estimates$estimate
   est_nosw <- res_nosw$always$estimates$estimate
   expect_false(all(abs(est_sw - est_nosw) < 1e-10))
+})
+
+test_that("sampling weights enter IC variance correctly", {
+  skip_if_not_installed("survey")
+  d <- simulate_test_data(n = 200, K = 3)
+  sw_map <- data.frame(id = unique(d$id))
+  set.seed(7)
+  sw_map$sw <- runif(nrow(sw_map), 0.5, 2)
+  d <- merge(d, sw_map, by = "id")
+
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    sampling_weights = "sw", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  ic_result <- estimate_ipw(obj, regime = "always", inference = "ic")
+  sw_result <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+
+  # IC and sandwich should agree (within factor of 3)
+  ic_se <- ic_result$estimates$se
+  sw_se <- sw_result$estimates$se
+  valid <- ic_se > 0 & sw_se > 0 & !is.na(ic_se) & !is.na(sw_se)
+  if (any(valid)) {
+    ratio <- ic_se[valid] / sw_se[valid]
+    expect_true(all(ratio > 0.3 & ratio < 3),
+                info = sprintf("SE ratios with sampling weights: %s",
+                               paste(round(ratio, 2), collapse = ", ")))
+  }
+})
+
+test_that("zero sampling weights exclude subjects", {
+  d <- simulate_test_data(n = 100, K = 3)
+  # Give half the subjects zero weight
+  ids <- unique(d$id)
+  sw_map <- data.frame(id = ids, sw = ifelse(seq_along(ids) <= length(ids)/2, 0, 1))
+  d <- merge(d, sw_map, by = "id")
+
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    sampling_weights = "sw", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  # Subjects with sw=0 should have final_weight=0
+  w_dt <- obj$weights$weights_dt
+  zero_ids <- sw_map$id[sw_map$sw == 0]
+  zero_weights <- w_dt[w_dt$id %in% zero_ids, ]$.final_weight
+  if (length(zero_weights) > 0) {
+    expect_true(all(zero_weights == 0))
+  }
 })

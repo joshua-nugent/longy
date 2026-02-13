@@ -22,8 +22,11 @@
 #' @param timevarying Character vector. Column names for time-varying covariates.
 #' @param sampling_weights Character. Column name for external sampling/survey
 #'   weights (e.g., to generalize from the study to a target population). Must
-#'   be positive and constant within subject. These weights multiply the final
-#'   IPW weight but do NOT affect nuisance model fitting. NULL if none.
+#'   be non-negative (zero allowed to exclude subjects) and constant within
+#'   subject. These weights are used in nuisance model fitting (as observation
+#'   weights in glm/SuperLearner), in computing marginal rates for stabilized
+#'   weights, and multiply the final IPW weight. Follows ltmle's
+#'   `observation.weights` convention. NULL if none.
 #' @param outcome_type Character. One of `"binary"`, `"continuous"`, `"survival"`.
 #' @param competing_risks Logical. Whether the outcome involves competing risks.
 #' @param verbose Logical. Print progress messages.
@@ -108,8 +111,11 @@ longy_data <- function(data,
     if (!is.numeric(sw_vals)) {
       stop("Sampling weights column must be numeric.", call. = FALSE)
     }
-    if (any(sw_vals <= 0, na.rm = TRUE)) {
-      stop("Sampling weights must be positive.", call. = FALSE)
+    if (any(sw_vals < 0, na.rm = TRUE)) {
+      stop("Sampling weights must be non-negative.", call. = FALSE)
+    }
+    if (all(sw_vals == 0, na.rm = TRUE)) {
+      stop("At least one sampling weight must be positive.", call. = FALSE)
     }
     # Must be constant within subject
     sw_unique <- dt[, list(nu = data.table::uniqueN(get(sampling_weights),
