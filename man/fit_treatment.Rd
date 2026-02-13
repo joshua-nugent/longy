@@ -13,6 +13,7 @@ fit_treatment(
   adaptive_cv = TRUE,
   min_obs = 50L,
   bounds = c(0.005, 0.995),
+  times = NULL,
   verbose = TRUE
 )
 }
@@ -36,6 +37,10 @@ sample size.}
 threshold, uses marginal mean.}
 
 \item{bounds}{Numeric vector of length 2. Bounds for predicted probabilities.}
+
+\item{times}{Numeric vector. If provided, only fit models through
+\code{max(times)}. Saves computation when estimation is only needed at
+early time points.}
 
 \item{verbose}{Logical. Print progress.}
 }

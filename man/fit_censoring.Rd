@@ -13,6 +13,7 @@ fit_censoring(
   adaptive_cv = TRUE,
   min_obs = 50L,
   bounds = c(0.005, 0.995),
+  times = NULL,
   verbose = TRUE
 )
 }
@@ -33,6 +34,8 @@ baseline + timevarying covariates.}
 \item{min_obs}{Integer. Minimum observations for model fitting.}
 
 \item{bounds}{Numeric(2). Prediction bounds.}
+
+\item{times}{Numeric vector. If provided, only fit through \code{max(times)}.}
 
 \item{verbose}{Logical. Progress messages.}
 }

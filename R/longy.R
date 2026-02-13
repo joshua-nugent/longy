@@ -115,21 +115,21 @@ longy <- function(data,
     r_obj <- fit_treatment(r_obj, regime = rname, covariates = covariates,
                            learners = learners, adaptive_cv = adaptive_cv,
                            min_obs = min_obs, bounds = bounds,
-                           verbose = verbose)
+                           times = times, verbose = verbose)
 
     # Step 4: Fit censoring model
     if (verbose) .vmsg("Step 4/6: Fitting censoring model (g_C)...")
     r_obj <- fit_censoring(r_obj, regime = rname, covariates = covariates,
                            learners = learners, adaptive_cv = adaptive_cv,
                            min_obs = min_obs, bounds = bounds,
-                           verbose = verbose)
+                           times = times, verbose = verbose)
 
     # Step 5: Fit observation model
     if (verbose) .vmsg("Step 5/6: Fitting observation model (g_R)...")
     r_obj <- fit_observation(r_obj, regime = rname, covariates = covariates,
                              learners = learners, adaptive_cv = adaptive_cv,
                              min_obs = min_obs, bounds = bounds,
-                             verbose = verbose)
+                             times = times, verbose = verbose)
 
     # Step 6: Compute weights
     if (verbose) .vmsg("Step 6/6: Computing weights and estimating...")

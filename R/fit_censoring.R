@@ -13,6 +13,7 @@
 #' @param adaptive_cv Logical. Adaptive CV fold selection.
 #' @param min_obs Integer. Minimum observations for model fitting.
 #' @param bounds Numeric(2). Prediction bounds.
+#' @param times Numeric vector. If provided, only fit through `max(times)`.
 #' @param verbose Logical. Progress messages.
 #'
 #' @return Modified `longy_data` object with censoring fits stored.
@@ -20,7 +21,7 @@
 fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                           sl_control = list(), adaptive_cv = TRUE,
                           min_obs = 50L, bounds = c(0.005, 0.995),
-                          verbose = TRUE) {
+                          times = NULL, verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
 
   nodes <- obj$nodes
@@ -39,6 +40,9 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
   reg <- obj$regimes[[regime]]
   dt <- obj$data
   time_vals <- obj$meta$time_values
+  if (!is.null(times)) {
+    time_vals <- time_vals[time_vals <= max(times)]
+  }
 
   if (is.null(covariates)) {
     covariates <- c(nodes$baseline, nodes$timevarying)
