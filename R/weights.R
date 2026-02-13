@@ -91,6 +91,11 @@ compute_weights <- function(obj, regime, stabilized = TRUE,
   w[, .final_weight := .csw_ac * .sw_r]
 
   # --- Truncation ---
+  if (!is.null(truncation) && !is.null(truncation_quantile)) {
+    warning("Both 'truncation' and 'truncation_quantile' specified. Using 'truncation' only.",
+            call. = FALSE)
+    truncation_quantile <- NULL
+  }
   if (!is.null(truncation)) {
     w[, .final_weight := pmin(.final_weight, truncation)]
   }
