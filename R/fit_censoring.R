@@ -51,6 +51,7 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
     if (verbose) .vmsg("  Fitting censoring model for '%s'...", cvar)
 
     results <- vector("list", length(time_vals))
+    sl_info <- vector("list", length(time_vals))
 
     for (i in seq_along(time_vals)) {
       tt <- time_vals[i]
@@ -88,9 +89,13 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                         cv_folds = cv_folds, verbose = verbose)
         p_c <- .bound(fit$predictions, bounds[1], bounds[2])
         method <- fit$method
+        sl_risk <- fit$sl_risk
+        sl_coef <- fit$sl_coef
       } else {
         p_c <- .bound(rep(mean(Y), n_risk), bounds[1], bounds[2])
         method <- "marginal"
+        sl_risk <- NULL
+        sl_coef <- NULL
       }
 
       marg_c <- mean(Y)
@@ -105,6 +110,9 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
         .method = method
       )
 
+      sl_info[[i]] <- list(time = tt, method = method,
+                           sl_risk = sl_risk, sl_coef = sl_coef)
+
       if (verbose) {
         .vmsg("    g_C(%s) time %d: n_risk=%d, marg_uncens=%.3f, method=%s",
               cvar, tt, n_risk, marg_c, method)
@@ -116,11 +124,14 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
     )
     data.table::setnames(results, ".id", nodes$id)
 
+    sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
+
     obj$fits$censoring[[cvar]] <- list(
       predictions = results,
       covariates = covariates,
       learners = learners,
-      bounds = bounds
+      bounds = bounds,
+      sl_info = sl_info
     )
   }
 

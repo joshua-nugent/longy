@@ -49,6 +49,7 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
   dt <- .add_tracking_columns(dt, nodes, reg)
 
   results <- vector("list", length(time_vals))
+  sl_info <- vector("list", length(time_vals))
 
   for (i in seq_along(time_vals)) {
     tt <- time_vals[i]
@@ -85,9 +86,13 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
                       cv_folds = cv_folds, verbose = verbose)
       p_r <- .bound(fit$predictions, bounds[1], bounds[2])
       method <- fit$method
+      sl_risk <- fit$sl_risk
+      sl_coef <- fit$sl_coef
     } else {
       p_r <- .bound(rep(mean(Y), n_risk), bounds[1], bounds[2])
       method <- "marginal"
+      sl_risk <- NULL
+      sl_coef <- NULL
     }
 
     marg_r <- mean(Y)
@@ -102,6 +107,9 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
       .method = method
     )
 
+    sl_info[[i]] <- list(time = tt, method = method,
+                         sl_risk = sl_risk, sl_coef = sl_coef)
+
     if (verbose) {
       .vmsg("  g_R time %d: n_risk=%d, marg=%.3f, method=%s",
             tt, n_risk, marg_r, method)
@@ -111,12 +119,15 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
   results <- data.table::rbindlist(results[!vapply(results, is.null, logical(1))])
   data.table::setnames(results, ".id", nodes$id)
 
+  sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
+
   obj$fits$observation <- list(
     regime = regime,
     predictions = results,
     covariates = covariates,
     learners = learners,
-    bounds = bounds
+    bounds = bounds,
+    sl_info = sl_info
   )
 
   .remove_tracking_columns(obj$data)

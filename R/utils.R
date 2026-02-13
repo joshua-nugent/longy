@@ -88,7 +88,9 @@
         list(
           predictions = as.numeric(sl_fit$SL.predict),
           fit = sl_fit,
-          method = "SuperLearner"
+          method = "SuperLearner",
+          sl_risk = sl_fit$cvRisk,
+          sl_coef = sl_fit$coef
         )
       },
       error = function(e) {
