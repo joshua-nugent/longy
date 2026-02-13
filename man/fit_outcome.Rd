@@ -2,7 +2,7 @@
 % Please edit documentation in R/fit_outcome.R
 \name{fit_outcome}
 \alias{fit_outcome}
-\title{Fit Outcome Regression Models via Sequential Regression}
+\title{Fit Outcome Regression Models via Iterated Conditional Expectations (ICE)}
 \usage{
 fit_outcome(
   obj,
@@ -39,9 +39,9 @@ threshold, uses marginal mean.}
 \item{bounds}{Numeric vector of length 2. Bounds for predicted probabilities
 (only applied for binary/survival outcomes).}
 
-\item{times}{Numeric vector. If provided, only fit models through
-\code{max(times)}. Saves computation when estimation is only needed at
-early time points.}
+\item{times}{Numeric vector. If provided, only fit models for these target
+times. Saves computation when estimation is only needed at specific
+time points.}
 
 \item{verbose}{Logical. Print progress.}
 }
@@ -50,9 +50,9 @@ Modified \code{longy_data} object with outcome fits stored in
 \code{obj$fits$outcome}.
 }
 \description{
-Fits outcome models E\code{[Y | covariates, A]} backward in time using iterated
-conditional expectations (ICE). At each time t, a model is fit for the
-pseudo-outcome Q (initially Y, then predictions from t+1) on all uncensored
-subjects through t. Counterfactual predictions are obtained by setting A to
-the regime value.
+For each target time T, runs a backward sequential regression from T to the
+earliest time. At each step s, a model is fit for the pseudo-outcome Q
+(initially Y_T, then predictions from s+1) on uncensored subjects through s.
+Counterfactual predictions are obtained by setting A to the regime value.
+The final estimate is mean(Q_hat_0) for each target T.
 }

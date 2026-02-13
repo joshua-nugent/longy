@@ -183,6 +183,31 @@ simulate_survival_outcome <- function(n = 200, K = 5, seed = 654) {
   do.call(rbind, rows)
 }
 
+#' Simulate data with carryover effects (past A affects future L1)
+#' No censoring, always observed, continuous outcome.
+#' L1(t) = 0.3*W1 + 0.2*A(t-1) + 0.1*t + N(0,1)  [A(-1)=0]
+#' A(t) ~ Bern(plogis(0.5*L1(t)))
+#' Y(t) = 0.5*L1(t) + 0.3*A(t) + 0.2*W1 + N(0,1)
+simulate_carryover_continuous <- function(n = 200, K = 5, seed = 42) {
+  set.seed(seed)
+  rows <- list()
+  for (i in seq_len(n)) {
+    W1 <- rnorm(1)
+    A_prev <- 0L
+    for (tt in 0:(K - 1)) {
+      L1 <- 0.3 * W1 + 0.2 * A_prev + 0.1 * tt + rnorm(1)
+      A <- rbinom(1, 1, plogis(0.5 * L1))
+      Y <- 0.5 * L1 + 0.3 * A + 0.2 * W1 + rnorm(1)
+      rows[[length(rows) + 1]] <- data.frame(
+        id = i, time = tt, W1 = W1, L1 = L1,
+        A = A, C = 0L, R = 1L, Y = Y
+      )
+      A_prev <- A
+    }
+  }
+  do.call(rbind, rows)
+}
+
 #' Simulate data with censoring but outcome always observed (R=1 always)
 simulate_always_observed <- function(n = 200, K = 5, seed = 789) {
   set.seed(seed)

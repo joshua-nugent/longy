@@ -305,7 +305,7 @@
 
     pred_dt <- boot_obj$fits$outcome$predictions
     vapply(times, function(tt) {
-      q_t <- pred_dt[pred_dt$.time == tt, ]
+      q_t <- pred_dt[pred_dt$.target_time == tt, ]
       if (nrow(q_t) > 0) mean(q_t$.Q_hat) else NA_real_
     }, numeric(1))
   }

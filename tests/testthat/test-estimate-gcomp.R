@@ -250,6 +250,76 @@ test_that("G-comp continuous outcome recovers known truth at each time", {
   }
 })
 
+test_that("G-comp ICE recovers carryover truth (past A affects future L)", {
+  # Carryover DGP: L1(t) depends on A(t-1), so direct regression misses
+  # the carryover at t>0. ICE backward regression handles it correctly.
+  # Truth via simulation:
+  #   E[Y_t(a=1)] = 0.3 + 0.05*t + 0.1*(t>0)*cumulative_carryover
+  # We compute truth by Monte Carlo instead of closed form.
+  set.seed(123)
+  n_mc <- 50000; K <- 4
+  # Monte Carlo truth for a=1 and a=0
+  truth_a1 <- numeric(K)
+  truth_a0 <- numeric(K)
+  for (tt in 0:(K - 1)) {
+    # Simulate under always-treat (a=1)
+    ey1 <- replicate(n_mc, {
+      W1 <- rnorm(1)
+      A_prev <- 0L
+      for (s in 0:tt) {
+        L1 <- 0.3 * W1 + 0.2 * A_prev + 0.1 * s + rnorm(1)
+        A_prev <- 1L  # intervene
+        if (s == tt) return(0.5 * L1 + 0.3 * 1 + 0.2 * W1)
+      }
+    })
+    truth_a1[tt + 1] <- mean(ey1)
+    # Simulate under never-treat (a=0)
+    ey0 <- replicate(n_mc, {
+      W1 <- rnorm(1)
+      A_prev <- 0L
+      for (s in 0:tt) {
+        L1 <- 0.3 * W1 + 0.2 * A_prev + 0.1 * s + rnorm(1)
+        A_prev <- 0L  # intervene
+        if (s == tt) return(0.5 * L1 + 0.3 * 0 + 0.2 * W1)
+      }
+    })
+    truth_a0[tt + 1] <- mean(ey0)
+  }
+
+  d <- simulate_carryover_continuous(n = 3000, K = K, seed = 42)
+
+  obj1 <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                     treatment = "A", censoring = "C", observation = "R",
+                     baseline = "W1", timevarying = "L1",
+                     outcome_type = "continuous", verbose = FALSE)
+  obj1 <- define_regime(obj1, "always", static = 1L)
+  obj1 <- fit_outcome(obj1, regime = "always", verbose = FALSE)
+  res1 <- estimate_gcomp(obj1, regime = "always", n_boot = 0, verbose = FALSE)
+
+  obj0 <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                     treatment = "A", censoring = "C", observation = "R",
+                     baseline = "W1", timevarying = "L1",
+                     outcome_type = "continuous", verbose = FALSE)
+  obj0 <- define_regime(obj0, "never", static = 0L)
+  obj0 <- fit_outcome(obj0, regime = "never", verbose = FALSE)
+  res0 <- estimate_gcomp(obj0, regime = "never", n_boot = 0, verbose = FALSE)
+
+  for (r in seq_len(nrow(res1$estimates))) {
+    tt <- res1$estimates$time[r]
+    idx <- tt + 1
+    expect_true(abs(res1$estimates$estimate[r] - truth_a1[idx]) < 0.1,
+                label = sprintf("ICE G-comp a=1 at t=%d: est=%.3f truth=%.3f",
+                                tt, res1$estimates$estimate[r], truth_a1[idx]))
+  }
+  for (r in seq_len(nrow(res0$estimates))) {
+    tt <- res0$estimates$time[r]
+    idx <- tt + 1
+    expect_true(abs(res0$estimates$estimate[r] - truth_a0[idx]) < 0.1,
+                label = sprintf("ICE G-comp a=0 at t=%d: est=%.3f truth=%.3f",
+                                tt, res0$estimates$estimate[r], truth_a0[idx]))
+  }
+})
+
 test_that("fit_outcome errors without regime", {
   d <- simulate_test_data(n = 50, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",

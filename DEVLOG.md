@@ -85,50 +85,53 @@ Full R package implementing IPW estimation for longitudinal causal inference. Th
 5. ~~**Survival outcome support**~~ -- Done. Added isotonic smoothing via `stats::isoreg()` for monotone cumulative incidence.
 6. ~~**Better error messages**~~ -- Done. Defensive tryCatch on regimes, SL/GLM failures, non-finite weights, empty fits, consistent messages.
 
-### v0.2 — G-computation (Completed 2026-02-12)
+### v0.2 — G-computation (Completed 2026-02-13)
 
-**What was built:** G-computation estimator via iterated conditional expectations (sequential regression), backward in time. This gives a second estimator that relies on correct outcome model specification instead of correct propensity score specification.
+**What was built:** G-computation estimator using direct outcome regression at each time point. This gives a second estimator that relies on correct outcome model specification instead of correct propensity score specification.
 
 **New files:**
 | File | What it does |
 |------|-------------|
-| `R/fit_outcome.R` | `fit_outcome()` — backward sequential regression E[Y\|covariates, A] |
+| `R/fit_outcome.R` | `fit_outcome()` — outcome model E[Y_t \| covariates, A] at each time |
 | `R/estimate_gcomp.R` | `estimate_gcomp()` — G-comp point estimates + bootstrap inference |
 
 **Modified files:**
 | File | Changes |
 |------|---------|
-| `R/longy.R` | Added `estimator` param (`"ipw"`, `"gcomp"`, `"both"`) to `longy()` |
-| `R/inference.R` | Added `.bootstrap_gcomp_inference()` |
-| `R/estimate_ipw.R` | Updated print/summary/plot methods to handle G-comp label |
+| `R/longy.R` | Added `estimator` param (`"ipw"`, `"gcomp"`, `"both"`); `n_boot=0` skips all inference |
+| `R/inference.R` | Added `.bootstrap_gcomp_inference()`, `.run_bootstrap()` with `future.apply` parallel support |
+| `R/estimate_ipw.R` | Updated print/summary/plot methods to handle G-comp label; `inference="none"` option |
 | `R/longy-package.R` | Added new globalVariables for fit_outcome columns |
+| `DESCRIPTION` | Added `future`, `future.apply` to Suggests |
 
 **Algorithm:**
-1. Initialize pseudo-outcome Q = Y (observed outcome)
-2. Iterate backward from max(time) to min(time):
-   - Risk set: regime-consistent AND uncensored through t
-   - Training subset: risk set AND Q non-missing (handles R=0 intermittent missingness)
-   - Fit Q ~ covariates + A using `.safe_sl()` (same as nuisance models)
+1. At each time t (backward loop, though order doesn't matter):
+   - Risk set: ALL uncensored subjects through t (not regime-restricted)
+   - Training subset: risk set AND Y_t non-missing (handles R=0 intermittent missingness)
+   - Fit Y_t ~ baseline + timevarying + A using `.safe_sl()`
    - Predict counterfactually (set A to regime value) for all in risk set
-   - Update pseudo-outcome for t-1 with predictions from t
-3. Point estimate: mean(Q_hat(t)) at each requested time
-4. Inference: nonparametric bootstrap (resample subjects, refit, percentile CIs)
-5. Isotonic smoothing for survival outcomes (same as IPW)
+2. Point estimate: mean(Q_hat(t)) at each requested time = E[Y_t(a)]
+3. Inference: nonparametric bootstrap (resample subjects, refit, percentile CIs)
+4. Isotonic smoothing for survival outcomes (same as IPW)
 
 **Key design decisions:**
+- **A included in covariates** — model learns E[Y | X, A], counterfactual prediction sets A = regime value
+- **Broad risk set** — all uncensored subjects, not just regime-consistent. Lets model learn from treatment variation; counterfactual predictions handle the intervention
+- **No backward pseudo-outcome propagation** — each time t fits Y_t directly. L_t mediates past treatment effects, so a correctly specified concurrent model gives E[Y_t(a)]. Backward ICE will be re-introduced for TMLE targeting
+- **Known limitation**: without censoring adjustment, G-comp targets E[Y_t(a) | uncensored through t], not E[Y_t(a)] in the full population. TMLE/IPCW will address this
 - Bootstrap-only inference for pure G-comp (no EIF/IC formula). DR-IC arrives with TMLE in v0.3
 - No propensity models required — G-comp point estimates don't need g_A/g_C/g_R
 - `estimator = "both"` appends `_ipw` / `_gcomp` suffixes to regime names
-- Covariate set: baseline W + time-varying L(t) + A(t). Backward recursion through Q(t+1) pseudo-outcome implicitly captures temporal dependence
-- `binomial(logit)` family for sequential regression even though pseudo-outcomes are non-integer after first step — produces quasi-likelihood estimates (standard in ltmle/stremr)
+- Parallel bootstrap via `future.apply` when a non-sequential `future::plan()` is active
 
 **Verification:**
 - `devtools::check()`: **0 errors, 0 warnings, 0 notes**
-- `devtools::test()`: **181/181 pass** (146 existing + 35 new G-comp tests)
+- `devtools::test()`: **196/196 pass** (146 existing + 50 new G-comp tests)
+- Truth-recovery test: continuous outcome G-comp matches E[Y_t(a)] = 0.3a + 0.05t within 0.05 at each time (no-censoring DGP)
 - Binary, continuous, survival outcomes all work end-to-end
 - Monotone cumulative incidence enforced for survival via isotonic smoothing
-- No-confounding recovery test: G-comp estimate close to crude mean among treated
 - `longy(estimator = "gcomp")` and `longy(estimator = "both")` work end-to-end
+- Parallel bootstrap tested with `future::multisession`
 
 ### v0.3 — TMLE + cross-fitting
 
@@ -137,13 +140,19 @@ Full R package implementing IPW estimation for longitudinal causal inference. Th
 - `set_crossfit()` already assigns folds; need to loop fits over folds
 - New file: `R/estimate_tmle.R`
 
+**Design note — G-comp censoring adjustment (2026-02-13):**
+Current G-comp targets E[Y_t(a) | uncensored through t], not E[Y_t(a)] in the full population, because it fits only on uncensored subjects without IPCW weighting. Two approaches were considered:
+- **(a) IPCW-weighted outcome regression** (stremr approach): weight the outcome model by cumulative inverse censoring probability. Makes standalone G-comp correct under informative censoring but requires g_C models, breaking the "no propensity needed" simplicity.
+- **(b) Let TMLE handle it** (lmtp approach): leave G-comp as restriction-only; the TMLE fluctuation step corrects for censoring bias via the clever covariate.
+Decision: go with (b) for now. Revisit adding optional IPCW weights to `fit_outcome()` later if users need a censoring-adjusted G-comp without full TMLE.
+
 ### v0.4+ — Extensions
 
 - Stochastic interventions (regime infrastructure already supports this)
 - Continuous treatments
 - Competing risks
 - Marginal structural models (smoothing across time)
-- Parallel computation for bootstrap and SuperLearner (consider future/furrr)
+- Optional IPCW-weighted G-comp (revisit from v0.3 design note)
 - ffSL-style parallel SuperLearner (port from user's `ffSL.R`)
 
 ### Code quality

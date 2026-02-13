@@ -36,7 +36,7 @@ estimate_gcomp <- function(obj, regime, times = NULL,
   pred_dt <- obj$fits$outcome$predictions
 
   # Determine time points
-  available_times <- sort(unique(pred_dt$.time))
+  available_times <- sort(unique(pred_dt$.target_time))
   if (is.null(times)) {
     times <- available_times
   } else {
@@ -52,7 +52,7 @@ estimate_gcomp <- function(obj, regime, times = NULL,
   est_list <- vector("list", length(times))
   for (k in seq_along(times)) {
     tt <- times[k]
-    q_t <- pred_dt[pred_dt$.time == tt, ]
+    q_t <- pred_dt[pred_dt$.target_time == tt, ]
     n_at_risk <- nrow(q_t)
     psi_hat <- if (n_at_risk > 0) mean(q_t$.Q_hat) else NA_real_
 

@@ -8,7 +8,7 @@
 #' @param times Numeric vector. Time points at which to estimate. If NULL,
 #'   estimates at all time points with data.
 #' @param inference Character. Inference method: `"ic"` (influence curve),
-#'   `"bootstrap"`, or `"sandwich"`.
+#'   `"bootstrap"`, `"sandwich"`, or `"none"` (point estimates only).
 #' @param ci_level Numeric. Confidence level (default 0.95).
 #' @param n_boot Integer. Number of bootstrap replicates (only for `"bootstrap"`).
 #' @param cluster Character. Column name for clustered standard errors.
@@ -30,7 +30,7 @@ estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
     stop("Weights not computed. Run compute_weights() first.", call. = FALSE)
   }
 
-  inference <- match.arg(inference, c("ic", "bootstrap", "sandwich"))
+  inference <- match.arg(inference, c("ic", "bootstrap", "sandwich", "none"))
   nodes <- obj$nodes
   id_col <- nodes$id
   w_dt <- obj$weights$weights_dt

@@ -23,7 +23,7 @@ estimate_ipw(
 estimates at all time points with data.}
 
 \item{inference}{Character. Inference method: \code{"ic"} (influence curve),
-\code{"bootstrap"}, or \code{"sandwich"}.}
+\code{"bootstrap"}, \code{"sandwich"}, or \code{"none"} (point estimates only).}
 
 \item{ci_level}{Numeric. Confidence level (default 0.95).}
 

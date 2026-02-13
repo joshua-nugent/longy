@@ -88,6 +88,9 @@ longy <- function(data,
   do_ipw <- estimator %in% c("ipw", "both")
   do_gcomp <- estimator %in% c("gcomp", "both")
 
+  # n_boot = 0 means point estimates only (no inference)
+  if (n_boot == 0L) inference <- "none"
+
   # Determine total steps for verbose messaging
   n_steps <- 2L  # data + regimes always
   if (do_ipw) n_steps <- n_steps + 4L  # g_A + g_C + g_R + weights/estimate
