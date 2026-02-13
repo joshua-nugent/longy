@@ -299,6 +299,52 @@ test_that("longy() with estimator = 'tmle' and never-treat regime", {
   expect_true(nrow(results$never$estimates) > 0)
 })
 
+test_that("longy() with estimator = 'all' returns IPW, G-comp, and TMLE", {
+  d <- simulate_test_data(n = 150, K = 3)
+  results <- longy(
+    data = d,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = "R",
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(always = 1L),
+    estimator = "all",
+    n_boot = 0,
+    verbose = FALSE
+  )
+
+  expect_s3_class(results, "longy_results")
+  expect_true("always_ipw" %in% names(results))
+  expect_true("always_gcomp" %in% names(results))
+  expect_true("always_tmle" %in% names(results))
+  expect_s3_class(results$always_ipw, "longy_result")
+  expect_s3_class(results$always_gcomp, "longy_result")
+  expect_s3_class(results$always_tmle, "longy_result")
+  expect_equal(results$always_tmle$estimator, "tmle")
+  expect_equal(results$always_gcomp$estimator, "gcomp")
+  # TMLE should have EIF SEs even with n_boot = 0
+  expect_true("se" %in% names(results$always_tmle$estimates))
+})
+
+test_that("longy() with estimator = 'all' and two regimes", {
+  d <- simulate_test_data(n = 150, K = 3)
+  results <- longy(
+    data = d,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = "R",
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(always = 1L, never = 0L),
+    estimator = "all",
+    n_boot = 0,
+    verbose = FALSE
+  )
+
+  expect_s3_class(results, "longy_results")
+  expect_equal(length(results), 6)  # 2 regimes x 3 estimators
+  expect_true(all(c("always_ipw", "always_gcomp", "always_tmle",
+                     "never_ipw", "never_gcomp", "never_tmle") %in%
+                  names(results)))
+})
+
 test_that("TMLE EIF SEs for continuous outcomes", {
   d <- simulate_continuous_outcome(n = 200, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",

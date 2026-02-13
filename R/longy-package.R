@@ -24,7 +24,7 @@ utils::globalVariables(c(
   ".H", ".aug", ".indicator", ".Y_T",
   ".tmp_order",
   # ggplot2 aes variables
-  "time", "estimate", "ci_lower", "ci_upper", "regime",
+  "time", "estimate", "ci_lower", "ci_upper", "regime", "estimator_label",
   # data.table special vars
   "nu", "nfold"
 ))

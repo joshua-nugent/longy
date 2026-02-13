@@ -22,11 +22,12 @@
 #'     \item For dynamic: a function returning 0/1
 #'     \item For stochastic: a function returning P(A=1)
 #'   }
-#' @param estimator Character. Which estimator to use: \code{"ipw"} (default),
-#'   \code{"gcomp"} (G-computation via sequential regression), \code{"tmle"}
-#'   (targeted maximum likelihood), or \code{"both"} (IPW + G-comp).
-#'   When \code{"both"}, results are returned with \code{_ipw} and \code{_gcomp}
-#'   suffixes per regime.
+#' @param estimator Character. Which estimator(s) to use: \code{"ipw"} (default),
+#'   \code{"gcomp"}, \code{"tmle"}, \code{"both"} (IPW + G-comp, backward
+#'   compatible), or \code{"all"} (IPW + G-comp + TMLE). When multiple
+#'   estimators are run, results are returned with \code{_ipw}, \code{_gcomp},
+#'   and/or \code{_tmle} suffixes per regime. Nuisance models are shared
+#'   across estimators to avoid redundant fitting.
 #' @param covariates Character vector. Predictor columns for nuisance models.
 #'   If NULL, uses all baseline + timevarying.
 #' @param learners Character vector. SuperLearner library names (default
@@ -52,8 +53,9 @@
 #' @param verbose Logical. Print progress.
 #'
 #' @return An S3 object of class \code{"longy_results"} (a named list of
-#'   \code{longy_result} objects, one per regime). When \code{estimator = "both"},
-#'   each regime produces two entries with \code{_ipw} and \code{_gcomp} suffixes.
+#'   \code{longy_result} objects, one per regime). When multiple estimators are
+#'   requested, each regime produces entries with \code{_ipw}, \code{_gcomp},
+#'   and/or \code{_tmle} suffixes.
 #'
 #' @examples
 #' \dontrun{
@@ -92,21 +94,27 @@ longy <- function(data,
                   outcome_range = NULL,
                   verbose = TRUE) {
 
-  estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle", "both"))
-  do_ipw <- estimator %in% c("ipw", "both")
-  do_gcomp <- estimator %in% c("gcomp", "both")
-  do_tmle <- estimator == "tmle"
+  estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle", "both", "all"))
+  do_ipw <- estimator %in% c("ipw", "both", "all")
+  do_gcomp <- estimator %in% c("gcomp", "both", "all")
+  do_tmle <- estimator %in% c("tmle", "all")
+  multi <- sum(do_ipw, do_gcomp, do_tmle) > 1
 
   # n_boot = 0 means point estimates only (no inference)
   # For TMLE, default to EIF inference (cheap) even with n_boot = 0
   if (n_boot == 0L && !do_tmle) inference <- "none"
-  if (do_tmle && inference == "ic") inference <- "eif"  # map IC -> EIF for TMLE
 
   # Determine total steps for verbose messaging
+  # Shared fits: g_A + g_C fitted once if IPW or TMLE need them
+  # g_R only for IPW; outcome fitted once if G-comp or TMLE need it
   n_steps <- 2L  # data + regimes always
-  if (do_ipw) n_steps <- n_steps + 4L  # g_A + g_C + g_R + weights/estimate
-  if (do_gcomp) n_steps <- n_steps + 1L  # outcome model + estimate
-  if (do_tmle) n_steps <- n_steps + 4L  # g_A + g_C + outcome + TMLE estimate
+  need_g <- do_ipw || do_tmle
+  need_outcome <- do_gcomp || do_tmle
+  if (need_g) n_steps <- n_steps + 2L  # g_A + g_C (shared)
+  if (do_ipw) n_steps <- n_steps + 2L  # g_R + weights/estimate
+  if (need_outcome) n_steps <- n_steps + 1L  # outcome model (shared)
+  if (do_gcomp) n_steps <- n_steps + 1L  # G-comp estimate
+  if (do_tmle) n_steps <- n_steps + 1L  # TMLE estimate
 
   step <- 0L
 
@@ -143,15 +151,15 @@ longy <- function(data,
   for (rname in names(regimes)) {
     if (verbose) .vmsg("\n=== Regime: %s ===", rname)
 
-    # We need a fresh copy for each regime since fits are regime-specific
+    # Fresh copy for each regime since fits are regime-specific
     r_obj <- obj
     r_obj$fits <- list(treatment = NULL, censoring = list(), observation = NULL)
     r_obj$weights <- NULL
 
-    cur_step <- step  # save so IPW and gcomp branches share the base
+    cur_step <- step
 
-    # --- IPW pipeline ---
-    if (do_ipw) {
+    # --- Shared nuisance models: g_A + g_C (IPW and/or TMLE) ---
+    if (need_g) {
       if (verbose) .vmsg("Step %d/%d: Fitting treatment model (g_A)...",
                           cur_step + 1L, n_steps)
       r_obj <- fit_treatment(r_obj, regime = rname, covariates = covariates,
@@ -165,16 +173,20 @@ longy <- function(data,
                              learners = learners, adaptive_cv = adaptive_cv,
                              min_obs = min_obs, bounds = bounds,
                              times = times, verbose = verbose)
+      cur_step <- cur_step + 2L
+    }
 
+    # --- IPW-specific: g_R + weights + estimate ---
+    if (do_ipw) {
       if (verbose) .vmsg("Step %d/%d: Fitting observation model (g_R)...",
-                          cur_step + 3L, n_steps)
+                          cur_step + 1L, n_steps)
       r_obj <- fit_observation(r_obj, regime = rname, covariates = covariates,
                                learners = learners, adaptive_cv = adaptive_cv,
                                min_obs = min_obs, bounds = bounds,
                                times = times, verbose = verbose)
 
       if (verbose) .vmsg("Step %d/%d: Computing weights and estimating (IPW)...",
-                          cur_step + 4L, n_steps)
+                          cur_step + 2L, n_steps)
       r_obj <- compute_weights(r_obj, regime = rname,
                                stabilized = stabilized,
                                truncation = truncation,
@@ -185,77 +197,52 @@ longy <- function(data,
                                  inference = inference, ci_level = ci_level,
                                  n_boot = n_boot, cluster = cluster)
 
-      result_name <- if (estimator == "both") paste0(rname, "_ipw") else rname
+      result_name <- if (multi) paste0(rname, "_ipw") else rname
       all_results[[result_name]] <- ipw_result
+      cur_step <- cur_step + 2L
     }
 
-    # --- G-comp pipeline ---
+    # --- Shared outcome model (G-comp and/or TMLE) ---
+    if (need_outcome) {
+      if (verbose) .vmsg("Step %d/%d: Fitting outcome model...",
+                          cur_step + 1L, n_steps)
+      r_obj <- fit_outcome(r_obj, regime = rname, covariates = covariates,
+                           learners = learners, adaptive_cv = adaptive_cv,
+                           min_obs = min_obs, bounds = bounds,
+                           times = times, verbose = verbose)
+      cur_step <- cur_step + 1L
+    }
+
+    # --- G-comp estimate ---
     if (do_gcomp) {
-      # Use a copy that doesn't require IPW fits
-      gc_obj <- obj
-      gc_obj$fits <- list(treatment = NULL, censoring = list(), observation = NULL)
-      gc_obj$weights <- NULL
-      gc_obj$regimes <- obj$regimes
-
-      gc_step <- cur_step + (if (do_ipw) 4L else 0L) + 1L
-      if (verbose) .vmsg("Step %d/%d: Fitting outcome model and estimating (G-comp)...",
-                          gc_step, n_steps)
-
-      gc_obj <- fit_outcome(gc_obj, regime = rname, covariates = covariates,
-                            learners = learners, adaptive_cv = adaptive_cv,
-                            min_obs = min_obs, bounds = bounds,
-                            times = times, verbose = verbose)
-
-      gcomp_result <- estimate_gcomp(gc_obj, regime = rname, times = times,
+      if (verbose) .vmsg("Step %d/%d: Estimating (G-comp)...",
+                          cur_step + 1L, n_steps)
+      gcomp_result <- estimate_gcomp(r_obj, regime = rname, times = times,
                                      ci_level = ci_level, n_boot = n_boot,
                                      verbose = verbose)
 
-      result_name <- if (estimator == "both") paste0(rname, "_gcomp") else rname
+      result_name <- if (multi) paste0(rname, "_gcomp") else rname
       all_results[[result_name]] <- gcomp_result
+      cur_step <- cur_step + 1L
     }
 
-    # --- TMLE pipeline ---
+    # --- TMLE estimate ---
     if (do_tmle) {
-      tm_obj <- obj
-      tm_obj$fits <- list(treatment = NULL, censoring = list(), observation = NULL)
-      tm_obj$weights <- NULL
-      tm_obj$regimes <- obj$regimes
-
-      tm_step <- cur_step + 1L
-      if (verbose) .vmsg("Step %d/%d: Fitting treatment model (g_A) for TMLE...",
-                          tm_step, n_steps)
-      tm_obj <- fit_treatment(tm_obj, regime = rname, covariates = covariates,
-                              learners = learners, adaptive_cv = adaptive_cv,
-                              min_obs = min_obs, bounds = bounds,
-                              times = times, verbose = verbose)
-
-      if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C) for TMLE...",
-                          tm_step + 1L, n_steps)
-      tm_obj <- fit_censoring(tm_obj, regime = rname, covariates = covariates,
-                              learners = learners, adaptive_cv = adaptive_cv,
-                              min_obs = min_obs, bounds = bounds,
-                              times = times, verbose = verbose)
-
-      if (verbose) .vmsg("Step %d/%d: Fitting outcome model for TMLE...",
-                          tm_step + 2L, n_steps)
-      tm_obj <- fit_outcome(tm_obj, regime = rname, covariates = covariates,
-                            learners = learners, adaptive_cv = adaptive_cv,
-                            min_obs = min_obs, bounds = bounds,
-                            times = times, verbose = verbose)
-
       # Determine TMLE inference
       tmle_inf <- if (n_boot == 0L) "eif" else inference
-      if (tmle_inf == "none") tmle_inf <- "eif"  # EIF is always cheap for TMLE
+      if (tmle_inf %in% c("none", "ic")) tmle_inf <- "eif"
 
-      if (verbose) .vmsg("Step %d/%d: Running TMLE estimation...",
-                          tm_step + 3L, n_steps)
-      tmle_result <- estimate_tmle(tm_obj, regime = rname, times = times,
+      if (verbose) .vmsg("Step %d/%d: Estimating (TMLE)...",
+                          cur_step + 1L, n_steps)
+      tmle_result <- estimate_tmle(r_obj, regime = rname, times = times,
                                    inference = tmle_inf, ci_level = ci_level,
                                    n_boot = n_boot, g_bounds = g_bounds,
                                    outcome_range = outcome_range,
                                    verbose = verbose)
 
-      all_results[[rname]] <- tmle_result
+      result_name <- if (multi) paste0(rname, "_tmle") else rname
+      all_results[[result_name]] <- tmle_result
+      cur_step <- cur_step + 1L
     }
   }
 
@@ -274,10 +261,11 @@ print.longy_results <- function(x, ...) {
   invisible(x)
 }
 
-#' Plot longy Results Across Regimes
+#' Plot longy Results Across Regimes and Estimators
 #'
-#' Creates a plot comparing estimates over time across all regimes,
-#' with confidence intervals shown as ribbons.
+#' Creates a plot comparing estimates over time. When multiple estimators
+#' are present (e.g., from \code{estimator = "all"}), results are faceted
+#' by estimator with regimes shown as colored lines within each panel.
 #'
 #' @param x A \code{longy_results} object (list of \code{longy_result} objects).
 #' @param ... Additional arguments (unused).
@@ -285,13 +273,27 @@ print.longy_results <- function(x, ...) {
 #' @return A ggplot2 object if ggplot2 is available, otherwise NULL (base plot).
 #' @export
 plot.longy_results <- function(x, ...) {
-  # Combine estimates from all regimes into one data.frame
+  # Combine estimates, extracting regime and estimator from each result
   all_est <- lapply(names(x), function(rname) {
-    est <- as.data.frame(x[[rname]]$estimates)
-    est$regime <- rname
+    res <- x[[rname]]
+    est <- as.data.frame(res$estimates)
+
+    # Derive estimator label
+    est_type <- if (!is.null(res$estimator)) res$estimator else "ipw"
+    est_label <- switch(est_type,
+                        gcomp = "G-comp", tmle = "TMLE", "IPW")
+
+    # Derive regime name: strip _ipw/_gcomp/_tmle suffix if present
+    regime_name <- sub("_(ipw|gcomp|tmle)$", "", rname)
+
+    est$estimator_label <- est_label
+    est$regime <- regime_name
     est
   })
   combined <- do.call(rbind, all_est)
+
+  n_estimators <- length(unique(combined$estimator_label))
+  use_facets <- n_estimators > 1
 
   # Compute y-axis range including CIs
   has_ci <- "ci_lower" %in% names(combined) && "ci_upper" %in% names(combined)
@@ -319,33 +321,71 @@ plot.longy_results <- function(x, ...) {
       ggplot2::labs(
         x = "Time", y = "Estimate",
         colour = "Regime", fill = "Regime",
-        title = "Estimates by Regime"
+        title = if (use_facets) "Estimates by Estimator and Regime"
+                else "Estimates by Regime"
       ) +
       ggplot2::theme_minimal(base_size = 13)
+
+    if (use_facets) {
+      p <- p + ggplot2::facet_wrap(~estimator_label, scales = "free_y")
+    }
 
     return(p)
   }
 
   # Base R fallback
-  regimes <- names(x)
-  cols <- seq_along(regimes)
+  unique_regimes <- unique(combined$regime)
+  cols <- seq_along(unique_regimes)
+  names(cols) <- unique_regimes
 
-  first <- TRUE
-  for (i in seq_along(regimes)) {
-    est <- combined[combined$regime == regimes[i], ]
-    if (first) {
-      plot(est$time, est$estimate, type = "b", pch = 19, col = cols[i],
-           xlab = "Time", ylab = "Estimate", ylim = y_range,
-           main = "Estimates by Regime")
-      first <- FALSE
-    } else {
-      graphics::lines(est$time, est$estimate, type = "b", pch = 19, col = cols[i])
+  if (use_facets) {
+    estimators <- unique(combined$estimator_label)
+    n_est <- length(estimators)
+    old_par <- graphics::par(mfrow = c(1, n_est))
+    on.exit(graphics::par(old_par), add = TRUE)
+    for (est_lab in estimators) {
+      sub <- combined[combined$estimator_label == est_lab, ]
+      first <- TRUE
+      for (rg in unique_regimes) {
+        est <- sub[sub$regime == rg, ]
+        if (nrow(est) == 0) next
+        if (first) {
+          plot(est$time, est$estimate, type = "b", pch = 19, col = cols[rg],
+               xlab = "Time", ylab = "Estimate", ylim = y_range,
+               main = est_lab)
+          first <- FALSE
+        } else {
+          graphics::lines(est$time, est$estimate, type = "b", pch = 19,
+                          col = cols[rg])
+        }
+        if ("ci_lower" %in% names(est) && "ci_upper" %in% names(est)) {
+          graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,
+                           angle = 90, code = 3, length = 0.05, col = cols[rg])
+        }
+      }
     }
-    if ("ci_lower" %in% names(est) && "ci_upper" %in% names(est)) {
-      graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,
-                       angle = 90, code = 3, length = 0.05, col = cols[i])
+    graphics::legend("topleft", legend = unique_regimes, col = cols, lty = 1,
+                     pch = 19, cex = 0.8)
+  } else {
+    first <- TRUE
+    for (rg in unique_regimes) {
+      est <- combined[combined$regime == rg, ]
+      if (first) {
+        plot(est$time, est$estimate, type = "b", pch = 19, col = cols[rg],
+             xlab = "Time", ylab = "Estimate", ylim = y_range,
+             main = "Estimates by Regime")
+        first <- FALSE
+      } else {
+        graphics::lines(est$time, est$estimate, type = "b", pch = 19,
+                        col = cols[rg])
+      }
+      if ("ci_lower" %in% names(est) && "ci_upper" %in% names(est)) {
+        graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,
+                         angle = 90, code = 3, length = 0.05, col = cols[rg])
+      }
     }
+    graphics::legend("topleft", legend = unique_regimes, col = cols, lty = 1,
+                     pch = 19)
   }
-  graphics::legend("topleft", legend = regimes, col = cols, lty = 1, pch = 19)
   invisible(NULL)
 }

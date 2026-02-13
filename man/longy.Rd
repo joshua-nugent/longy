@@ -68,11 +68,12 @@ weights. See \code{\link[=longy_data]{longy_data()}} for details. NULL if none.}
 \item For stochastic: a function returning P(A=1)
 }}
 
-\item{estimator}{Character. Which estimator to use: \code{"ipw"} (default),
-\code{"gcomp"} (G-computation via sequential regression), \code{"tmle"}
-(targeted maximum likelihood), or \code{"both"} (IPW + G-comp).
-When \code{"both"}, results are returned with \code{_ipw} and \code{_gcomp}
-suffixes per regime.}
+\item{estimator}{Character. Which estimator(s) to use: \code{"ipw"} (default),
+\code{"gcomp"}, \code{"tmle"}, \code{"both"} (IPW + G-comp, backward
+compatible), or \code{"all"} (IPW + G-comp + TMLE). When multiple
+estimators are run, results are returned with \code{_ipw}, \code{_gcomp},
+and/or \code{_tmle} suffixes per regime. Nuisance models are shared
+across estimators to avoid redundant fitting.}
 
 \item{covariates}{Character vector. Predictor columns for nuisance models.
 If NULL, uses all baseline + timevarying.}
@@ -115,8 +116,9 @@ Ignored for binary/survival outcomes.}
 }
 \value{
 An S3 object of class \code{"longy_results"} (a named list of
-\code{longy_result} objects, one per regime). When \code{estimator = "both"},
-each regime produces two entries with \code{_ipw} and \code{_gcomp} suffixes.
+\code{longy_result} objects, one per regime). When multiple estimators are
+requested, each regime produces entries with \code{_ipw}, \code{_gcomp},
+and/or \code{_tmle} suffixes.
 }
 \description{
 Runs the entire longy pipeline in one call: data setup, regime definition,

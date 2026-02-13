@@ -2,7 +2,7 @@
 % Please edit documentation in R/longy.R
 \name{plot.longy_results}
 \alias{plot.longy_results}
-\title{Plot longy Results Across Regimes}
+\title{Plot longy Results Across Regimes and Estimators}
 \usage{
 \method{plot}{longy_results}(x, ...)
 }
@@ -15,6 +15,7 @@
 A ggplot2 object if ggplot2 is available, otherwise NULL (base plot).
 }
 \description{
-Creates a plot comparing estimates over time across all regimes,
-with confidence intervals shown as ribbons.
+Creates a plot comparing estimates over time. When multiple estimators
+are present (e.g., from \code{estimator = "all"}), results are faceted
+by estimator with regimes shown as colored lines within each panel.
 }
