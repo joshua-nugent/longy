@@ -114,7 +114,8 @@ estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
 
 #' @export
 print.longy_result <- function(x, ...) {
-  cat(sprintf("longy IPW result -- regime: %s\n", x$regime))
+  est_label <- if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else "IPW"
+  cat(sprintf("longy %s result -- regime: %s\n", est_label, x$regime))
   cat(sprintf("Inference: %s | CI level: %.0f%%\n\n",
               x$inference, x$ci_level * 100))
 
@@ -135,16 +136,19 @@ print.longy_result <- function(x, ...) {
 
 #' @export
 summary.longy_result <- function(object, ...) {
-  cat("=== longy IPW Result Summary ===\n\n")
+  est_label <- if (!is.null(object$estimator) && object$estimator == "gcomp") "G-comp" else "IPW"
+  cat(sprintf("=== longy %s Result Summary ===\n\n", est_label))
   print(object)
 
-  cat("\nWeight summary:\n")
-  w_dt <- object$obj$weights$weights_dt
-  cat(sprintf("  Mean final weight:   %.3f\n", mean(w_dt$.final_weight)))
-  cat(sprintf("  Median final weight: %.3f\n", stats::median(w_dt$.final_weight)))
-  cat(sprintf("  Max final weight:    %.3f\n", max(w_dt$.final_weight)))
-  cat(sprintf("  Min ESS:             %.1f\n",
-              min(object$estimates$n_effective, na.rm = TRUE)))
+  if (!is.null(object$obj$weights)) {
+    cat("\nWeight summary:\n")
+    w_dt <- object$obj$weights$weights_dt
+    cat(sprintf("  Mean final weight:   %.3f\n", mean(w_dt$.final_weight)))
+    cat(sprintf("  Median final weight: %.3f\n", stats::median(w_dt$.final_weight)))
+    cat(sprintf("  Max final weight:    %.3f\n", max(w_dt$.final_weight)))
+    cat(sprintf("  Min ESS:             %.1f\n",
+                min(object$estimates$n_effective, na.rm = TRUE)))
+  }
 
   invisible(object)
 }
@@ -185,7 +189,9 @@ plot.longy_result <- function(x, ...) {
       ggplot2::coord_cartesian(ylim = y_range) +
       ggplot2::labs(
         x = "Time", y = "Estimate",
-        title = sprintf("IPW Estimate -- %s", x$regime)
+        title = sprintf("%s Estimate -- %s",
+                        if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else "IPW",
+                        x$regime)
       ) +
       ggplot2::theme_minimal(base_size = 13)
 
@@ -195,7 +201,9 @@ plot.longy_result <- function(x, ...) {
   # Base R fallback
   plot(est$time, est$estimate, type = "b", pch = 19,
        xlab = "Time", ylab = "Estimate", ylim = y_range,
-       main = sprintf("IPW Estimate -- %s", x$regime))
+       main = sprintf("%s Estimate -- %s",
+                      if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else "IPW",
+                      x$regime))
   if (has_ci) {
     graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,
                      angle = 90, code = 3, length = 0.05, col = "gray50")

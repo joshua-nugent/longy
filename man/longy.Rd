@@ -17,6 +17,7 @@ longy(
   sampling_weights = NULL,
   outcome_type = "binary",
   regimes = list(always = 1L, never = 0L),
+  estimator = "ipw",
   covariates = NULL,
   learners = c("SL.glm", "SL.mean"),
   stabilized = TRUE,
@@ -65,6 +66,11 @@ weights. See \code{\link[=longy_data]{longy_data()}} for details. NULL if none.}
 \item For stochastic: a function returning P(A=1)
 }}
 
+\item{estimator}{Character. Which estimator to use: \code{"ipw"} (default),
+\code{"gcomp"} (G-computation via sequential regression), or \code{"both"}.
+When \code{"both"}, results are returned with \code{_ipw} and \code{_gcomp}
+suffixes per regime.}
+
 \item{covariates}{Character vector. Predictor columns for nuisance models.
 If NULL, uses all baseline + timevarying.}
 
@@ -72,19 +78,20 @@ If NULL, uses all baseline + timevarying.}
 \code{c("SL.glm", "SL.mean")}). Set to NULL to use plain glm without
 SuperLearner.}
 
-\item{stabilized}{Logical. Use stabilized weights.}
+\item{stabilized}{Logical. Use stabilized weights (IPW only).}
 
-\item{truncation}{Numeric. Weight truncation cap.}
+\item{truncation}{Numeric. Weight truncation cap (IPW only).}
 
-\item{truncation_quantile}{Numeric. Quantile-based weight truncation.}
+\item{truncation_quantile}{Numeric. Quantile-based weight truncation (IPW only).}
 
-\item{inference}{Character. \code{"ic"}, \code{"bootstrap"}, or \code{"sandwich"}.}
+\item{inference}{Character. \code{"ic"}, \code{"bootstrap"}, or \code{"sandwich"}.
+Ignored for G-comp (always bootstrap).}
 
 \item{ci_level}{Numeric. Confidence level.}
 
 \item{n_boot}{Integer. Bootstrap replicates.}
 
-\item{cluster}{Character. Cluster column for robust SEs.}
+\item{cluster}{Character. Cluster column for robust SEs (IPW only).}
 
 \item{times}{Numeric vector. Time points for estimation. NULL = all.}
 
@@ -98,11 +105,12 @@ SuperLearner.}
 }
 \value{
 An S3 object of class \code{"longy_results"} (a named list of
-\code{longy_result} objects, one per regime).
+\code{longy_result} objects, one per regime). When \code{estimator = "both"},
+each regime produces two entries with \code{_ipw} and \code{_gcomp} suffixes.
 }
 \description{
 Runs the entire longy pipeline in one call: data setup, regime definition,
-nuisance model fitting, weight computation, and IPW estimation.
+nuisance model fitting, and estimation via IPW, G-computation, or both.
 }
 \examples{
 \dontrun{

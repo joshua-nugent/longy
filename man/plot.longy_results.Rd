@@ -15,6 +15,6 @@
 A ggplot2 object if ggplot2 is available, otherwise NULL (base plot).
 }
 \description{
-Creates a plot comparing IPW estimates over time across all regimes,
+Creates a plot comparing estimates over time across all regimes,
 with confidence intervals shown as ribbons.
 }

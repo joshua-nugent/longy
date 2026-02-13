@@ -85,12 +85,50 @@ Full R package implementing IPW estimation for longitudinal causal inference. Th
 5. ~~**Survival outcome support**~~ -- Done. Added isotonic smoothing via `stats::isoreg()` for monotone cumulative incidence.
 6. ~~**Better error messages**~~ -- Done. Defensive tryCatch on regimes, SL/GLM failures, non-finite weights, empty fits, consistent messages.
 
-### v0.2 — G-computation
+### v0.2 — G-computation (Completed 2026-02-12)
 
-- Implement outcome regression: fit E[Y | A, L, W] sequentially
-- Sequential regression / iterated conditional expectations
-- New files: `R/fit_outcome.R`, `R/estimate_gcomp.R`
-- The `longy_data` object already has slots for this
+**What was built:** G-computation estimator via iterated conditional expectations (sequential regression), backward in time. This gives a second estimator that relies on correct outcome model specification instead of correct propensity score specification.
+
+**New files:**
+| File | What it does |
+|------|-------------|
+| `R/fit_outcome.R` | `fit_outcome()` — backward sequential regression E[Y\|covariates, A] |
+| `R/estimate_gcomp.R` | `estimate_gcomp()` — G-comp point estimates + bootstrap inference |
+
+**Modified files:**
+| File | Changes |
+|------|---------|
+| `R/longy.R` | Added `estimator` param (`"ipw"`, `"gcomp"`, `"both"`) to `longy()` |
+| `R/inference.R` | Added `.bootstrap_gcomp_inference()` |
+| `R/estimate_ipw.R` | Updated print/summary/plot methods to handle G-comp label |
+| `R/longy-package.R` | Added new globalVariables for fit_outcome columns |
+
+**Algorithm:**
+1. Initialize pseudo-outcome Q = Y (observed outcome)
+2. Iterate backward from max(time) to min(time):
+   - Risk set: regime-consistent AND uncensored through t
+   - Training subset: risk set AND Q non-missing (handles R=0 intermittent missingness)
+   - Fit Q ~ covariates + A using `.safe_sl()` (same as nuisance models)
+   - Predict counterfactually (set A to regime value) for all in risk set
+   - Update pseudo-outcome for t-1 with predictions from t
+3. Point estimate: mean(Q_hat(t)) at each requested time
+4. Inference: nonparametric bootstrap (resample subjects, refit, percentile CIs)
+5. Isotonic smoothing for survival outcomes (same as IPW)
+
+**Key design decisions:**
+- Bootstrap-only inference for pure G-comp (no EIF/IC formula). DR-IC arrives with TMLE in v0.3
+- No propensity models required — G-comp point estimates don't need g_A/g_C/g_R
+- `estimator = "both"` appends `_ipw` / `_gcomp` suffixes to regime names
+- Covariate set: baseline W + time-varying L(t) + A(t). Backward recursion through Q(t+1) pseudo-outcome implicitly captures temporal dependence
+- `binomial(logit)` family for sequential regression even though pseudo-outcomes are non-integer after first step — produces quasi-likelihood estimates (standard in ltmle/stremr)
+
+**Verification:**
+- `devtools::check()`: **0 errors, 0 warnings, 0 notes**
+- `devtools::test()`: **181/181 pass** (146 existing + 35 new G-comp tests)
+- Binary, continuous, survival outcomes all work end-to-end
+- Monotone cumulative incidence enforced for survival via isotonic smoothing
+- No-confounding recovery test: G-comp estimate close to crude mean among treated
+- `longy(estimator = "gcomp")` and `longy(estimator = "both")` work end-to-end
 
 ### v0.3 — TMLE + cross-fitting
 

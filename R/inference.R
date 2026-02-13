@@ -229,6 +229,102 @@
   data.table::rbindlist(results)
 }
 
+#' Bootstrap Inference for G-Computation Estimator
+#'
+#' Resamples subjects (with replacement), re-fits outcome models, and
+#' re-computes G-comp point estimates. Returns percentile CIs and bootstrap SEs.
+#'
+#' @param obj longy_data object (with outcome model fitted)
+#' @param regime Character regime name
+#' @param times Numeric vector of time points
+#' @param n_boot Integer number of bootstrap samples
+#' @param ci_level Confidence level
+#' @param verbose Logical. Print progress.
+#' @return data.table with se, ci_lower, ci_upper
+#' @noRd
+.bootstrap_gcomp_inference <- function(obj, regime, times, n_boot = 200L,
+                                       ci_level = 0.95, verbose = TRUE) {
+  nodes <- obj$nodes
+  id_col <- nodes$id
+  ids <- unique(obj$data[[id_col]])
+  n <- length(ids)
+  outcome_fit <- obj$fits$outcome
+
+  boot_estimates <- matrix(NA_real_, nrow = n_boot, ncol = length(times))
+
+  for (b in seq_len(n_boot)) {
+    if (verbose && b %% 50 == 0) {
+      .vmsg("  Bootstrap replicate %d/%d", b, n_boot)
+    }
+
+    boot_ids <- sample(ids, n, replace = TRUE)
+
+    # Create bootstrap dataset
+    boot_rows <- lapply(seq_len(n), function(i) {
+      rows <- obj$data[obj$data[[id_col]] == boot_ids[i], ]
+      rows <- data.table::copy(rows)
+      rows[[id_col]] <- i
+      rows
+    })
+    boot_dt <- data.table::rbindlist(boot_rows)
+
+    # Re-run outcome pipeline on bootstrap data
+    boot_obj <- tryCatch({
+      b_obj <- longy_data(
+        data = boot_dt,
+        id = id_col, time = nodes$time,
+        outcome = nodes$outcome, treatment = nodes$treatment,
+        censoring = nodes$censoring, observation = nodes$observation,
+        baseline = nodes$baseline, timevarying = nodes$timevarying,
+        sampling_weights = nodes$sampling_weights,
+        outcome_type = nodes$outcome_type, verbose = FALSE
+      )
+      b_obj$regimes <- obj$regimes
+
+      b_obj <- fit_outcome(b_obj, regime = regime,
+                           covariates = outcome_fit$covariates,
+                           learners = outcome_fit$learners,
+                           bounds = outcome_fit$bounds,
+                           times = times,
+                           verbose = FALSE)
+      b_obj
+    }, error = function(e) NULL)
+
+    if (is.null(boot_obj)) next
+
+    # Compute point estimates from bootstrap outcome predictions
+    pred_dt <- boot_obj$fits$outcome$predictions
+    for (k in seq_along(times)) {
+      tt <- times[k]
+      q_t <- pred_dt[pred_dt$.time == tt, ]
+      if (nrow(q_t) > 0) {
+        boot_estimates[b, k] <- mean(q_t$.Q_hat)
+      }
+    }
+  }
+
+  # Percentile CIs
+  alpha <- 1 - ci_level
+  results <- vector("list", length(times))
+  for (k in seq_along(times)) {
+    boot_k <- boot_estimates[, k]
+    boot_k <- boot_k[!is.na(boot_k)]
+    if (length(boot_k) < 3) {
+      results[[k]] <- data.table::data.table(se = NA_real_,
+                                              ci_lower = NA_real_,
+                                              ci_upper = NA_real_)
+    } else {
+      results[[k]] <- data.table::data.table(
+        se = stats::sd(boot_k),
+        ci_lower = stats::quantile(boot_k, alpha / 2),
+        ci_upper = stats::quantile(boot_k, 1 - alpha / 2)
+      )
+    }
+  }
+
+  data.table::rbindlist(results)
+}
+
 #' Hajek point estimate at a single time
 #' @noRd
 .hajek_estimate <- function(obj, tt) {

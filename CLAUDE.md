@@ -54,7 +54,9 @@ list(
 | R/fit_censoring.R | g_C models |
 | R/fit_observation.R | g_R models (intermittent) |
 | R/weights.R | `compute_weights()` |
+| R/fit_outcome.R | Outcome models via sequential regression (G-comp) |
 | R/estimate_ipw.R | `estimate_ipw()` |
+| R/estimate_gcomp.R | `estimate_gcomp()` — G-comp estimator + bootstrap |
 | R/inference.R | IC-based + bootstrap inference |
 | R/diagnostics.R | Weight & positivity diagnostics |
 | R/crossfit.R | Cross-fitting infrastructure (stub in v0.1) |

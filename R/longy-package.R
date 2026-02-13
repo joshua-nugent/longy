@@ -15,8 +15,10 @@ utils::globalVariables(c(
   ".p_a", ".p_c", ".p_r",
   ".treatment", ".censored", ".observed",
   ".n_risk", ".method", ".id",
+  # fit_outcome columns
+  ".longy_Q", ".longy_regime_a",
   # ggplot2 aes variables
-  "time", "estimate", "ci_lower", "ci_upper",
+  "time", "estimate", "ci_lower", "ci_upper", "regime",
   # data.table special vars
   "nu", "nfold"
 ))
