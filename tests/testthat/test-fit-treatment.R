@@ -63,6 +63,36 @@ test_that("fit_treatment falls back to marginal with constant treatment", {
   expect_equal(unique(t0$.method), "marginal")
 })
 
+test_that("fit_treatment works with SuperLearner library", {
+  skip_if_not_installed("SuperLearner")
+  d <- simulate_test_data(n = 150, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  obj <- fit_treatment(obj, regime = "always",
+                       learners = c("SL.glm", "SL.mean"),
+                       verbose = FALSE)
+
+  preds <- obj$fits$treatment$predictions
+  expect_true(nrow(preds) > 0)
+
+  # Should use SuperLearner, not marginal
+  methods <- unique(preds$.method)
+  expect_true(any(methods %in% c("SuperLearner", "glm")))
+
+  # sl_info should contain risk and coef
+  sl_info <- obj$fits$treatment$sl_info
+  expect_true(length(sl_info) > 0)
+  sl_entry <- sl_info[[1]]
+  if (sl_entry$method %in% c("SuperLearner", "glm")) {
+    expect_false(is.null(sl_entry$sl_risk))
+    expect_false(is.null(sl_entry$sl_coef))
+  }
+})
+
 test_that("fit_treatment errors on missing regime", {
   d <- simulate_test_data(n = 20, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",

@@ -1,5 +1,5 @@
 # Generate sim_longy dataset with known true causal effects
-# DGP: 500 subjects, 10 time points
+# DGP: 2000 subjects, 10 time points
 # Baseline: W1 ~ N(0,1), W2 ~ Bernoulli(0.3)
 # Time-varying: L1(t), L2(t) confounded by past treatment
 # Treatment: A(t) confounded
@@ -10,7 +10,7 @@
 set.seed(2026)
 
 # --- Parameters ---
-n <- 500
+n <- 2000
 K <- 10  # time points 0:9
 
 # --- Helper ---

@@ -23,13 +23,13 @@ utils::globalVariables(c(
 
 #' Simulated Longitudinal Dataset with Known Causal Effects
 #'
-#' A simulated dataset of 500 subjects observed over 10 time points, with
+#' A simulated dataset of 2000 subjects observed over 10 time points, with
 #' time-varying confounders, informative censoring, intermittent outcome
 #' measurement, and known true causal effects for validation.
 #'
 #' @format A data.frame with the following columns:
 #' \describe{
-#'   \item{id}{Subject identifier (integer 1-500)}
+#'   \item{id}{Subject identifier (integer 1-2000)}
 #'   \item{time}{Time point (integer 0-9)}
 #'   \item{W1}{Baseline covariate, continuous (N(0,1))}
 #'   \item{W2}{Baseline covariate, binary (Bernoulli(0.3))}

@@ -60,3 +60,24 @@ test_that("fit_censoring handles multiple censoring sources", {
   expect_true("C" %in% names(obj$fits$censoring))
   expect_true("C2" %in% names(obj$fits$censoring))
 })
+
+test_that("fit_censoring works with SuperLearner library", {
+  skip_if_not_installed("SuperLearner")
+  d <- simulate_test_data(n = 150, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+
+  obj <- fit_censoring(obj, regime = "always",
+                       learners = c("SL.glm", "SL.mean"),
+                       verbose = FALSE)
+
+  preds <- obj$fits$censoring[["C"]]$predictions
+  expect_true(nrow(preds) > 0)
+
+  sl_info <- obj$fits$censoring[["C"]]$sl_info
+  expect_true(length(sl_info) > 0)
+})

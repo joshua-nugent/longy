@@ -105,3 +105,26 @@ test_that("longy() with truncation", {
   w <- results$always$obj$weights$weights_dt$.final_weight
   expect_true(all(w <= 10))
 })
+
+test_that("longy() end-to-end with SuperLearner", {
+  skip_if_not_installed("SuperLearner")
+  d <- simulate_test_data(n = 200, K = 3)
+  results <- longy(
+    data = d,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = "R",
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(always = 1L),
+    learners = c("SL.glm", "SL.mean"),
+    verbose = FALSE
+  )
+
+  expect_s3_class(results, "longy_results")
+  est <- results$always$estimates
+  expect_true(nrow(est) > 0)
+  expect_true(all(est$estimate >= 0 & est$estimate <= 1))
+
+  # SL info should be stored
+  sl_info <- results$always$obj$fits$treatment$sl_info
+  expect_true(length(sl_info) > 0)
+})
