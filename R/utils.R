@@ -102,9 +102,8 @@
         )
       },
       error = function(e) {
-        if (verbose) {
-          .vmsg("SuperLearner failed: %s. Falling back to glm.", e$message)
-        }
+        warning(sprintf("SuperLearner failed: %s. Falling back to glm.",
+                        e$message), call. = FALSE)
         NULL
       }
     )
@@ -114,12 +113,20 @@
   # Fallback: glm
   df <- X
   df$.Y <- Y
-  if (!is.null(obs_weights)) {
-    glm_fit <- stats::glm(.Y ~ ., data = df, family = family,
-                           weights = obs_weights)
-  } else {
-    glm_fit <- stats::glm(.Y ~ ., data = df, family = family)
-  }
+  glm_fit <- tryCatch(
+    {
+      if (!is.null(obs_weights)) {
+        stats::glm(.Y ~ ., data = df, family = family,
+                    weights = obs_weights)
+      } else {
+        stats::glm(.Y ~ ., data = df, family = family)
+      }
+    },
+    error = function(e) {
+      stop(sprintf("Both SuperLearner and glm failed. glm error: %s",
+                   e$message), call. = FALSE)
+    }
+  )
   preds <- as.numeric(stats::predict(glm_fit, newdata = X, type = "response"))
   list(predictions = preds, fit = glm_fit, method = "glm")
 }

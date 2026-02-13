@@ -162,3 +162,84 @@ test_that("no-confounding recovery: IPW close to truth", {
   expect_true(abs(ipw_t0 - crude_mean_t0) < 0.15,
               info = sprintf("IPW=%.3f, crude=%.3f", ipw_t0, crude_mean_t0))
 })
+
+test_that("IPW works with continuous outcomes", {
+  d <- simulate_continuous_outcome(n = 150, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    outcome_type = "continuous", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  result <- estimate_ipw(obj, regime = "always", inference = "ic")
+
+  expect_s3_class(result, "longy_result")
+  expect_true(nrow(result$estimates) > 0)
+  # Estimates should be finite
+  expect_true(all(is.finite(result$estimates$estimate)))
+  # SEs should be positive
+  expect_true(all(result$estimates$se > 0, na.rm = TRUE))
+})
+
+test_that("IC and sandwich SEs agree for continuous outcomes", {
+  skip_if_not_installed("survey")
+  d <- simulate_continuous_outcome(n = 200, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    outcome_type = "continuous", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  ic_result <- estimate_ipw(obj, regime = "always", inference = "ic")
+  sw_result <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+
+  # Point estimates must be identical
+  expect_equal(ic_result$estimates$estimate, sw_result$estimates$estimate)
+
+  # SEs should be in the same ballpark (within factor of 3)
+  ic_se <- ic_result$estimates$se
+  sw_se <- sw_result$estimates$se
+  valid <- ic_se > 0 & sw_se > 0 & !is.na(ic_se) & !is.na(sw_se)
+  if (any(valid)) {
+    ratio <- ic_se[valid] / sw_se[valid]
+    expect_true(all(ratio > 0.3 & ratio < 3),
+                info = sprintf("SE ratios: %s",
+                               paste(round(ratio, 2), collapse = ", ")))
+  }
+})
+
+test_that("IPW works with survival outcomes and isotonic smoothing", {
+  d <- simulate_survival_outcome(n = 150, K = 5)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    outcome_type = "survival", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  result <- estimate_ipw(obj, regime = "always", inference = "ic")
+
+  expect_s3_class(result, "longy_result")
+  expect_true(nrow(result$estimates) > 0)
+  # Estimates should be in [0, 1]
+  expect_true(all(result$estimates$estimate >= 0 &
+                  result$estimates$estimate <= 1, na.rm = TRUE))
+  # Estimates should be monotonically non-decreasing (isotonic smoothing)
+  est <- result$estimates$estimate
+  if (length(est) > 1) {
+    expect_true(all(diff(est) >= -1e-10),
+                info = sprintf("Non-monotone estimates: %s",
+                               paste(round(est, 4), collapse = ", ")))
+  }
+})

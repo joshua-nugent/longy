@@ -132,6 +132,16 @@ longy_data <- function(data,
   # --- Validate outcome_type ---
   outcome_type <- match.arg(outcome_type, c("binary", "continuous", "survival"))
 
+  # --- Validate binary outcome values ---
+  if (outcome_type == "binary") {
+    y_vals <- dt[[outcome]]
+    y_vals_nona <- y_vals[!is.na(y_vals)]
+    if (length(y_vals_nona) > 0 && !all(y_vals_nona %in% c(0L, 1L, 0, 1))) {
+      stop("Outcome must be binary {0, 1} when outcome_type = 'binary'.",
+           call. = FALSE)
+    }
+  }
+
   # --- Validate survival outcome monotonicity ---
   if (outcome_type == "survival") {
     data.table::setkeyv(dt, c(id, time))

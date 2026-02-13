@@ -96,6 +96,94 @@ simulate_no_censoring <- function(n = 200, K = 5, seed = 456) {
 }
 
 #' Simulate data with censoring but outcome always observed (R=1 always)
+#' Simulate data with continuous outcome
+simulate_continuous_outcome <- function(n = 200, K = 5, seed = 321) {
+  set.seed(seed)
+  rows <- list()
+  for (i in seq_len(n)) {
+    W1 <- rnorm(1)
+    W2 <- rbinom(1, 1, 0.3)
+    alive <- TRUE
+    for (tt in 0:(K - 1)) {
+      if (!alive) break
+      L1 <- rnorm(1, mean = 0.3 * W1 + 0.1 * tt)
+      L2 <- rbinom(1, 1, plogis(-0.5 + 0.3 * L1))
+      p_a <- plogis(-0.2 + 0.4 * L1 + 0.3 * W1 - 0.2 * L2)
+      A <- rbinom(1, 1, p_a)
+      p_c <- plogis(-3 + 0.2 * L1 - 0.1 * A + 0.1 * tt)
+      C <- rbinom(1, 1, p_c)
+      if (C == 1) {
+        rows[[length(rows) + 1]] <- data.frame(
+          id = i, time = tt, W1 = W1, W2 = W2,
+          L1 = L1, L2 = L2, A = A, C = 1L, R = 0L, Y = NA_real_
+        )
+        alive <- FALSE
+        next
+      }
+      p_r <- plogis(1.5 - 0.2 * L1 + 0.1 * A)
+      R <- rbinom(1, 1, p_r)
+      if (R == 1) {
+        Y <- rnorm(1, mean = 0.5 * L1 + 0.3 * A + 0.2 * W1, sd = 1)
+      } else {
+        Y <- NA_real_
+      }
+      rows[[length(rows) + 1]] <- data.frame(
+        id = i, time = tt, W1 = W1, W2 = W2,
+        L1 = L1, L2 = L2, A = A, C = 0L, R = R, Y = Y
+      )
+    }
+  }
+  do.call(rbind, rows)
+}
+
+#' Simulate data with survival outcome (absorbing event)
+simulate_survival_outcome <- function(n = 200, K = 5, seed = 654) {
+  set.seed(seed)
+  rows <- list()
+  for (i in seq_len(n)) {
+    W1 <- rnorm(1)
+    W2 <- rbinom(1, 1, 0.3)
+    alive <- TRUE
+    event_occurred <- FALSE
+    for (tt in 0:(K - 1)) {
+      if (!alive) break
+      L1 <- rnorm(1, mean = 0.3 * W1 + 0.1 * tt)
+      L2 <- rbinom(1, 1, plogis(-0.5 + 0.3 * L1))
+      p_a <- plogis(-0.2 + 0.4 * L1 + 0.3 * W1 - 0.2 * L2)
+      A <- rbinom(1, 1, p_a)
+      p_c <- plogis(-3 + 0.2 * L1 - 0.1 * A + 0.1 * tt)
+      C <- rbinom(1, 1, p_c)
+      if (C == 1) {
+        rows[[length(rows) + 1]] <- data.frame(
+          id = i, time = tt, W1 = W1, W2 = W2,
+          L1 = L1, L2 = L2, A = A, C = 1L, R = 0L, Y = NA_real_
+        )
+        alive <- FALSE
+        next
+      }
+      p_r <- plogis(1.5 - 0.2 * L1 + 0.1 * A)
+      R <- rbinom(1, 1, p_r)
+      if (R == 1) {
+        if (event_occurred) {
+          Y <- 1L  # absorbing: once event, stays event
+        } else {
+          p_event <- plogis(-3 + 0.3 * L1 + 0.2 * A + 0.15 * tt)
+          Y <- rbinom(1, 1, p_event)
+          if (Y == 1L) event_occurred <- TRUE
+        }
+      } else {
+        Y <- NA_real_
+      }
+      rows[[length(rows) + 1]] <- data.frame(
+        id = i, time = tt, W1 = W1, W2 = W2,
+        L1 = L1, L2 = L2, A = A, C = 0L, R = as.integer(R), Y = Y
+      )
+    }
+  }
+  do.call(rbind, rows)
+}
+
+#' Simulate data with censoring but outcome always observed (R=1 always)
 simulate_always_observed <- function(n = 200, K = 5, seed = 789) {
   set.seed(seed)
   rows <- list()

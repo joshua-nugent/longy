@@ -111,6 +111,17 @@ test_that("summary.longy_data runs without error", {
   expect_output(summary(obj), "longy_data summary")
 })
 
+test_that("longy_data rejects continuous Y when outcome_type = 'binary'", {
+  d <- simulate_continuous_outcome(n = 20, K = 3)
+  expect_error(
+    longy_data(d, id = "id", time = "time", outcome = "Y",
+               treatment = "A", censoring = "C", observation = "R",
+               baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+               outcome_type = "binary", verbose = FALSE),
+    "binary.*0.*1"
+  )
+})
+
 test_that("set_crossfit assigns folds at subject level", {
   d <- simulate_test_data(n = 50, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",

@@ -36,7 +36,8 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
   }
 
   if (!regime %in% names(obj$regimes)) {
-    stop(sprintf("Regime '%s' not found.", regime), call. = FALSE)
+    stop(sprintf("Regime '%s' not found. Use define_regime() first.", regime),
+         call. = FALSE)
   }
 
   reg <- obj$regimes[[regime]]
@@ -128,7 +129,12 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
     }
   }
 
-  results <- data.table::rbindlist(results[!vapply(results, is.null, logical(1))])
+  non_null <- !vapply(results, is.null, logical(1))
+  if (!any(non_null)) {
+    warning("No observations at risk for any time point in observation (g_R) model.",
+            call. = FALSE)
+  }
+  results <- data.table::rbindlist(results[non_null])
   data.table::setnames(results, ".id", nodes$id)
 
   sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]

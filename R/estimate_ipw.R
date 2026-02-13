@@ -72,7 +72,7 @@ estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
   }
   estimates <- data.table::rbindlist(est_list)
 
-  # Inference
+  # Inference (computed on raw/unsmoothed estimates)
   if (inference == "ic") {
     inf_dt <- .ic_inference(estimates, obj, ci_level = ci_level,
                             cluster = cluster)
@@ -85,6 +85,20 @@ estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
     inf_dt <- .sandwich_inference(obj, times = times, ci_level = ci_level,
                                   cluster = cluster)
     estimates <- cbind(estimates, inf_dt)
+  }
+
+  # Isotonic smoothing for survival outcomes (enforce monotone non-decreasing)
+  # Applied after inference so SEs are computed from unsmoothed ICs.
+  # CIs are recomputed around the smoothed point estimate.
+  if (nodes$outcome_type == "survival" && nrow(estimates) > 1) {
+    raw_est <- estimates$estimate
+    iso <- stats::isoreg(raw_est)
+    estimates$estimate <- iso$yf
+    if ("se" %in% names(estimates)) {
+      z <- stats::qnorm(1 - (1 - ci_level) / 2)
+      estimates$ci_lower <- estimates$estimate - z * estimates$se
+      estimates$ci_upper <- estimates$estimate + z * estimates$se
+    }
   }
 
   result <- list(
@@ -147,12 +161,20 @@ summary.longy_result <- function(object, ...) {
 plot.longy_result <- function(x, ...) {
   est <- as.data.frame(x$estimates)
 
+  # Compute y-axis range including CIs
+  has_ci <- "ci_lower" %in% names(est) && "ci_upper" %in% names(est)
+  if (has_ci) {
+    y_range <- range(c(est$ci_lower, est$ci_upper), na.rm = TRUE)
+  } else {
+    y_range <- range(est$estimate, na.rm = TRUE)
+  }
+
   if (requireNamespace("ggplot2", quietly = TRUE)) {
     p <- ggplot2::ggplot(est, ggplot2::aes(x = time, y = estimate)) +
       ggplot2::geom_line(linewidth = 0.8) +
       ggplot2::geom_point(size = 2)
 
-    if ("ci_lower" %in% names(est) && "ci_upper" %in% names(est)) {
+    if (has_ci) {
       p <- p + ggplot2::geom_ribbon(
         ggplot2::aes(ymin = ci_lower, ymax = ci_upper),
         alpha = 0.2
@@ -160,6 +182,7 @@ plot.longy_result <- function(x, ...) {
     }
 
     p <- p +
+      ggplot2::coord_cartesian(ylim = y_range) +
       ggplot2::labs(
         x = "Time", y = "Estimate",
         title = sprintf("IPW Estimate -- %s", x$regime)
@@ -171,9 +194,9 @@ plot.longy_result <- function(x, ...) {
 
   # Base R fallback
   plot(est$time, est$estimate, type = "b", pch = 19,
-       xlab = "Time", ylab = "Estimate",
+       xlab = "Time", ylab = "Estimate", ylim = y_range,
        main = sprintf("IPW Estimate -- %s", x$regime))
-  if ("ci_lower" %in% names(est) && "ci_upper" %in% names(est)) {
+  if (has_ci) {
     graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,
                      angle = 90, code = 3, length = 0.05, col = "gray50")
   }

@@ -184,11 +184,19 @@ plot.longy_results <- function(x, ...) {
   })
   combined <- do.call(rbind, all_est)
 
+  # Compute y-axis range including CIs
+  has_ci <- "ci_lower" %in% names(combined) && "ci_upper" %in% names(combined)
+  if (has_ci) {
+    y_range <- range(c(combined$ci_lower, combined$ci_upper), na.rm = TRUE)
+  } else {
+    y_range <- range(combined$estimate, na.rm = TRUE)
+  }
+
   if (requireNamespace("ggplot2", quietly = TRUE)) {
     p <- ggplot2::ggplot(combined,
            ggplot2::aes(x = time, y = estimate, colour = regime, fill = regime))
 
-    if ("ci_lower" %in% names(combined) && "ci_upper" %in% names(combined)) {
+    if (has_ci) {
       p <- p + ggplot2::geom_ribbon(
         ggplot2::aes(ymin = ci_lower, ymax = ci_upper),
         alpha = 0.15, colour = NA
@@ -198,6 +206,7 @@ plot.longy_results <- function(x, ...) {
     p <- p +
       ggplot2::geom_line(linewidth = 0.8) +
       ggplot2::geom_point(size = 2) +
+      ggplot2::coord_cartesian(ylim = y_range) +
       ggplot2::labs(
         x = "Time", y = "Estimate",
         colour = "Regime", fill = "Regime",
@@ -211,10 +220,6 @@ plot.longy_results <- function(x, ...) {
   # Base R fallback
   regimes <- names(x)
   cols <- seq_along(regimes)
-  y_range <- range(combined$estimate, na.rm = TRUE)
-  if ("ci_lower" %in% names(combined) && "ci_upper" %in% names(combined)) {
-    y_range <- range(c(combined$ci_lower, combined$ci_upper), na.rm = TRUE)
-  }
 
   first <- TRUE
   for (i in seq_along(regimes)) {

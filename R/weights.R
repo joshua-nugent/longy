@@ -99,6 +99,14 @@ compute_weights <- function(obj, regime, stabilized = TRUE,
     w[, (sw_col) := NULL]
   }
 
+  # --- Check for non-finite weights ---
+  if (any(!is.finite(w$.final_weight))) {
+    n_bad <- sum(!is.finite(w$.final_weight))
+    warning(sprintf(
+      "%d non-finite weight(s) detected. Consider tighter bounds or truncation.",
+      n_bad), call. = FALSE)
+  }
+
   # --- Truncation ---
   if (!is.null(truncation) && !is.null(truncation_quantile)) {
     warning("Both 'truncation' and 'truncation_quantile' specified. Using 'truncation' only.",

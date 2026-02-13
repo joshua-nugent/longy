@@ -40,7 +40,9 @@
     # (robust in finite samples). Follows ltmle's HouseholdIC approach.
     IC <- ic * n_i
 
-    if (!is.null(cluster) && cluster %in% names(dt_t)) {
+    if (n_i < 2) {
+      se <- NA_real_
+    } else if (!is.null(cluster) && cluster %in% names(dt_t)) {
       # Cluster-robust: sum IC within clusters, rescale by n_cl/n_i,
       # then var/n_cl (ltmle's HouseholdIC pattern)
       merged_cl <- merge(merged, dt_t[, c(id_col, cluster), with = FALSE],
@@ -53,10 +55,16 @@
       se <- sqrt(stats::var(IC) / n_i)
     }
 
+    # Degenerate IC (all outcomes identical) gives SE=0;
+    # report NA since zero variance is uninformative, not certain
+    if (!is.na(se) && se == 0) {
+      se <- NA_real_
+    }
+
     results[[j]] <- data.table::data.table(
       se = se,
-      ci_lower = psi_hat - z * se,
-      ci_upper = psi_hat + z * se
+      ci_lower = if (is.na(se)) NA_real_ else psi_hat - z * se,
+      ci_upper = if (is.na(se)) NA_real_ else psi_hat + z * se
     )
   }
 
@@ -178,7 +186,8 @@
 #' @noRd
 .sandwich_inference <- function(obj, times, ci_level = 0.95, cluster = NULL) {
   if (!requireNamespace("survey", quietly = TRUE)) {
-    stop("Package 'survey' is required for sandwich inference.", call. = FALSE)
+    stop("Package 'survey' is required for sandwich inference. Install with install.packages('survey').",
+         call. = FALSE)
   }
 
   nodes <- obj$nodes

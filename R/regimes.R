@@ -91,9 +91,25 @@ define_regime <- function(obj, name, static = NULL, dynamic = NULL,
   if (regime$type == "static") {
     rep(regime$value, n)
   } else if (regime$type == "dynamic") {
-    vapply(seq_len(n), function(i) regime$value(data[i, ]), numeric(1))
+    vapply(seq_len(n), function(i) {
+      tryCatch(
+        regime$value(data[i, ]),
+        error = function(e) stop(sprintf(
+          "Regime '%s' evaluation failed at row %d: %s",
+          regime$name, i, e$message
+        ), call. = FALSE)
+      )
+    }, numeric(1))
   } else if (regime$type == "stochastic") {
-    vapply(seq_len(n), function(i) regime$value(data[i, ]), numeric(1))
+    vapply(seq_len(n), function(i) {
+      tryCatch(
+        regime$value(data[i, ]),
+        error = function(e) stop(sprintf(
+          "Regime '%s' evaluation failed at row %d: %s",
+          regime$name, i, e$message
+        ), call. = FALSE)
+      )
+    }, numeric(1))
   } else {
     stop(sprintf("Unknown regime type: %s", regime$type), call. = FALSE)
   }

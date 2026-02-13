@@ -70,6 +70,20 @@ test_that("define_regime requires exactly one type", {
   )
 })
 
+test_that("dynamic regime evaluation error gives helpful message", {
+  d <- simulate_test_data(n = 20, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", verbose = FALSE)
+
+  bad_fn <- function(row) stop("custom error in regime")
+  obj <- define_regime(obj, name = "bad_dyn", dynamic = bad_fn)
+
+  expect_error(
+    longy:::.evaluate_regime(obj$regimes$bad_dyn, obj$data),
+    "Regime.*bad_dyn.*failed at row.*custom error"
+  )
+})
+
 test_that(".evaluate_regime works for static regimes", {
   d <- simulate_test_data(n = 20, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",

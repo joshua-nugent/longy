@@ -106,6 +106,47 @@ test_that("longy() with truncation", {
   expect_true(all(w <= 10))
 })
 
+test_that("longy() with continuous outcomes", {
+  d <- simulate_continuous_outcome(n = 100, K = 4)
+  results <- longy(
+    data = d,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = "R",
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(always = 1L),
+    outcome_type = "continuous",
+    verbose = FALSE
+  )
+
+  expect_s3_class(results, "longy_results")
+  est <- results$always$estimates
+  expect_true(nrow(est) > 0)
+  expect_true(all(is.finite(est$estimate)))
+})
+
+test_that("longy() with survival outcomes produces monotone estimates", {
+  d <- simulate_survival_outcome(n = 100, K = 5)
+  results <- longy(
+    data = d,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = "R",
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(always = 1L),
+    outcome_type = "survival",
+    verbose = FALSE
+  )
+
+  expect_s3_class(results, "longy_results")
+  est <- results$always$estimates
+  expect_true(nrow(est) > 0)
+  # Estimates should be monotonically non-decreasing
+  if (nrow(est) > 1) {
+    expect_true(all(diff(est$estimate) >= -1e-10))
+  }
+  # Estimates should be in [0, 1]
+  expect_true(all(est$estimate >= 0 & est$estimate <= 1, na.rm = TRUE))
+})
+
 test_that("longy() end-to-end with SuperLearner", {
   skip_if_not_installed("SuperLearner")
   d <- simulate_test_data(n = 200, K = 3)
