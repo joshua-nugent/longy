@@ -17,6 +17,12 @@ utils::globalVariables(c(
   ".n_risk", ".method", ".id",
   # fit_outcome columns
   ".longy_Q", ".longy_regime_a", ".target_time",
+  # .compute_cumulative_g columns
+  ".g_a", ".g_c", ".g_point", ".g_cum",
+  # TMLE columns
+  ".Q_star", ".Q_star_0", ".Q_star_next",
+  ".H", ".aug", ".indicator", ".Y_T",
+  ".tmp_order",
   # ggplot2 aes variables
   "time", "estimate", "ci_lower", "ci_upper", "regime",
   # data.table special vars

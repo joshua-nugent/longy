@@ -31,6 +31,8 @@ longy(
   adaptive_cv = TRUE,
   min_obs = 50L,
   bounds = c(0.005, 0.995),
+  g_bounds = c(0.01, 1),
+  outcome_range = NULL,
   verbose = TRUE
 )
 }
@@ -67,7 +69,8 @@ weights. See \code{\link[=longy_data]{longy_data()}} for details. NULL if none.}
 }}
 
 \item{estimator}{Character. Which estimator to use: \code{"ipw"} (default),
-\code{"gcomp"} (G-computation via sequential regression), or \code{"both"}.
+\code{"gcomp"} (G-computation via sequential regression), \code{"tmle"}
+(targeted maximum likelihood), or \code{"both"} (IPW + G-comp).
 When \code{"both"}, results are returned with \code{_ipw} and \code{_gcomp}
 suffixes per regime.}
 
@@ -100,6 +103,13 @@ Ignored for G-comp (always bootstrap).}
 \item{min_obs}{Integer. Minimum observations for model fitting.}
 
 \item{bounds}{Numeric(2). Prediction probability bounds.}
+
+\item{g_bounds}{Numeric(2). Bounds for cumulative g (denominator of clever
+covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.}
+
+\item{outcome_range}{Numeric(2) or NULL. Range for scaling continuous
+outcomes to \code{[0,1]} in TMLE. If NULL, uses empirical range.
+Ignored for binary/survival outcomes.}
 
 \item{verbose}{Logical. Print progress.}
 }

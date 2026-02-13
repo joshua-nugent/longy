@@ -9,7 +9,8 @@ compute_weights(
   regime,
   stabilized = TRUE,
   truncation = NULL,
-  truncation_quantile = NULL
+  truncation_quantile = NULL,
+  g_bounds = c(0.01, 1)
 )
 }
 \arguments{
@@ -24,6 +25,9 @@ models already fit.}
 
 \item{truncation_quantile}{Numeric in (0,1). Truncate at this quantile.
 Applied after \code{truncation} if both specified.}
+
+\item{g_bounds}{Numeric vector of length 2. Bounds for cumulative g
+(denominator). Default \code{c(0.01, 1)}. Stored for use by TMLE.}
 }
 \value{
 Modified \code{longy_data} object with weights stored.

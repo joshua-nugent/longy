@@ -114,7 +114,8 @@ estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
 
 #' @export
 print.longy_result <- function(x, ...) {
-  est_label <- if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else "IPW"
+  est_label <- if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else
+    if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else "IPW"
   cat(sprintf("longy %s result -- regime: %s\n", est_label, x$regime))
   cat(sprintf("Inference: %s | CI level: %.0f%%\n\n",
               x$inference, x$ci_level * 100))
@@ -136,7 +137,8 @@ print.longy_result <- function(x, ...) {
 
 #' @export
 summary.longy_result <- function(object, ...) {
-  est_label <- if (!is.null(object$estimator) && object$estimator == "gcomp") "G-comp" else "IPW"
+  est_label <- if (!is.null(object$estimator) && object$estimator == "gcomp") "G-comp" else
+    if (!is.null(object$estimator) && object$estimator == "tmle") "TMLE" else "IPW"
   cat(sprintf("=== longy %s Result Summary ===\n\n", est_label))
   print(object)
 
@@ -190,7 +192,8 @@ plot.longy_result <- function(x, ...) {
       ggplot2::labs(
         x = "Time", y = "Estimate",
         title = sprintf("%s Estimate -- %s",
-                        if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else "IPW",
+                        if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else
+                        if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else "IPW",
                         x$regime)
       ) +
       ggplot2::theme_minimal(base_size = 13)
@@ -202,7 +205,8 @@ plot.longy_result <- function(x, ...) {
   plot(est$time, est$estimate, type = "b", pch = 19,
        xlab = "Time", ylab = "Estimate", ylim = y_range,
        main = sprintf("%s Estimate -- %s",
-                      if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else "IPW",
+                      if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else
+                        if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else "IPW",
                       x$regime))
   if (has_ci) {
     graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,

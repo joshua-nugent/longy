@@ -23,7 +23,8 @@
 #'     \item For stochastic: a function returning P(A=1)
 #'   }
 #' @param estimator Character. Which estimator to use: \code{"ipw"} (default),
-#'   \code{"gcomp"} (G-computation via sequential regression), or \code{"both"}.
+#'   \code{"gcomp"} (G-computation via sequential regression), \code{"tmle"}
+#'   (targeted maximum likelihood), or \code{"both"} (IPW + G-comp).
 #'   When \code{"both"}, results are returned with \code{_ipw} and \code{_gcomp}
 #'   suffixes per regime.
 #' @param covariates Character vector. Predictor columns for nuisance models.
@@ -43,6 +44,11 @@
 #' @param adaptive_cv Logical. Adaptive CV fold selection.
 #' @param min_obs Integer. Minimum observations for model fitting.
 #' @param bounds Numeric(2). Prediction probability bounds.
+#' @param g_bounds Numeric(2). Bounds for cumulative g (denominator of clever
+#'   covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.
+#' @param outcome_range Numeric(2) or NULL. Range for scaling continuous
+#'   outcomes to \code{[0,1]} in TMLE. If NULL, uses empirical range.
+#'   Ignored for binary/survival outcomes.
 #' @param verbose Logical. Print progress.
 #'
 #' @return An S3 object of class \code{"longy_results"} (a named list of
@@ -82,19 +88,25 @@ longy <- function(data,
                   adaptive_cv = TRUE,
                   min_obs = 50L,
                   bounds = c(0.005, 0.995),
+                  g_bounds = c(0.01, 1),
+                  outcome_range = NULL,
                   verbose = TRUE) {
 
-  estimator <- match.arg(estimator, c("ipw", "gcomp", "both"))
+  estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle", "both"))
   do_ipw <- estimator %in% c("ipw", "both")
   do_gcomp <- estimator %in% c("gcomp", "both")
+  do_tmle <- estimator == "tmle"
 
   # n_boot = 0 means point estimates only (no inference)
-  if (n_boot == 0L) inference <- "none"
+  # For TMLE, default to EIF inference (cheap) even with n_boot = 0
+  if (n_boot == 0L && !do_tmle) inference <- "none"
+  if (do_tmle && inference == "ic") inference <- "eif"  # map IC -> EIF for TMLE
 
   # Determine total steps for verbose messaging
   n_steps <- 2L  # data + regimes always
   if (do_ipw) n_steps <- n_steps + 4L  # g_A + g_C + g_R + weights/estimate
   if (do_gcomp) n_steps <- n_steps + 1L  # outcome model + estimate
+  if (do_tmle) n_steps <- n_steps + 4L  # g_A + g_C + outcome + TMLE estimate
 
   step <- 0L
 
@@ -166,7 +178,8 @@ longy <- function(data,
       r_obj <- compute_weights(r_obj, regime = rname,
                                stabilized = stabilized,
                                truncation = truncation,
-                               truncation_quantile = truncation_quantile)
+                               truncation_quantile = truncation_quantile,
+                               g_bounds = g_bounds)
 
       ipw_result <- estimate_ipw(r_obj, regime = rname, times = times,
                                  inference = inference, ci_level = ci_level,
@@ -199,6 +212,50 @@ longy <- function(data,
 
       result_name <- if (estimator == "both") paste0(rname, "_gcomp") else rname
       all_results[[result_name]] <- gcomp_result
+    }
+
+    # --- TMLE pipeline ---
+    if (do_tmle) {
+      tm_obj <- obj
+      tm_obj$fits <- list(treatment = NULL, censoring = list(), observation = NULL)
+      tm_obj$weights <- NULL
+      tm_obj$regimes <- obj$regimes
+
+      tm_step <- cur_step + 1L
+      if (verbose) .vmsg("Step %d/%d: Fitting treatment model (g_A) for TMLE...",
+                          tm_step, n_steps)
+      tm_obj <- fit_treatment(tm_obj, regime = rname, covariates = covariates,
+                              learners = learners, adaptive_cv = adaptive_cv,
+                              min_obs = min_obs, bounds = bounds,
+                              times = times, verbose = verbose)
+
+      if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C) for TMLE...",
+                          tm_step + 1L, n_steps)
+      tm_obj <- fit_censoring(tm_obj, regime = rname, covariates = covariates,
+                              learners = learners, adaptive_cv = adaptive_cv,
+                              min_obs = min_obs, bounds = bounds,
+                              times = times, verbose = verbose)
+
+      if (verbose) .vmsg("Step %d/%d: Fitting outcome model for TMLE...",
+                          tm_step + 2L, n_steps)
+      tm_obj <- fit_outcome(tm_obj, regime = rname, covariates = covariates,
+                            learners = learners, adaptive_cv = adaptive_cv,
+                            min_obs = min_obs, bounds = bounds,
+                            times = times, verbose = verbose)
+
+      # Determine TMLE inference
+      tmle_inf <- if (n_boot == 0L) "eif" else inference
+      if (tmle_inf == "none") tmle_inf <- "eif"  # EIF is always cheap for TMLE
+
+      if (verbose) .vmsg("Step %d/%d: Running TMLE estimation...",
+                          tm_step + 3L, n_steps)
+      tmle_result <- estimate_tmle(tm_obj, regime = rname, times = times,
+                                   inference = tmle_inf, ci_level = ci_level,
+                                   n_boot = n_boot, g_bounds = g_bounds,
+                                   outcome_range = outcome_range,
+                                   verbose = verbose)
+
+      all_results[[rname]] <- tmle_result
     }
   }
 

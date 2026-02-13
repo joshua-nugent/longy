@@ -335,6 +335,115 @@
   data.table::rbindlist(results)
 }
 
+#' Bootstrap Inference for TMLE Estimator
+#'
+#' Resamples subjects (with replacement), re-fits treatment + censoring +
+#' outcome models, and re-runs TMLE point estimates. Returns percentile CIs
+#' and bootstrap SEs.
+#'
+#' @param obj longy_data object (fully fitted)
+#' @param regime Character regime name
+#' @param times Numeric vector of time points
+#' @param n_boot Integer number of bootstrap samples
+#' @param ci_level Confidence level
+#' @param g_bounds Numeric(2). Bounds for cumulative g.
+#' @param outcome_range Numeric(2) or NULL. Range for continuous outcome scaling.
+#' @param verbose Logical. Print progress.
+#' @return data.table with se, ci_lower, ci_upper
+#' @noRd
+.bootstrap_tmle_inference <- function(obj, regime, times, n_boot = 200L,
+                                      ci_level = 0.95, g_bounds = c(0.01, 1),
+                                      outcome_range = NULL, verbose = TRUE) {
+  nodes <- obj$nodes
+  id_col <- nodes$id
+  ids <- unique(obj$data[[id_col]])
+  n <- length(ids)
+  outcome_fit <- obj$fits$outcome
+
+  one_boot <- function(b) {
+    boot_ids <- sample(ids, n, replace = TRUE)
+
+    boot_rows <- lapply(seq_len(n), function(i) {
+      rows <- obj$data[obj$data[[id_col]] == boot_ids[i], ]
+      rows <- data.table::copy(rows)
+      rows[[id_col]] <- i
+      rows
+    })
+    boot_dt <- data.table::rbindlist(boot_rows)
+
+    boot_est <- tryCatch({
+      b_obj <- longy_data(
+        data = boot_dt,
+        id = id_col, time = nodes$time,
+        outcome = nodes$outcome, treatment = nodes$treatment,
+        censoring = nodes$censoring, observation = nodes$observation,
+        baseline = nodes$baseline, timevarying = nodes$timevarying,
+        sampling_weights = nodes$sampling_weights,
+        outcome_type = nodes$outcome_type, verbose = FALSE
+      )
+      b_obj$regimes <- obj$regimes
+
+      # Fit treatment model
+      b_obj <- fit_treatment(b_obj, regime = regime,
+                             covariates = obj$fits$treatment$covariates,
+                             learners = obj$fits$treatment$learners,
+                             bounds = obj$fits$treatment$bounds,
+                             verbose = FALSE)
+
+      # Fit censoring model
+      if (length(obj$fits$censoring) > 0) {
+        cov_c <- obj$fits$censoring[[1]]$covariates
+        lrn_c <- obj$fits$censoring[[1]]$learners
+        bnd_c <- obj$fits$censoring[[1]]$bounds
+        b_obj <- fit_censoring(b_obj, regime = regime,
+                               covariates = cov_c, learners = lrn_c,
+                               bounds = bnd_c, verbose = FALSE)
+      }
+
+      # Fit outcome model
+      b_obj <- fit_outcome(b_obj, regime = regime,
+                           covariates = outcome_fit$covariates,
+                           learners = outcome_fit$learners,
+                           bounds = outcome_fit$bounds,
+                           times = times, verbose = FALSE)
+
+      # Run TMLE (point estimates only)
+      tmle_result <- estimate_tmle(b_obj, regime = regime, times = times,
+                                   inference = "none", g_bounds = g_bounds,
+                                   outcome_range = outcome_range,
+                                   verbose = FALSE)
+
+      tmle_result$estimates$estimate
+    }, error = function(e) rep(NA_real_, length(times)))
+
+    boot_est
+  }
+
+  boot_list <- .run_bootstrap(n_boot, one_boot, verbose)
+  boot_estimates <- do.call(rbind, boot_list)
+
+  # Percentile CIs
+  alpha <- 1 - ci_level
+  results <- vector("list", length(times))
+  for (k in seq_along(times)) {
+    boot_k <- boot_estimates[, k]
+    boot_k <- boot_k[!is.na(boot_k)]
+    if (length(boot_k) < 3) {
+      results[[k]] <- data.table::data.table(se = NA_real_,
+                                              ci_lower = NA_real_,
+                                              ci_upper = NA_real_)
+    } else {
+      results[[k]] <- data.table::data.table(
+        se = stats::sd(boot_k),
+        ci_lower = stats::quantile(boot_k, alpha / 2),
+        ci_upper = stats::quantile(boot_k, 1 - alpha / 2)
+      )
+    }
+  }
+
+  data.table::rbindlist(results)
+}
+
 #' Hajek point estimate at a single time
 #' @noRd
 .hajek_estimate <- function(obj, tt) {

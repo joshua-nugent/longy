@@ -133,12 +133,56 @@ Full R package implementing IPW estimation for longitudinal causal inference. Th
 - `longy(estimator = "gcomp")` and `longy(estimator = "both")` work end-to-end
 - Parallel bootstrap tested with `future::multisession`
 
-### v0.3 — TMLE + cross-fitting
+### v0.3 — TMLE (Completed 2026-02-13)
 
-- Doubly-robust TMLE combining IPW + G-comp
-- Activate cross-fitting in `crossfit.R` — sample-split nuisance estimation
-- `set_crossfit()` already assigns folds; need to loop fits over folds
-- New file: `R/estimate_tmle.R`
+**What was built:** Doubly-robust TMLE estimator. Combines outcome regression (backward ICE) with a targeting/fluctuation step using treatment/censoring model predictions. Consistent if either Q models OR g models are correct. Inference via efficient influence function (EIF).
+
+**New files:**
+| File | What it does |
+|------|-------------|
+| `R/estimate_tmle.R` | `estimate_tmle()`, `.tmle_fluctuate()`, `.compute_tmle_eif()` |
+
+**Modified files:**
+| File | Changes |
+|------|---------|
+| `R/weights.R` | Added `.compute_cumulative_g()` shared helper; `g_bounds` param to `compute_weights()` |
+| `R/longy.R` | Added `estimator = "tmle"`, `g_bounds`, `outcome_range` params; TMLE pipeline |
+| `R/inference.R` | Added `.bootstrap_tmle_inference()` |
+| `R/estimate_ipw.R` | Updated print/summary/plot methods to handle TMLE label |
+| `R/longy-package.R` | Added new globalVariables for TMLE/cumulative g columns |
+
+**Algorithm (per target time T):**
+1. Scale continuous Y to [0,1]; all types use quasibinomial fluctuation
+2. Compute g_cum(s) = cumprod(g_a * g_c) per subject (`.compute_cumulative_g()`)
+3. Backward from T to min(time), at each step s:
+   a. Fit Q model (quasibinomial) on risk set with non-NA Q
+   b. Predict counterfactually (A = regime) for all risk set -> Q_bar
+   c. Fluctuate: quasibinomial GLM, offset = logit(Q_bar), weights = 1/g_cum
+   d. Q* = expit(logit(Q_bar) + epsilon) for ALL risk set
+   e. Propagate Q* backward as pseudo-outcome (TARGETED, not raw G-comp)
+4. psi_hat = mean(Q*_0), back-transformed if continuous
+5. EIF: D_i = (Q*_0 - psi) + sum_s H_s * (Q*_{s+1} - Q*_s)
+   where H_s = I(regime-consistent, uncensored) / g_cum(s)
+
+**Key design decisions:**
+- **Interleaved Q fitting + targeting**: TMLE runs its own backward pass (cannot reuse fit_outcome predictions). Q at step s trains on TARGETED pseudo-outcomes from s+1
+- **Reads outcome model settings**: estimate_tmle reads covariates, learners, bounds from obj$fits$outcome to avoid parameter duplication. Requires fit_outcome() to have been run first
+- **quasibinomial for everything**: Continuous Y scaled to [0,1]; pseudo-outcomes are fractional. quasibinomial handles all cases correctly (same as ltmle/stremr)
+- **Shared `.compute_cumulative_g()`**: Used by both compute_weights (IPW) and estimate_tmle (TMLE). Computes unstabilized cumulative g with g_bounds
+- **No g_R in clever covariate**: Following ltmle, observation model not in TMLE clever covariate. Q conditions on R=1 implicitly. TMLE targets E[Y_T(a)|always observed]
+- **EIF inference by default**: For TMLE, `n_boot=0` gives EIF-based SEs (cheap). Bootstrap available for explicit request
+- **g_bounds shared**: c(0.01, 1) default, bounds cumulative g denominator in both IPW weights and TMLE clever covariate
+- Cross-fitting deferred to follow-up (touches all fit_* functions)
+
+**Verification:**
+- `devtools::check()`: **0 errors, 0 warnings, 0 notes**
+- `devtools::test()`: **270/270 pass** (204 existing + 66 new TMLE tests)
+- Binary, continuous, survival outcomes all work end-to-end
+- EIF-based SEs positive, CIs well-formed and contain point estimates
+- TMLE close to G-comp under well-specified models
+- No-confounding truth recovery within tolerance
+- `longy(estimator = "tmle")` works end-to-end for all outcome types
+- Print method outputs "TMLE", `.compute_cumulative_g()` returns valid non-increasing g_cum
 
 **Design note — G-comp censoring adjustment (2026-02-13):**
 Current G-comp targets E[Y_t(a) | uncensored through t], not E[Y_t(a)] in the full population, because it fits only on uncensored subjects without IPCW weighting. Two approaches were considered:
@@ -146,7 +190,13 @@ Current G-comp targets E[Y_t(a) | uncensored through t], not E[Y_t(a)] in the fu
 - **(b) Let TMLE handle it** (lmtp approach): leave G-comp as restriction-only; the TMLE fluctuation step corrects for censoring bias via the clever covariate.
 Decision: go with (b) for now. Revisit adding optional IPCW weights to `fit_outcome()` later if users need a censoring-adjusted G-comp without full TMLE.
 
-### v0.4+ — Extensions
+### v0.4 — Cross-fitting
+
+- Activate cross-fitting in `crossfit.R` -- sample-split nuisance estimation
+- `set_crossfit()` already assigns folds; need to loop fits over folds
+- Touches all `fit_*` functions + estimate_tmle
+
+### v0.5+ — Extensions
 
 - Stochastic interventions (regime infrastructure already supports this)
 - Continuous treatments

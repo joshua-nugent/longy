@@ -3,8 +3,8 @@
 ## What is longy?
 
 longy ("lawn-gee") is a private R package for longitudinal causal inference — an
-alternative to `ltmle` and `stremr`. v0.1 provides IPW estimation with IC-based
-inference; future versions will add G-computation, TMLE, and cross-fitting.
+alternative to `ltmle` and `stremr`. v0.3 provides IPW, G-computation, and TMLE
+estimators with IC/EIF/bootstrap/sandwich inference. Cross-fitting is next.
 
 ## Architecture
 
@@ -53,11 +53,12 @@ list(
 | R/fit_treatment.R | g_A models |
 | R/fit_censoring.R | g_C models |
 | R/fit_observation.R | g_R models (intermittent) |
-| R/weights.R | `compute_weights()` |
+| R/weights.R | `compute_weights()` + `.compute_cumulative_g()` shared helper |
 | R/fit_outcome.R | Outcome models via sequential regression (G-comp) |
-| R/estimate_ipw.R | `estimate_ipw()` |
+| R/estimate_ipw.R | `estimate_ipw()` + print/summary/plot for all estimators |
 | R/estimate_gcomp.R | `estimate_gcomp()` — G-comp estimator + bootstrap |
-| R/inference.R | IC-based + bootstrap inference |
+| R/estimate_tmle.R | `estimate_tmle()` — TMLE estimator + EIF inference |
+| R/inference.R | IC-based + bootstrap inference (IPW, G-comp, TMLE) |
 | R/diagnostics.R | Weight & positivity diagnostics |
 | R/crossfit.R | Cross-fitting infrastructure (stub in v0.1) |
 | R/longy.R | High-level `longy()` wrapper |
@@ -81,6 +82,22 @@ sw_ac(t) = sw_a(t) * sw_c(t)           # combined point-in-time
 csw_ac(t) = cumprod(sw_ac) over time   # CUMULATED (absorbing)
 sw_r(t) = marginal_r / p_r(t)          # observation (NOT cumulated)
 final(t) = csw_ac(t) * sw_r(t)         # total weight
+```
+
+## TMLE algorithm (critical logic)
+
+```
+For each target time T:
+1. Scale Y to [0,1] for continuous (all types use quasibinomial)
+2. Compute g_cum(s) = cumprod(g_a * g_c) per subject (via .compute_cumulative_g)
+3. Backward from T to min(time), at each step s:
+   a. Fit Q model (quasibinomial) on risk set with non-NA Q
+   b. Predict with A=regime for all risk set -> Q_bar
+   c. Fluctuate: quasibinomial GLM, offset=logit(Q_bar), weights=1/g_cum
+   d. Q*_s = expit(logit(Q_bar) + epsilon) for ALL risk set
+   e. Propagate Q*_s backward as pseudo-outcome
+4. psi_hat = mean(Q*_0), back-transformed if continuous
+5. EIF: D_i = (Q*_0 - psi) + sum_s H_s * (Q*_{s+1} - Q*_s)
 ```
 
 ## See also
