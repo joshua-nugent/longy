@@ -13,6 +13,8 @@
 #'   always observed.
 #' @param baseline Character vector. Baseline covariate columns.
 #' @param timevarying Character vector. Time-varying covariate columns.
+#' @param sampling_weights Character. Column name for external sampling/survey
+#'   weights. See [longy_data()] for details. NULL if none.
 #' @param outcome_type Character. `"binary"`, `"continuous"`, or `"survival"`.
 #' @param regimes Named list. Each element defines a regime:
 #'   \itemize{
@@ -57,6 +59,7 @@ longy <- function(data,
                   id, time, outcome, treatment,
                   censoring = NULL, observation = NULL,
                   baseline = character(0), timevarying = character(0),
+                  sampling_weights = NULL,
                   outcome_type = "binary",
                   regimes = list(always = 1L, never = 0L),
                   covariates = NULL,
@@ -81,6 +84,7 @@ longy <- function(data,
     outcome = outcome, treatment = treatment,
     censoring = censoring, observation = observation,
     baseline = baseline, timevarying = timevarying,
+    sampling_weights = sampling_weights,
     outcome_type = outcome_type, verbose = verbose
   )
 

@@ -20,6 +20,10 @@
 #'   If NULL, assumes outcome is always observed when uncensored.
 #' @param baseline Character vector. Column names for time-invariant covariates.
 #' @param timevarying Character vector. Column names for time-varying covariates.
+#' @param sampling_weights Character. Column name for external sampling/survey
+#'   weights (e.g., to generalize from the study to a target population). Must
+#'   be positive and constant within subject. These weights multiply the final
+#'   IPW weight but do NOT affect nuisance model fitting. NULL if none.
 #' @param outcome_type Character. One of `"binary"`, `"continuous"`, `"survival"`.
 #' @param competing_risks Logical. Whether the outcome involves competing risks.
 #' @param verbose Logical. Print progress messages.
@@ -46,6 +50,7 @@ longy_data <- function(data,
                        observation = NULL,
                        baseline = character(0),
                        timevarying = character(0),
+                       sampling_weights = NULL,
                        outcome_type = "binary",
                        competing_risks = FALSE,
                        verbose = TRUE) {
@@ -55,7 +60,7 @@ longy_data <- function(data,
 
   # --- Validate column existence ---
   all_nodes <- c(id, time, outcome, treatment, censoring, observation,
-                 baseline, timevarying)
+                 baseline, timevarying, sampling_weights)
   missing_cols <- setdiff(all_nodes, names(dt))
   if (length(missing_cols) > 0) {
     stop(sprintf("Column(s) not found in data: %s",
@@ -94,6 +99,27 @@ longy_data <- function(data,
     r_vals_nona <- r_vals[!is.na(r_vals)]
     if (!all(r_vals_nona %in% c(0L, 1L, 0, 1))) {
       stop("Observation column must be binary {0, 1}.", call. = FALSE)
+    }
+  }
+
+  # --- Validate sampling weights ---
+  if (!is.null(sampling_weights)) {
+    sw_vals <- dt[[sampling_weights]]
+    if (!is.numeric(sw_vals)) {
+      stop("Sampling weights column must be numeric.", call. = FALSE)
+    }
+    if (any(sw_vals <= 0, na.rm = TRUE)) {
+      stop("Sampling weights must be positive.", call. = FALSE)
+    }
+    # Must be constant within subject
+    sw_unique <- dt[, list(nu = data.table::uniqueN(get(sampling_weights),
+                                                     na.rm = TRUE)),
+                    by = c(id)]
+    if (any(sw_unique$nu > 1)) {
+      bad_n <- sum(sw_unique$nu > 1)
+      stop(sprintf(
+        "Sampling weights vary within %d subject(s). Must be constant within subject.",
+        bad_n), call. = FALSE)
     }
   }
 
@@ -202,6 +228,7 @@ longy_data <- function(data,
     treatment = treatment,
     censoring = censoring,
     observation = observation,
+    sampling_weights = sampling_weights,
     baseline = baseline,
     timevarying = timevarying,
     outcome_type = outcome_type,
@@ -319,6 +346,9 @@ print.longy_data <- function(x, ...) {
   }
   if (!is.null(x$nodes$observation)) {
     cat(sprintf("  Observation: %s\n", x$nodes$observation))
+  }
+  if (!is.null(x$nodes$sampling_weights)) {
+    cat(sprintf("  Sampling wt: %s\n", x$nodes$sampling_weights))
   }
   if (length(x$regimes) > 0) {
     cat(sprintf("  Regimes:     %s\n",

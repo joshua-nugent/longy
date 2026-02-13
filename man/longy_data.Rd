@@ -14,6 +14,7 @@ longy_data(
   observation = NULL,
   baseline = character(0),
   timevarying = character(0),
+  sampling_weights = NULL,
   outcome_type = "binary",
   competing_risks = FALSE,
   verbose = TRUE
@@ -45,6 +46,11 @@ If NULL, assumes outcome is always observed when uncensored.}
 \item{baseline}{Character vector. Column names for time-invariant covariates.}
 
 \item{timevarying}{Character vector. Column names for time-varying covariates.}
+
+\item{sampling_weights}{Character. Column name for external sampling/survey
+weights (e.g., to generalize from the study to a target population). Must
+be positive and constant within subject. These weights multiply the final
+IPW weight but do NOT affect nuisance model fitting. NULL if none.}
 
 \item{outcome_type}{Character. One of \code{"binary"}, \code{"continuous"}, \code{"survival"}.}
 

@@ -90,6 +90,15 @@ compute_weights <- function(obj, regime, stabilized = TRUE,
   # Final weight: cumulative A*C * point-in-time R
   w[, .final_weight := .csw_ac * .sw_r]
 
+  # --- Sampling weights (external, e.g., survey/population weights) ---
+  if (!is.null(nodes$sampling_weights)) {
+    sw_col <- nodes$sampling_weights
+    sw_dt <- unique(obj$data[, c(id_col, sw_col), with = FALSE])
+    w <- merge(w, sw_dt, by = id_col, all.x = TRUE)
+    w[, .final_weight := .final_weight * get(sw_col)]
+    w[, (sw_col) := NULL]
+  }
+
   # --- Truncation ---
   if (!is.null(truncation) && !is.null(truncation_quantile)) {
     warning("Both 'truncation' and 'truncation_quantile' specified. Using 'truncation' only.",

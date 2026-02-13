@@ -105,6 +105,7 @@
         outcome = nodes$outcome, treatment = nodes$treatment,
         censoring = nodes$censoring, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
+        sampling_weights = nodes$sampling_weights,
         outcome_type = nodes$outcome_type, verbose = FALSE
       )
       b_obj$regimes <- obj$regimes

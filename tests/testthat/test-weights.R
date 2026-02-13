@@ -104,3 +104,88 @@ test_that("observation weight is NOT cumulated", {
   # when there's real confounding
   expect_true(TRUE)  # placeholder - the real check is that compute_weights runs correctly
 })
+
+test_that("sampling weights multiply into final weight", {
+  d <- simulate_test_data(n = 100, K = 3)
+  # Add constant sampling weight per subject
+  set.seed(1)
+  sw_map <- data.frame(id = unique(d$id), sw = runif(length(unique(d$id)), 0.5, 2))
+  d <- merge(d, sw_map, by = "id")
+
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    sampling_weights = "sw", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+
+  # With sampling weights
+  obj_sw <- compute_weights(obj, regime = "always")
+
+  # Without sampling weights
+  obj_nosw <- obj
+  obj_nosw$nodes$sampling_weights <- NULL
+  obj_nosw <- compute_weights(obj_nosw, regime = "always")
+
+  # Final weights with sw should equal final weights without sw * sampling weight
+  w_sw <- obj_sw$weights$weights_dt
+  w_nosw <- obj_nosw$weights$weights_dt
+  merged_w <- merge(w_sw[, c("id", ".time", ".final_weight"), with = FALSE],
+                    w_nosw[, c("id", ".time", ".final_weight"), with = FALSE],
+                    by = c("id", ".time"), suffixes = c("_sw", "_nosw"))
+  merged_w <- merge(merged_w, sw_map, by = "id")
+
+  expect_equal(merged_w$.final_weight_sw,
+               merged_w$.final_weight_nosw * merged_w$sw,
+               tolerance = 1e-10)
+})
+
+test_that("sampling weights must be positive and constant within subject", {
+  d <- simulate_test_data(n = 50, K = 3)
+
+  # Negative weight
+  d$sw <- 1
+  d$sw[1] <- -1
+  expect_error(
+    longy_data(d, id = "id", time = "time", outcome = "Y",
+               treatment = "A", sampling_weights = "sw", verbose = FALSE),
+    "positive"
+  )
+
+  # Varying within subject
+  d$sw <- runif(nrow(d), 0.5, 2)
+  expect_error(
+    longy_data(d, id = "id", time = "time", outcome = "Y",
+               treatment = "A", sampling_weights = "sw", verbose = FALSE),
+    "constant within subject"
+  )
+})
+
+test_that("sampling weights affect IPW estimates", {
+  d <- simulate_test_data(n = 200, K = 3)
+  # Add sampling weights that upweight subjects with W1 > 0
+  sw_map <- data.frame(id = unique(d$id))
+  w1_vals <- d$W1[match(sw_map$id, d$id)]
+  sw_map$sw <- ifelse(w1_vals > 0, 2, 0.5)
+  d <- merge(d, sw_map, by = "id")
+
+  # With sampling weights
+  res_sw <- longy(d, id = "id", time = "time", outcome = "Y",
+                  treatment = "A", censoring = "C", observation = "R",
+                  baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                  sampling_weights = "sw",
+                  regimes = list(always = 1L), verbose = FALSE)
+
+  # Without sampling weights
+  res_nosw <- longy(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    regimes = list(always = 1L), verbose = FALSE)
+
+  # Estimates should differ
+  est_sw <- res_sw$always$estimates$estimate
+  est_nosw <- res_nosw$always$estimates$estimate
+  expect_false(all(abs(est_sw - est_nosw) < 1e-10))
+})

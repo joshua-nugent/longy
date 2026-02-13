@@ -14,6 +14,7 @@ longy(
   observation = NULL,
   baseline = character(0),
   timevarying = character(0),
+  sampling_weights = NULL,
   outcome_type = "binary",
   regimes = list(always = 1L, never = 0L),
   covariates = NULL,
@@ -51,6 +52,9 @@ always observed.}
 \item{baseline}{Character vector. Baseline covariate columns.}
 
 \item{timevarying}{Character vector. Time-varying covariate columns.}
+
+\item{sampling_weights}{Character. Column name for external sampling/survey
+weights. See \code{\link[=longy_data]{longy_data()}} for details. NULL if none.}
 
 \item{outcome_type}{Character. \code{"binary"}, \code{"continuous"}, or \code{"survival"}.}
 
