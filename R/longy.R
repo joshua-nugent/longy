@@ -107,9 +107,10 @@ longy <- function(data,
   do_tmle <- estimator %in% c("tmle", "all")
   multi <- sum(do_ipw, do_gcomp, do_tmle) > 1
 
-  # n_boot = 0 means point estimates only (no inference)
-  # For TMLE, default to EIF inference (cheap) even with n_boot = 0
-  if (n_boot == 0L && !do_tmle) inference <- "none"
+  # n_boot = 0 only disables bootstrap inference; analytic methods (ic, sandwich,
+
+  # eif) are unaffected since they don't need resampling
+  if (n_boot == 0L && inference == "bootstrap") inference <- "none"
 
   # Determine total steps for verbose messaging
   # Shared fits: g_A + g_C fitted once if IPW or TMLE need them
