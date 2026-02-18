@@ -2,7 +2,7 @@
 
 Longitudinal causal inference in R. Estimates causal effects with time-varying treatments, confounders, informative censoring, and intermittent outcome measurement.
 
-Supports IPW (inverse probability weighting) and G-computation estimators. TMLE coming soon.
+Implements three estimators: **IPW** (inverse probability weighting), **G-computation**, and **TMLE** (targeted minimum loss-based estimation).
 
 ## Installation
 
@@ -26,8 +26,7 @@ results <- longy(
   treatment = "A", censoring = "C", observation = "R",
   baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
   regimes = list(always = 1L, never = 0L),
-  estimator = "ipw",
-  n_boot = 0,
+  estimator = "tmle",
   verbose = FALSE
 )
 
@@ -56,30 +55,50 @@ result <- estimate_ipw(obj, regime = "always")
 result
 ```
 
-## G-computation
+## Estimators
+
+### IPW
+
+Inverse probability weighting with stabilized weights. Inference via influence curves, bootstrap, or sandwich (survey) standard errors.
 
 ```r
-obj <- longy_data(
-  sim_longy,
-  id = "id", time = "time", outcome = "Y",
-  treatment = "A", censoring = "C", observation = "R",
-  baseline = c("W1", "W2"), timevarying = c("L1", "L2")
-)
+results <- longy(sim_longy, ..., estimator = "ipw")
+```
 
-obj <- define_regime(obj, "always", static = 1L)
-obj <- fit_outcome(obj, regime = "always")
-result <- estimate_gcomp(obj, regime = "always", n_boot = 0)
+### G-computation
 
-result
+Outcome regression via iterated conditional expectations (backward sequential regression). Inference via bootstrap.
+
+```r
+results <- longy(sim_longy, ..., estimator = "gcomp")
+```
+
+### TMLE
+
+Doubly-robust targeted minimum loss-based estimation. Combines outcome regression with a fluctuation step using propensity scores. Consistent if either the outcome or treatment/censoring models are correctly specified. Inference via the efficient influence function (EIF).
+
+```r
+results <- longy(sim_longy, ..., estimator = "tmle")
+```
+
+### Run multiple estimators
+
+```r
+results <- longy(sim_longy, ..., estimator = "both")  # IPW + TMLE
 ```
 
 ## Features
 
 - **Long format** data (one row per person-time)
-- **IPW** with stabilized weights, influence-curve / bootstrap / sandwich inference
-- **G-computation** via iterated conditional expectations (backward sequential regression)
+- **Three estimators**: IPW, G-computation, and TMLE
 - **Binary, continuous, and survival** outcomes
 - **Informative censoring** and **intermittent missingness** handling
 - **Static and dynamic** treatment regimes
+- **Doubly-robust** inference via TMLE with EIF-based standard errors
 - Optional **SuperLearner** ensemble learning
 - Parallel bootstrap via **future.apply**
+- Weight and positivity **diagnostics**
+
+## Status
+
+v0.3 — 270 tests passing, 0 errors / 0 warnings / 0 notes on R CMD check. Cross-fitting (sample-split nuisance estimation) is next.
