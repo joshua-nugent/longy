@@ -27,6 +27,14 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
 
+  if (isTRUE(obj$crossfit$enabled)) {
+    return(.cf_fit_censoring(obj, regime, covariates = covariates,
+                              learners = learners, sl_control = sl_control,
+                              adaptive_cv = adaptive_cv, min_obs = min_obs,
+                              bounds = bounds, times = times, sl_fn = sl_fn,
+                              verbose = verbose))
+  }
+
   nodes <- obj$nodes
 
   # If no censoring columns, nothing to do

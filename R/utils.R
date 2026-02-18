@@ -146,6 +146,24 @@
   list(predictions = preds, fit = glm_fit, method = "glm")
 }
 
+#' Predict from a .safe_sl() fit result on new data
+#'
+#' @param fit_result List returned by \code{.safe_sl()}.
+#' @param newdata data.frame of new covariates.
+#' @return Numeric vector of predicted values.
+#' @noRd
+.predict_from_fit <- function(fit_result, newdata) {
+  newdata <- as.data.frame(newdata)
+  if (fit_result$method == "SuperLearner") {
+    as.numeric(stats::predict(fit_result$fit, newdata = newdata)$pred)
+  } else if (fit_result$method == "glm") {
+    as.numeric(stats::predict(fit_result$fit, newdata = newdata,
+                               type = "response"))
+  } else {
+    rep(mean(fit_result$predictions), nrow(newdata))
+  }
+}
+
 #' Verbose messaging helper
 #' @noRd
 .vmsg <- function(fmt, ..., verbose = TRUE) {

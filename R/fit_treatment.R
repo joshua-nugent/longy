@@ -31,6 +31,14 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
 
+  if (isTRUE(obj$crossfit$enabled)) {
+    return(.cf_fit_treatment(obj, regime, covariates = covariates,
+                              learners = learners, sl_control = sl_control,
+                              adaptive_cv = adaptive_cv, min_obs = min_obs,
+                              bounds = bounds, times = times, sl_fn = sl_fn,
+                              verbose = verbose))
+  }
+
   if (!regime %in% names(obj$regimes)) {
     stop(sprintf("Regime '%s' not found. Use define_regime() first.", regime),
          call. = FALSE)
@@ -210,9 +218,12 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
 }
 
 #' Remove tracking columns added by .add_tracking_columns
+#'
+#' Preserves \code{.longy_fold} (cross-fitting fold assignment).
 #' @noRd
 .remove_tracking_columns <- function(dt) {
   track_cols <- grep("^\\.longy_", names(dt), value = TRUE)
+  track_cols <- setdiff(track_cols, ".longy_fold")
   if (length(track_cols) > 0) {
     dt[, (track_cols) := NULL]
   }

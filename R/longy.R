@@ -51,6 +51,13 @@
 #' @param outcome_range Numeric(2) or NULL. Range for scaling continuous
 #'   outcomes to \code{[0,1]} in TMLE. If NULL, uses empirical range.
 #'   Ignored for binary/survival outcomes.
+#' @param cross_fit Integer or NULL. Number of cross-fitting folds. When
+#'   non-NULL, nuisance models (g_A, g_C, g_R) are fit on training folds and
+#'   predicted on validation folds, and TMLE uses cross-fitted Q models.
+#'   This eliminates overfitting bias in EIF-based inference. Typical values
+#'   are 5 or 10. Default NULL (no cross-fitting).
+#' @param cross_fit_seed Integer or NULL. Random seed for cross-fitting fold
+#'   assignment. NULL for no seed.
 #' @param sl_fn Character. Which SuperLearner implementation to use:
 #'   \code{"SuperLearner"} (default, sequential CV) or \code{"ffSL"}
 #'   (future-factorial, parallelizes fold x algorithm combinations via
@@ -97,6 +104,8 @@ longy <- function(data,
                   bounds = c(0.005, 0.995),
                   g_bounds = c(0.01, 1),
                   outcome_range = NULL,
+                  cross_fit = NULL,
+                  cross_fit_seed = NULL,
                   sl_fn = "ffSL",
                   verbose = TRUE) {
 
@@ -114,12 +123,12 @@ longy <- function(data,
 
   # Determine total steps for verbose messaging
   # Shared fits: g_A + g_C fitted once if IPW or TMLE need them
-  # g_R only for IPW; outcome fitted once if G-comp or TMLE need it
+  # g_R shared for IPW and TMLE; outcome fitted once if G-comp or TMLE need it
   n_steps <- 2L  # data + regimes always
   need_g <- do_ipw || do_tmle
   need_outcome <- do_gcomp || do_tmle
-  if (need_g) n_steps <- n_steps + 2L  # g_A + g_C (shared)
-  if (do_ipw) n_steps <- n_steps + 2L  # g_R + weights/estimate
+  if (need_g) n_steps <- n_steps + 3L  # g_A + g_C + g_R (shared)
+  if (do_ipw) n_steps <- n_steps + 1L  # weights/estimate
   if (need_outcome) n_steps <- n_steps + 1L  # outcome model (shared)
   if (do_gcomp) n_steps <- n_steps + 1L  # G-comp estimate
   if (do_tmle) n_steps <- n_steps + 1L  # TMLE estimate
@@ -137,6 +146,13 @@ longy <- function(data,
     sampling_weights = sampling_weights,
     outcome_type = outcome_type, verbose = verbose
   )
+
+  # Set up cross-fitting if requested
+  if (!is.null(cross_fit)) {
+    if (verbose) .vmsg("  Setting up %d-fold cross-fitting...", cross_fit)
+    obj <- set_crossfit(obj, n_folds = as.integer(cross_fit),
+                        seed = cross_fit_seed)
+  }
 
   # Step 2: Define regimes
   step <- step + 1L
@@ -166,7 +182,7 @@ longy <- function(data,
 
     cur_step <- step
 
-    # --- Shared nuisance models: g_A + g_C (IPW and/or TMLE) ---
+    # --- Shared nuisance models: g_A + g_C + g_R (IPW and/or TMLE) ---
     if (need_g) {
       if (verbose) .vmsg("Step %d/%d: Fitting treatment model (g_A)...",
                           cur_step + 1L, n_steps)
@@ -183,21 +199,21 @@ longy <- function(data,
                              min_obs = min_obs, bounds = bounds,
                              times = times, sl_fn = sl_fn,
                              verbose = verbose)
-      cur_step <- cur_step + 2L
-    }
 
-    # --- IPW-specific: g_R + weights + estimate ---
-    if (do_ipw) {
       if (verbose) .vmsg("Step %d/%d: Fitting observation model (g_R)...",
-                          cur_step + 1L, n_steps)
+                          cur_step + 3L, n_steps)
       r_obj <- fit_observation(r_obj, regime = rname, covariates = covariates,
                                learners = learners, adaptive_cv = adaptive_cv,
                                min_obs = min_obs, bounds = bounds,
                                times = times, sl_fn = sl_fn,
                                verbose = verbose)
+      cur_step <- cur_step + 3L
+    }
 
+    # --- IPW-specific: weights + estimate ---
+    if (do_ipw) {
       if (verbose) .vmsg("Step %d/%d: Computing weights and estimating (IPW)...",
-                          cur_step + 2L, n_steps)
+                          cur_step + 1L, n_steps)
       r_obj <- compute_weights(r_obj, regime = rname,
                                stabilized = stabilized,
                                truncation = truncation,
@@ -210,7 +226,7 @@ longy <- function(data,
 
       result_name <- if (multi) paste0(rname, "_ipw") else rname
       all_results[[result_name]] <- ipw_result
-      cur_step <- cur_step + 2L
+      cur_step <- cur_step + 1L
     }
 
     # --- Shared outcome model (G-comp and/or TMLE) ---

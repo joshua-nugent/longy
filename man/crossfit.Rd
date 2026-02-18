@@ -4,8 +4,9 @@
 \alias{crossfit}
 \title{Cross-Fitting Infrastructure}
 \description{
-Placeholder for cross-fitting (sample-splitting) infrastructure.
-In v0.1, cross-fitting folds can be assigned via \code{set_crossfit()},
-but the actual sample-splitting during estimation is deferred to v0.3.
+Sample-splitting (cross-fitting) for nuisance model fitting and TMLE
+estimation. When enabled, nuisance models are fit on training folds and
+predictions are made on validation folds, eliminating overfitting bias
+in EIF-based inference.
 }
 \keyword{internal}

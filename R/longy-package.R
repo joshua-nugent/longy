@@ -17,8 +17,9 @@ utils::globalVariables(c(
   ".n_risk", ".method", ".id",
   # fit_outcome columns
   ".longy_Q", ".longy_regime_a", ".target_time",
+  ".longy_first_event", "i..longy_first_event",
   # .compute_cumulative_g columns
-  ".g_a", ".g_c", ".g_point", ".g_cum",
+  ".g_a", ".g_c", ".g_point", ".g_cum", ".g_r",
   # Auto-detected observation column
   ".obs",
   # TMLE columns

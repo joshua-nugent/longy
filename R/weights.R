@@ -12,7 +12,7 @@
 #'   cumulation. Default \code{c(0.01, 1)}.
 #'
 #' @return A data.table with columns: (id_col, .time, .g_a, .g_c, .g_point,
-#'   .g_cum).
+#'   .g_cum, .g_r). When no observation model is fit, \code{.g_r = 1}.
 #' @noRd
 .compute_cumulative_g <- function(obj, regime, g_bounds = c(0.01, 1)) {
   nodes <- obj$nodes
@@ -74,6 +74,21 @@
   # Bound cumulative g
   g_dt[, .g_cum := pmax(.g_cum, g_bounds[1])]
   g_dt[, .g_cum := pmin(.g_cum, g_bounds[2])]
+
+  # --- Observation component: g_r (point-in-time, NOT cumulated) ---
+  if (!is.null(obj$fits$observation)) {
+    gR <- obj$fits$observation$predictions
+    # Keep observed rows (R=1), p_r = P(R=1|past)
+    gR_obs <- gR[gR$.observed == 1L, ]
+    gr_col <- gR_obs[, c(id_col, ".time", ".p_r"), with = FALSE]
+    data.table::setnames(gr_col, ".p_r", ".g_r")
+    g_dt <- merge(g_dt, gr_col, by = c(id_col, ".time"), all.x = TRUE)
+    # Subjects not in observation predictions (e.g., no intermittent missingness
+    # at that time) get g_r = 1
+    g_dt[is.na(.g_r), .g_r := 1]
+  } else {
+    g_dt[, .g_r := 1]
+  }
 
   g_dt
 }

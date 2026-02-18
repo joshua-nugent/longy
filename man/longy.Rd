@@ -33,7 +33,9 @@ longy(
   bounds = c(0.005, 0.995),
   g_bounds = c(0.01, 1),
   outcome_range = NULL,
-  sl_fn = "SuperLearner",
+  cross_fit = NULL,
+  cross_fit_seed = NULL,
+  sl_fn = "ffSL",
   verbose = TRUE
 )
 }
@@ -113,6 +115,15 @@ covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.}
 \item{outcome_range}{Numeric(2) or NULL. Range for scaling continuous
 outcomes to \code{[0,1]} in TMLE. If NULL, uses empirical range.
 Ignored for binary/survival outcomes.}
+
+\item{cross_fit}{Integer or NULL. Number of cross-fitting folds. When
+non-NULL, nuisance models (g_A, g_C, g_R) are fit on training folds and
+predicted on validation folds, and TMLE uses cross-fitted Q models.
+This eliminates overfitting bias in EIF-based inference. Typical values
+are 5 or 10. Default NULL (no cross-fitting).}
+
+\item{cross_fit_seed}{Integer or NULL. Random seed for cross-fitting fold
+assignment. NULL for no seed.}
 
 \item{sl_fn}{Character. Which SuperLearner implementation to use:
 \code{"SuperLearner"} (default, sequential CV) or \code{"ffSL"}

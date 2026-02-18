@@ -1,5 +1,50 @@
 # longy Development Log
 
+## v0.4 — Completed 2026-02-18
+
+### What was built
+
+**Part 1: g_R in TMLE clever covariate**
+- TMLE now uses `H(s) = 1 / (g_cum(s) * g_r(s))` instead of `H(s) = 1 / g_cum(s)`
+- `.compute_cumulative_g()` returns `.g_r` column (point-in-time observation probability)
+- `longy()` now fits g_R for TMLE (not just IPW) — moved to shared nuisance section
+- `.tmle_fluctuate()` and `.compute_tmle_eif()` use `g_cum * g_r` denominator
+
+**Part 2: Cross-fitting (CV-TMLE)**
+- `longy(..., cross_fit = 5, cross_fit_seed = 42)` enables 5-fold cross-fitting
+- Dispatch at `fit_*` level: when `obj$crossfit$enabled`, calls `.cf_fit_*()` variants
+- `.cf_fit_treatment()`, `.cf_fit_censoring()`, `.cf_fit_observation()` in `crossfit.R`
+  - Each time point: split risk set by fold, fit on train, predict on validation
+  - Marginal rates from FULL risk set (population constants)
+- `.cf_estimate_tmle()` — CV-TMLE with pooled fluctuation (Zheng & van der Laan 2011)
+  - Q models cross-fitted within backward pass via `.cf_fit_q_step()`
+  - Single epsilon per step (safe: scalar, no overfitting)
+  - EIF computed with cross-fitted Q* and cross-fitted g
+- `.predict_from_fit()` helper in `utils.R` — predict from `.safe_sl()` fit on new data
+- `.remove_tracking_columns()` preserves `.longy_fold` across fit_* calls
+- `data.table::set()` for Q propagation to avoid reference-copy issues
+
+### Files changed
+
+| File | Changes |
+|------|---------|
+| `R/crossfit.R` | Replaced stub with 6 functions (~470 lines) |
+| `R/weights.R` | `.compute_cumulative_g()` returns `.g_r` |
+| `R/estimate_tmle.R` | CF dispatch; g_R in fluctuation + EIF |
+| `R/longy.R` | `cross_fit`/`cross_fit_seed` params; g_R shared |
+| `R/fit_treatment.R` | CF dispatch; `.remove_tracking_columns()` preserves fold |
+| `R/fit_censoring.R` | CF dispatch |
+| `R/fit_observation.R` | CF dispatch |
+| `R/utils.R` | `.predict_from_fit()` |
+| `R/longy-package.R` | Added `.g_r` and survival globals |
+
+### Test status
+- 307 tests passing, 0 errors/warnings/notes in R CMD check
+- Smoke tested: binary, continuous, survival outcomes with cross_fit = 5
+- estimator = "all" with cross-fitting works correctly
+
+---
+
 ## v0.1 — Completed 2026-02-12
 
 ### What was built

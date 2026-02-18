@@ -40,6 +40,14 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
 
+  if (isTRUE(obj$crossfit$enabled)) {
+    return(.cf_estimate_tmle(obj, regime = regime, times = times,
+                              inference = inference, ci_level = ci_level,
+                              n_boot = n_boot, g_bounds = g_bounds,
+                              outcome_range = outcome_range,
+                              verbose = verbose))
+  }
+
   if (is.null(obj$fits$treatment)) {
     stop("Treatment model not fit. Run fit_treatment() first.", call. = FALSE)
   }
@@ -198,23 +206,28 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       cum_consist[is.na(cum_consist)] <- FALSE
       in_fluct <- cum_consist
 
-      # Get g_cum for risk set at this time
+      # Get g_cum and g_r for risk set at this time
       g_at_t <- merge(
         data.table::data.table(.tmp_id = risk_ids, .tmp_order = seq_along(risk_ids)),
-        g_cum_dt[g_cum_dt$.time == tt, c(id_col, ".g_cum"), with = FALSE],
+        g_cum_dt[g_cum_dt$.time == tt, c(id_col, ".g_cum", ".g_r"), with = FALSE],
         by.x = ".tmp_id", by.y = id_col, all.x = TRUE
       )
       data.table::setorder(g_at_t, .tmp_order)
       g_cum_vals <- g_at_t$.g_cum
+      g_r_vals <- g_at_t$.g_r
       # Subjects not in g_cum_dt (e.g., non-followers) get g_cum = NA -> set to 1
       g_cum_vals[is.na(g_cum_vals)] <- 1
+      g_r_vals[is.na(g_r_vals)] <- 1
+
+      # Denominator for clever covariate: g_cum * g_r
+      g_denom <- g_cum_vals * g_r_vals
 
       # Pseudo-outcome: Q values for subjects in fluctuation set
       pseudo_out <- dt_t$.longy_Q[still_in]
 
       fluct <- .tmle_fluctuate(Q_bar = Q_bar,
                                pseudo_outcome = pseudo_out,
-                               g_cum = g_cum_vals,
+                               g_cum = g_denom,
                                in_fluctuation_set = in_fluct,
                                bounds = c(eps, 1 - eps))
       Q_star <- fluct$Q_star
@@ -532,8 +545,8 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       cum_uncens[is.na(cum_uncens)] <- FALSE
       indicator <- cum_consist & cum_uncens
 
-      # Merge g_cum
-      g_s <- g_cum_dt[g_cum_dt$.time == s, c(id_col, ".g_cum"), with = FALSE]
+      # Merge g_cum and g_r
+      g_s <- g_cum_dt[g_cum_dt$.time == s, c(id_col, ".g_cum", ".g_r"), with = FALSE]
 
       # Scale Y_T to [0,1] for continuous (binary already 0/1)
       y_raw <- as.numeric(dt_s[[nodes$outcome]])
@@ -549,6 +562,7 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       aug_dt <- merge(aug_dt, Qs_dt, by = id_col, all.x = TRUE)
 
       aug_dt[is.na(.g_cum), .g_cum := 1]
+      aug_dt[is.na(.g_r), .g_r := 1]
       aug_dt[is.na(.Q_star), .Q_star := 0]
 
       # Note: .Y_T may be NA for unobserved subjects. Their indicator
@@ -556,7 +570,7 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       # scaled outcome. For EIF, subjects with NA Y contribute 0.
       aug_dt[is.na(.Y_T), .indicator := FALSE]
 
-      aug_dt[, .H := ifelse(.indicator, 1 / .g_cum, 0)]
+      aug_dt[, .H := ifelse(.indicator, 1 / (.g_cum * .g_r), 0)]
       aug_dt[, .aug := .H * (.Y_T - .Q_star)]
 
       # Add to augmentation vector
@@ -573,7 +587,7 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       cum_uncens[is.na(cum_uncens)] <- FALSE
       indicator <- cum_consist & cum_uncens
 
-      g_s <- g_cum_dt[g_cum_dt$.time == s, c(id_col, ".g_cum"), with = FALSE]
+      g_s <- g_cum_dt[g_cum_dt$.time == s, c(id_col, ".g_cum", ".g_r"), with = FALSE]
 
       aug_dt <- data.table::data.table(
         .tmp_id = dt_s[[id_col]],
@@ -585,10 +599,11 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       aug_dt <- merge(aug_dt, Qs_next, by = id_col, all.x = TRUE)
 
       aug_dt[is.na(.g_cum), .g_cum := 1]
+      aug_dt[is.na(.g_r), .g_r := 1]
       aug_dt[is.na(.Q_star), .Q_star := 0]
       aug_dt[is.na(.Q_star_next), .Q_star_next := 0]
 
-      aug_dt[, .H := ifelse(.indicator, 1 / .g_cum, 0)]
+      aug_dt[, .H := ifelse(.indicator, 1 / (.g_cum * .g_r), 0)]
       aug_dt[, .aug := .H * (.Q_star_next - .Q_star)]
 
       match_idx <- match(aug_dt[[id_col]], all_ids)
