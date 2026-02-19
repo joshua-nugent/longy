@@ -125,6 +125,22 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
     }
   }
 
+  # For competing risks: precompute first competing event time per subject
+  has_competing <- !is.null(nodes$competing)
+  if (has_competing) {
+    d_col <- nodes$competing
+    comp_rows <- dt[!is.na(dt[[d_col]]) & as.numeric(dt[[d_col]]) == 1]
+    if (nrow(comp_rows) > 0) {
+      first_comp <- comp_rows[, list(.longy_first_competing = min(get(time_col))),
+                               by = c(id_col)]
+      dt[first_comp, .longy_first_competing := i..longy_first_competing,
+         on = id_col]
+    }
+    if (!".longy_first_competing" %in% names(dt)) {
+      dt[, .longy_first_competing := NA_real_]
+    }
+  }
+
   # Epsilon for bounding Q to avoid log(0)
   eps <- q_bounds[1]
 
@@ -163,16 +179,25 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       # For survival: exclude absorbed subjects (event strictly before tt)
       if (is_survival) {
         fe <- dt_t$.longy_first_event
-        absorbed <- still_in & !is.na(fe) & fe < tt
+        absorbed_primary <- still_in & !is.na(fe) & fe < tt
       } else {
-        absorbed <- rep(FALSE, nrow(dt_t))
+        absorbed_primary <- rep(FALSE, nrow(dt_t))
       }
-      at_risk <- still_in & !absorbed
+      # For competing risks: exclude subjects with competing event before tt
+      if (has_competing) {
+        fc <- dt_t$.longy_first_competing
+        absorbed_competing <- still_in & !is.na(fc) & fc < tt
+      } else {
+        absorbed_competing <- rep(FALSE, nrow(dt_t))
+      }
+      at_risk <- still_in & !absorbed_primary & !absorbed_competing
       n_at_risk <- sum(at_risk)
-      n_absorbed <- sum(absorbed)
-      absorbed_ids <- dt_t[[id_col]][absorbed]
+      n_primary <- sum(absorbed_primary)
+      n_competing <- sum(absorbed_competing)
+      primary_absorbed_ids <- dt_t[[id_col]][absorbed_primary]
+      competing_absorbed_ids <- dt_t[[id_col]][absorbed_competing]
 
-      if (n_at_risk == 0 && n_absorbed == 0) {
+      if (n_at_risk == 0 && n_primary == 0 && n_competing == 0) {
         if (verbose) .vmsg("  TMLE time %d: 0 at risk, skipping", tt)
         next
       }
@@ -263,13 +288,14 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       }
 
       if (verbose) {
-        .vmsg("  TMLE time %d: n_at_risk=%d, n_train=%d, n_absorbed=%d, eps=%.4f, method=%s",
-              tt, n_at_risk, n_train, n_absorbed, fluct_epsilon, method)
+        .vmsg("  TMLE time %d: n_at_risk=%d, n_train=%d, n_primary_abs=%d, n_competing_abs=%d, eps=%.4f, method=%s",
+              tt, n_at_risk, n_train, n_primary, n_competing, fluct_epsilon, method)
       }
 
-      # Combine at-risk Q* with hard-coded 1 for absorbed subjects
-      all_ids <- c(risk_ids, absorbed_ids)
-      all_Q_star <- c(Q_star, rep(1, n_absorbed))
+      # Combine at-risk Q* with hard-coded values for absorbed subjects
+      # Primary absorbed (prior Y=1) → Q*=1; Competing absorbed (prior D=1) → Q*=0
+      all_ids <- c(risk_ids, primary_absorbed_ids, competing_absorbed_ids)
+      all_Q_star <- c(Q_star, rep(1, n_primary), rep(0, n_competing))
 
       # Store Q* for EIF (includes absorbed subjects)
       if (length(all_ids) > 0) {
@@ -389,6 +415,9 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
   dt[, .longy_regime_a := NULL]
   if (is_survival && ".longy_first_event" %in% names(dt)) {
     dt[, .longy_first_event := NULL]
+  }
+  if (has_competing && ".longy_first_competing" %in% names(dt)) {
+    dt[, .longy_first_competing := NULL]
   }
   .remove_tracking_columns(obj$data)
 

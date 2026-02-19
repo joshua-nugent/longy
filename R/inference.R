@@ -135,7 +135,8 @@
         censoring = nodes$censoring, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
         sampling_weights = nodes$sampling_weights,
-        outcome_type = nodes$outcome_type, verbose = FALSE
+        outcome_type = nodes$outcome_type,
+        competing = nodes$competing, verbose = FALSE
       )
       b_obj$regimes <- obj$regimes
       b_obj <- fit_treatment(b_obj, regime = regime,
@@ -292,7 +293,8 @@
         censoring = nodes$censoring, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
         sampling_weights = nodes$sampling_weights,
-        outcome_type = nodes$outcome_type, verbose = FALSE
+        outcome_type = nodes$outcome_type,
+        competing = nodes$competing, verbose = FALSE
       )
       b_obj$regimes <- obj$regimes
 
@@ -384,7 +386,8 @@
         censoring = nodes$censoring, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
         sampling_weights = nodes$sampling_weights,
-        outcome_type = nodes$outcome_type, verbose = FALSE
+        outcome_type = nodes$outcome_type,
+        competing = nodes$competing, verbose = FALSE
       )
       b_obj$regimes <- obj$regimes
 

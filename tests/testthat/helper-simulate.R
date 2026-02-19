@@ -242,3 +242,64 @@ simulate_always_observed <- function(n = 200, K = 5, seed = 789) {
   }
   do.call(rbind, rows)
 }
+
+#' Simulate data with competing risks (primary event + competing event)
+#' Both Y and D are absorbing binary indicators. Mutually exclusive.
+simulate_competing_risks <- function(n = 200, K = 5, seed = 111) {
+  set.seed(seed)
+  rows <- list()
+  for (i in seq_len(n)) {
+    W1 <- rnorm(1)
+    W2 <- rbinom(1, 1, 0.3)
+    alive <- TRUE
+    primary_occurred <- FALSE
+    competing_occurred <- FALSE
+    for (tt in 0:(K - 1)) {
+      if (!alive) break
+      L1 <- rnorm(1, mean = 0.3 * W1 + 0.1 * tt)
+      L2 <- rbinom(1, 1, plogis(-0.5 + 0.3 * L1))
+      p_a <- plogis(-0.2 + 0.4 * L1 + 0.3 * W1 - 0.2 * L2)
+      A <- rbinom(1, 1, p_a)
+      # Censoring
+      p_c <- plogis(-3 + 0.2 * L1 - 0.1 * A + 0.1 * tt)
+      C <- rbinom(1, 1, p_c)
+      if (C == 1) {
+        rows[[length(rows) + 1]] <- data.frame(
+          id = i, time = tt, W1 = W1, W2 = W2,
+          L1 = L1, L2 = L2, A = A, C = 1L, R = 0L,
+          Y = NA_integer_, D = NA_integer_
+        )
+        alive <- FALSE
+        next
+      }
+      R <- 1L  # always observed when uncensored
+      if (primary_occurred) {
+        Y <- 1L; D <- 0L  # absorbing primary
+      } else if (competing_occurred) {
+        Y <- 0L; D <- 1L  # absorbing competing
+      } else {
+        # Competing risk: primary event
+        p_primary <- plogis(-3 + 0.3 * L1 + 0.2 * A + 0.15 * tt)
+        # Competing event (e.g., death from other cause)
+        p_competing <- plogis(-3.5 + 0.2 * L1 - 0.1 * A + 0.1 * tt)
+        # Draw: at most one event per time
+        u <- runif(1)
+        if (u < p_primary) {
+          Y <- 1L; D <- 0L
+          primary_occurred <- TRUE
+        } else if (u < p_primary + p_competing) {
+          Y <- 0L; D <- 1L
+          competing_occurred <- TRUE
+        } else {
+          Y <- 0L; D <- 0L
+        }
+      }
+      rows[[length(rows) + 1]] <- data.frame(
+        id = i, time = tt, W1 = W1, W2 = W2,
+        L1 = L1, L2 = L2, A = A, C = 0L, R = R,
+        Y = Y, D = D
+      )
+    }
+  }
+  do.call(rbind, rows)
+}

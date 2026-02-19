@@ -30,7 +30,12 @@
 #'   weights, and multiply the final IPW weight. Follows ltmle's
 #'   `observation.weights` convention. NULL if none.
 #' @param outcome_type Character. One of `"binary"`, `"continuous"`, `"survival"`.
-#' @param competing_risks Logical. Whether the outcome involves competing risks.
+#' @param competing Character. Column name for a binary absorbing competing
+#'   event indicator (1 = competing event occurred). Once D=1, must remain 1.
+#'   Used with \code{outcome_type = "survival"} to estimate cause-specific
+#'   cumulative incidence. Subjects who experience the competing event are
+#'   excluded from the risk set with Q hard-coded to 0. NULL if no competing
+#'   risks.
 #' @param verbose Logical. Print progress messages.
 #'
 #' @return An S3 object of class `"longy_data"`.
@@ -57,7 +62,7 @@ longy_data <- function(data,
                        timevarying = character(0),
                        sampling_weights = NULL,
                        outcome_type = "binary",
-                       competing_risks = FALSE,
+                       competing = NULL,
                        verbose = TRUE) {
 
   # --- Convert to data.table ---
@@ -65,7 +70,7 @@ longy_data <- function(data,
 
   # --- Validate column existence ---
   all_nodes <- c(id, time, outcome, treatment, censoring, observation,
-                 baseline, timevarying, sampling_weights)
+                 baseline, timevarying, sampling_weights, competing)
   missing_cols <- setdiff(all_nodes, names(dt))
   if (length(missing_cols) > 0) {
     stop(sprintf("Column(s) not found in data: %s",
@@ -95,6 +100,54 @@ longy_data <- function(data,
         stop(sprintf("Censoring column '%s' must be binary {0, 1}.", cvar),
              call. = FALSE)
       }
+    }
+  }
+
+  # --- Validate competing event column ---
+  if (!is.null(competing)) {
+    # Must be used with survival outcome
+    if (outcome_type != "survival") {
+      stop("Competing event column can only be used with outcome_type = 'survival'.",
+           call. = FALSE)
+    }
+    # Must be binary {0, 1}
+    d_vals <- dt[[competing]]
+    d_vals_nona <- d_vals[!is.na(d_vals)]
+    if (!all(d_vals_nona %in% c(0L, 1L, 0, 1))) {
+      stop(sprintf("Competing event column '%s' must be binary {0, 1}.", competing),
+           call. = FALSE)
+    }
+    # Must be absorbing: once D=1, all subsequent D=1
+    data.table::setkeyv(dt, c(id, time))
+    dt[, .longy_check_comp := {
+      d <- get(competing)
+      d_nona <- d[!is.na(d)]
+      if (length(d_nona) < 2) TRUE
+      else {
+        first_comp <- which(d_nona == 1)[1]
+        if (is.na(first_comp)) TRUE
+        else all(d_nona[first_comp:length(d_nona)] == 1)
+      }
+    }, by = c(id)]
+    if (!all(dt$.longy_check_comp)) {
+      bad_ids <- unique(dt[[id]][!dt$.longy_check_comp])
+      dt[, .longy_check_comp := NULL]
+      stop(sprintf(
+        "Competing event must be absorbing (once D=1, all subsequent D=1). Violated for %d subject(s).",
+        length(bad_ids)),
+        call. = FALSE)
+    }
+    dt[, .longy_check_comp := NULL]
+    # Mutual exclusivity: no subject has both Y=1 and D=1 at the same time
+    y_vals <- dt[[outcome]]
+    d_vals <- dt[[competing]]
+    both <- !is.na(y_vals) & !is.na(d_vals) & y_vals == 1 & d_vals == 1
+    if (any(both)) {
+      n_both <- sum(both)
+      stop(sprintf(
+        "Primary event (Y=1) and competing event (D=1) occur simultaneously in %d row(s). Events must be mutually exclusive.",
+        n_both),
+        call. = FALSE)
     }
   }
 
@@ -252,6 +305,9 @@ longy_data <- function(data,
   if (!is.null(observation)) {
     dt[, (observation) := as.integer(get(observation))]
   }
+  if (!is.null(competing)) {
+    dt[, (competing) := as.integer(get(competing))]
+  }
 
   # --- Set key ---
   data.table::setkeyv(dt, c(id, time))
@@ -271,7 +327,7 @@ longy_data <- function(data,
     baseline = baseline,
     timevarying = timevarying,
     outcome_type = outcome_type,
-    competing_risks = competing_risks
+    competing = competing
   )
 
   meta <- list(
@@ -385,6 +441,9 @@ print.longy_data <- function(x, ...) {
   }
   if (!is.null(x$nodes$observation)) {
     cat(sprintf("  Observation: %s\n", x$nodes$observation))
+  }
+  if (!is.null(x$nodes$competing)) {
+    cat(sprintf("  Competing:   %s\n", x$nodes$competing))
   }
   if (!is.null(x$nodes$sampling_weights)) {
     cat(sprintf("  Sampling wt: %s\n", x$nodes$sampling_weights))

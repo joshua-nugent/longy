@@ -17,6 +17,10 @@
 #' @param sampling_weights Character. Column name for external sampling/survey
 #'   weights. See [longy_data()] for details. NULL if none.
 #' @param outcome_type Character. \code{"binary"}, \code{"continuous"}, or \code{"survival"}.
+#' @param competing Character. Column name for a binary absorbing competing
+#'   event indicator. Used with \code{outcome_type = "survival"} to estimate
+#'   cause-specific cumulative incidence. See [longy_data()] for details. NULL
+#'   if no competing risks.
 #' @param regimes Named list. Each element defines a regime:
 #'   \itemize{
 #'     \item For static: an integer (0 or 1), e.g., \code{list(always = 1L, never = 0L)}
@@ -91,6 +95,7 @@ longy <- function(data,
                   baseline = character(0), timevarying = character(0),
                   sampling_weights = NULL,
                   outcome_type = "binary",
+                  competing = NULL,
                   regimes = list(always = 1L, never = 0L),
                   estimator = "ipw",
                   covariates = NULL,
@@ -161,7 +166,8 @@ longy <- function(data,
     censoring = censoring, observation = observation,
     baseline = baseline, timevarying = timevarying,
     sampling_weights = sampling_weights,
-    outcome_type = outcome_type, verbose = verbose
+    outcome_type = outcome_type, competing = competing,
+    verbose = verbose
   )
 
   # Set up cross-fitting if requested
