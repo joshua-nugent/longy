@@ -1,48 +1,46 @@
 # ===========================================================================
-# Simulation Study: IPW with Continuous Outcome (3 Time Points)
+# Simulation Study: IPW with Binary Outcome (3 Time Points)
 # ===========================================================================
 #
-# Verifies longy's IPW estimator under a DGP with time-varying confounding.
-# Two DGP variants are toggleable via use_ylag:
+# Verifies longy's IPW estimator under a DGP with time-varying confounding
+# and a binary outcome. Two DGP variants are toggleable via use_ylag:
 #
-#   use_ylag = FALSE (default): Simple DGP. L depends on W, L(t-1), A(t-1).
-#     No outcome feedback. True values are analytic.
+#   use_ylag = FALSE: Simple DGP. L depends on W, L(t-1), A(t-1). A depends
+#     on W, L(t). Y depends on W, L(t), A(t). No outcome feedback.
 #
 #   use_ylag = TRUE: Y(t-1) feeds back into L(t), A(t), and Y(t). When R
 #     masks Y, LOCF carries the last observed Y forward, with a missingness
-#     indicator. Coefficients are scaled down vs binary/survival (0.1, 0.1,
-#     0.2 instead of 0.3, 0.3, 0.5) because continuous Y has larger magnitude.
-#     True values remain analytic (all equations linear Gaussian).
+#     indicator. Creates richer confounding that stresses the IPW estimator.
 #
 # Structural equations:
 #   W ~ N(0, 1)
-#   L(t) = 0.5*W + 0.5*L(t-1) + 0.4*A(t-1) [+ 0.1*Y(t-1)] + N(0, 0.25)
-#   A(t) ~ Bern(expit(-0.3 + 0.3*W + 0.5*L(t) [+ 0.1*Y(t-1)]))
-#   C(t) ~ Bern(expit(-3.5 + 0.3*L(t)))
-#   Y(t) = 2 + 0.3*W + 0.5*L(t) + 1.0*A(t) [+ 0.2*Y(t-1)] + N(0, 1)
-#   R(t) ~ Bern(expit(1.5 - 0.3*L(t)))     [~82% observation rate]
+#   L(t) = 0.5*W + 0.5*L(t-1) + 0.4*A(t-1) [+ 0.3*Y(t-1)] + N(0, 0.25)
+#   A(t) ~ Bern(expit(-0.3 + 0.3*W + 0.5*L(t) [+ 0.3*Y(t-1)]))
+#   C(t) ~ Bern(expit(-3.5 + 0.3*L(t)))         [~3-5% per time]
+#   Y(t) ~ Bern(expit(-1 + 0.3*W + 0.5*L(t) + 1.0*A(t) [+ 0.5*Y(t-1)]))
+#   R(t) ~ Bern(expit(1.5 - 0.3*L(t)))           [~82% observation rate]
 #
 # Y(-1) = 0, A(-1) = 0, L(-1) = 0 by convention.
 #
 # Null scenario: beta_YA = 0, beta_LA = 0 (treatment has no effect).
 # Y_lag feedback coefficients (if enabled) remain in the null.
 #
-# True ATE without Y_lag: 1.0 (t=0), 1.2 (t=1), 1.3 (t=2)
-# True ATE with Y_lag:    1.0 (t=0), ~1.45 (t=1), ~1.69 (t=2)
-# The Y_lag feedback amplifies indirect effects through L and Y persistence.
+# True counterfactual means are computed by Monte Carlo (1e6 subjects,
+# intervene on A, no censoring or missingness, use plogis for precision).
+# Without Y_lag, no Y draws are needed (simpler MC, less variance).
 #
 # Usage:
-#   source("longy/simulations/sim_ipw_continuous.R")
+#   source("longy/simulations/sim_ipw_binary.R")
 #   run_all()                    # full simulation (~60 sec, both variants)
 #   run_all(n_sim = 10)          # quick smoke test
-#   mc_verify_true_values()      # verify analytic truth via Monte Carlo
+#   mc_verify_true_values()      # verify MC truth is stable
 # ===========================================================================
 
 library(longy)
 
 # === SECTION 1: DGP ===========================================================
 
-#' Generate one dataset from the simulation DGP
+#' Generate one dataset from the binary outcome DGP
 #'
 #' @param n Integer. Number of subjects.
 #' @param seed Integer. Random seed.
@@ -55,16 +53,15 @@ generate_data <- function(n, seed, scenario = "alternative",
 
   beta_LA <- if (scenario == "null") 0 else 0.4
   beta_YA <- if (scenario == "null") 0 else 1.0
-  # Scaled for continuous Y (~2-3 magnitude): 0.1, 0.1, 0.2
-  beta_LY <- if (use_ylag) 0.1 else 0   # Y(t-1) -> L(t)
-  beta_AY <- if (use_ylag) 0.1 else 0   # Y(t-1) -> A(t)
-  beta_YY <- if (use_ylag) 0.2 else 0   # Y(t-1) -> Y(t)
+  beta_LY <- if (use_ylag) 0.3 else 0   # Y(t-1) -> L(t)
+  beta_AY <- if (use_ylag) 0.3 else 0   # Y(t-1) -> A(t)
+  beta_YY <- if (use_ylag) 0.5 else 0   # Y(t-1) -> Y(t)
 
   W <- rnorm(n)
-  L_prev <- rep(0, n)       # L(-1) = 0
-  A_prev <- rep(0L, n)      # A(-1) = 0
-  Y_true <- rep(0, n)       # Y(-1) = 0
-  alive  <- rep(TRUE, n)
+  L_prev   <- rep(0, n)       # L(-1) = 0
+  A_prev   <- rep(0L, n)      # A(-1) = 0
+  Y_true   <- rep(0L, n)      # Y(-1) = 0
+  alive    <- rep(TRUE, n)
 
   time_data <- vector("list", 3)
 
@@ -87,21 +84,22 @@ generate_data <- function(n, seed, scenario = "alternative",
     C <- integer(n)
     C[idx] <- rbinom(ni, 1, plogis(-3.5 + 0.3 * L[idx]))
 
-    # Y(t) = 2 + 0.3*W + 0.5*L(t) + beta_YA*A(t) + beta_YY*Y(t-1) + eps_Y
-    Y <- rep(NA_real_, n)
+    # Y(t) ~ Bern(expit(-1 + 0.3*W + 0.5*L(t) + beta_YA*A(t) + beta_YY*Y(t-1)))
+    Y <- rep(NA_integer_, n)
     unc <- idx[C[idx] == 0L]
     if (length(unc) > 0) {
-      Y[unc] <- 2 + 0.3 * W[unc] + 0.5 * L[unc] +
-        beta_YA * A[unc] + beta_YY * Y_true[unc] + rnorm(length(unc))
+      Y[unc] <- rbinom(length(unc), 1,
+                        plogis(-1 + 0.3 * W[unc] + 0.5 * L[unc] +
+                                 beta_YA * A[unc] + beta_YY * Y_true[unc]))
     }
 
     # R(t) ~ Bern(expit(1.5 - 0.3*L(t)))
     R <- integer(n)
-    Y_obs <- rep(NA_real_, n)
+    Y_obs <- rep(NA_integer_, n)
     if (length(unc) > 0) {
       R[unc] <- rbinom(length(unc), 1, plogis(1.5 - 0.3 * L[unc]))
       Y_obs[unc] <- Y[unc]
-      Y_obs[unc[R[unc] == 0L]] <- NA_real_
+      Y_obs[unc[R[unc] == 0L]] <- NA_integer_
     }
 
     time_data[[t + 1]] <- list(
@@ -109,7 +107,7 @@ generate_data <- function(n, seed, scenario = "alternative",
       Y_obs = Y_obs, Y_true = Y
     )
 
-    # Update state
+    # Update state (use TRUE Y, not observed)
     L_prev <- L
     A_prev <- A
     if (length(unc) > 0) Y_true[unc] <- Y[unc]
@@ -118,7 +116,7 @@ generate_data <- function(n, seed, scenario = "alternative",
 
   # --- Build output (with optional Y_lag via LOCF) ---
   all_rows <- vector("list", 3)
-  last_obs_Y <- rep(0, n)  # Y(-1) = 0
+  last_obs_Y <- rep(0L, n)  # Y(-1) = 0
 
   for (t in 0:2) {
     td <- time_data[[t + 1]]
@@ -126,11 +124,11 @@ generate_data <- function(n, seed, scenario = "alternative",
     idx <- td$idx
 
     if (use_ylag) {
-      Y_lag <- rep(0, n)
+      Y_lag <- rep(0L, n)
       Y_lag_carried <- rep(0L, n)
 
       if (t == 0) {
-        Y_lag[idx] <- 0
+        Y_lag[idx] <- 0L
         Y_lag_carried[idx] <- 0L
       } else {
         Y_lag[idx] <- last_obs_Y[idx]
@@ -175,92 +173,93 @@ generate_data <- function(n, seed, scenario = "alternative",
 
 # === SECTION 2: TRUE VALUES ====================================================
 
-#' Analytic true counterfactual means
+#' Monte Carlo true counterfactual means for binary outcome
 #'
-#' All structural equations are linear with E[W]=0, so the marginal means
-#' simplify to recursive functions of the coefficients and regime values.
-#' This works for both use_ylag variants because everything is linear Gaussian.
+#' With nonlinear (logistic) structural equations, there is no closed-form
+#' expression for the marginal mean. We use a large Monte Carlo sample under
+#' each intervention, with no censoring or missingness. For precision, we
+#' average plogis(LP) instead of drawing binary outcomes.
+#'
+#' Without Y_lag, no binary Y draws are needed at all (L doesn't depend on Y),
+#' so the MC has lower variance. With Y_lag, binary draws are needed for
+#' forward simulation of Y feedback through L, A, and Y.
 #'
 #' @param scenario "alternative" or "null"
 #' @param use_ylag Logical.
-#' @return data.frame with columns: regime, time, true_mean
-true_values <- function(scenario = "alternative", use_ylag = FALSE) {
-  beta_LA <- if (scenario == "null") 0 else 0.4
-  beta_YA <- if (scenario == "null") 0 else 1.0
-  beta_LY <- if (use_ylag) 0.1 else 0
-  beta_YY <- if (use_ylag) 0.2 else 0
-
-  out <- list()
-  for (regime in c("always", "never")) {
-    a_val <- if (regime == "always") 1 else 0
-    EL <- numeric(3)
-    EY <- numeric(3)
-    EY_prev <- 0  # E[Y(-1)] = 0
-
-    # t = 0: E[L(0)] = 0 (all prev terms are zero)
-    EL[1] <- 0
-    EY[1] <- 2 + 0.5 * EL[1] + beta_YA * a_val + beta_YY * EY_prev
-
-    for (k in 2:3) {
-      EL[k] <- 0.5 * EL[k - 1] + beta_LA * a_val + beta_LY * EY[k - 1]
-      EY[k] <- 2 + 0.5 * EL[k] + beta_YA * a_val + beta_YY * EY[k - 1]
-    }
-
-    out[[regime]] <- data.frame(regime = regime, time = 0:2, true_mean = EY)
-  }
-  do.call(rbind, out)
-}
-
-
-#' Monte Carlo verification of analytic true values
-#'
 #' @param n_mc Integer. Monte Carlo sample size (default 1e6).
-#' @param scenario "alternative" or "null"
-#' @param use_ylag Logical.
 #' @param seed Random seed.
-mc_verify_true_values <- function(n_mc = 1e6, scenario = "alternative",
-                                  use_ylag = FALSE, seed = 99) {
+#' @return data.frame with columns: regime, time, true_mean
+true_values <- function(scenario = "alternative", use_ylag = FALSE,
+                        n_mc = 1e6, seed = 42) {
   set.seed(seed)
 
   beta_LA <- if (scenario == "null") 0 else 0.4
   beta_YA <- if (scenario == "null") 0 else 1.0
-  beta_LY <- if (use_ylag) 0.1 else 0
-  beta_YY <- if (use_ylag) 0.2 else 0
-
-  truth <- true_values(scenario, use_ylag)
-
-  ylag_label <- if (use_ylag) "with Y_lag" else "without Y_lag"
-  cat(sprintf("\nMonte Carlo verification (n = %s, %s, %s)\n",
-              format(n_mc, big.mark = ","), scenario, ylag_label))
-  cat(sprintf("%-8s %-6s %-12s %-12s %-10s\n",
-              "Regime", "Time", "MC Mean", "Analytic", "Diff"))
-  cat(strrep("-", 50), "\n")
+  beta_LY <- if (use_ylag) 0.3 else 0
+  beta_AY <- if (use_ylag) 0.3 else 0
+  beta_YY <- if (use_ylag) 0.5 else 0
 
   W <- rnorm(n_mc)
 
+  out <- list()
   for (regime in c("always", "never")) {
     a_val <- if (regime == "always") 1 else 0
+
     L_prev <- rep(0, n_mc)
     A_prev <- rep(0, n_mc)
-    Y_prev <- rep(0, n_mc)
+    Y_prev <- rep(0, n_mc)   # Y(-1) = 0
 
+    means <- numeric(3)
     for (t in 0:2) {
       L <- 0.5 * W + 0.5 * L_prev + beta_LA * A_prev +
         beta_LY * Y_prev + rnorm(n_mc, 0, 0.5)
-      Y <- 2 + 0.3 * W + 0.5 * L + beta_YA * a_val +
-        beta_YY * Y_prev + rnorm(n_mc)
 
-      mc_mean  <- mean(Y)
-      analytic <- truth$true_mean[truth$regime == regime & truth$time == t]
-      cat(sprintf("%-8s %-6d %-12.4f %-12.4f %-10.4f\n",
-                  regime, t, mc_mean, analytic, mc_mean - analytic))
+      # Use plogis(LP) for precision
+      lp_Y <- -1 + 0.3 * W + 0.5 * L + beta_YA * a_val + beta_YY * Y_prev
+      p_Y  <- plogis(lp_Y)
+      means[t + 1] <- mean(p_Y)
+
+      # Draw binary Y for forward simulation (only matters when use_ylag=TRUE;
+      # when FALSE, Y_prev is never used so draws are harmless but inert)
+      Y <- rbinom(n_mc, 1, p_Y)
 
       L_prev <- L
       A_prev <- rep(a_val, n_mc)
       Y_prev <- Y
     }
+
+    out[[regime]] <- data.frame(regime = regime, time = 0:2,
+                                true_mean = means,
+                                stringsAsFactors = FALSE)
   }
-  invisible(truth)
+  do.call(rbind, out)
+}
+
+
+#' Monte Carlo verification — compare two seeds for stability
+#'
+#' @param n_mc Integer. Monte Carlo sample size (default 1e6).
+#' @param scenario "alternative" or "null"
+#' @param use_ylag Logical.
+mc_verify_true_values <- function(n_mc = 1e6, scenario = "alternative",
+                                  use_ylag = FALSE) {
+  truth1 <- true_values(scenario, use_ylag, n_mc = n_mc, seed = 42)
+  truth2 <- true_values(scenario, use_ylag, n_mc = n_mc, seed = 123)
+
+  ylag_label <- if (use_ylag) "with Y_lag" else "without Y_lag"
+  cat(sprintf("\nMonte Carlo verification (n = %s, %s, %s)\n",
+              format(n_mc, big.mark = ","), scenario, ylag_label))
+  cat(sprintf("%-8s %-6s %-12s %-12s %-10s\n",
+              "Regime", "Time", "Seed 42", "Seed 123", "Diff"))
+  cat(strrep("-", 50), "\n")
+
+  for (i in seq_len(nrow(truth1))) {
+    cat(sprintf("%-8s %-6d %-12.4f %-12.4f %-10.4f\n",
+                truth1$regime[i], truth1$time[i],
+                truth1$true_mean[i], truth2$true_mean[i],
+                truth1$true_mean[i] - truth2$true_mean[i]))
+  }
+  invisible(truth1)
 }
 
 
@@ -296,7 +295,7 @@ run_simulation <- function(n = 500, n_sim = 500, scenario = "alternative",
         treatment = "A", censoring = "C", observation = "R",
         baseline = "W",
         timevarying = tv,
-        outcome_type = "continuous",
+        outcome_type = "binary",
         regimes = list(always = 1L, never = 0L),
         estimator = "ipw",
         learners = NULL,
@@ -482,7 +481,7 @@ run_all <- function(n = 500, n_sim = 500, seed_start = 1) {
       truth_alt$true_mean[truth_alt$regime == "never"]
     ate_label <- paste(sprintf("%.2f", ate_vals), collapse = ", ")
     print_summary(
-      sprintf("ALTERNATIVE — %s (ATE = %s)", ylag_label, ate_label),
+      sprintf("ALTERNATIVE — %s (ATE ~ %s)", ylag_label, ate_label),
       regime_alt, ate_alt
     )
 

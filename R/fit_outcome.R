@@ -111,59 +111,59 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
     for (i in seq_along(backward_times)) {
       tt <- backward_times[i]
 
-      # Survival absorbing-state override: if a subject was observed with Y=1
-      # at any time s <= tt, then Y(T)=1 with certainty (absorbing), so Q=1.
-      # This is set on dt BEFORE creating dt_t so the slice picks it up.
-      if (is_survival) {
-        rows_tt <- which(dt[[time_col]] == tt)
-        fe <- dt$.longy_first_event[rows_tt]
-        has_prior <- !is.na(fe) & fe <= tt
-        if (any(has_prior)) {
-          dt$.longy_Q[rows_tt[has_prior]] <- 1
-        }
-      }
-
       dt_t <- dt[dt[[time_col]] == tt, ]
 
-      # Risk set: ALL uncensored subjects through t
+      # Uncensored subjects through t
       still_in <- dt_t$.longy_cum_uncens == 1L
       still_in[is.na(still_in)] <- FALSE
 
-      n_risk <- sum(still_in)
-      if (n_risk == 0) {
+      # For survival: exclude absorbed subjects (event strictly before tt)
+      if (is_survival) {
+        fe <- dt_t$.longy_first_event
+        absorbed <- still_in & !is.na(fe) & fe < tt
+      } else {
+        absorbed <- rep(FALSE, nrow(dt_t))
+      }
+      at_risk <- still_in & !absorbed
+      n_at_risk <- sum(at_risk)
+      n_absorbed <- sum(absorbed)
+      absorbed_ids <- dt_t[[id_col]][absorbed]
+
+      if (n_at_risk == 0 && n_absorbed == 0) {
         if (verbose) .vmsg("  Q target=%d time %d: 0 at risk, skipping",
                            target_t, tt)
         next
       }
 
-      # Training subset: risk set AND Q is non-missing
-      Q_at_t <- dt_t$.longy_Q[still_in]
-      has_Q <- !is.na(Q_at_t)
-      n_train <- sum(has_Q)
+      # Model fitting on at-risk subjects only
+      risk_ids <- dt_t[[id_col]][at_risk]
+      preds <- numeric(0)
+      method <- "none"
+      sl_risk <- NULL
+      sl_coef <- NULL
+      n_train <- 0L
 
-      if (n_train == 0) {
-        if (verbose) .vmsg("  Q target=%d time %d: n_risk=%d, 0 non-missing Q, skipping",
-                           target_t, tt, n_risk)
-        next
+      if (n_at_risk > 0) {
+        Q_at_t <- dt_t$.longy_Q[at_risk]
+        has_Q <- !is.na(Q_at_t)
+        n_train <- sum(has_Q)
       }
 
-      # Covariates for subjects in risk set
-      risk_ids <- dt_t[[id_col]][still_in]
-      X_risk <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
+      if (n_train > 0) {
+        # Covariates for at-risk subjects
+        X_risk <- as.data.frame(dt_t[at_risk, covariates, with = FALSE])
+        X_train <- X_risk[has_Q, , drop = FALSE]
+        Y_train <- Q_at_t[has_Q]
 
-      # Training data
-      X_train <- X_risk[has_Q, , drop = FALSE]
-      Y_train <- Q_at_t[has_Q]
+        # Extract sampling weights for training subjects (NULL if none)
+        ow <- NULL
+        if (!is.null(nodes$sampling_weights)) {
+          ow_risk <- dt_t[[nodes$sampling_weights]][at_risk]
+          ow <- ow_risk[has_Q]
+        }
 
-      # Extract sampling weights for training subjects (NULL if none)
-      ow <- NULL
-      if (!is.null(nodes$sampling_weights)) {
-        ow_risk <- dt_t[[nodes$sampling_weights]][still_in]
-        ow <- ow_risk[has_Q]
-      }
-
-      # Fit model
-      if (n_train >= min_obs && length(unique(Y_train)) > 1) {
+        # Fit model
+        if (n_train >= min_obs && length(unique(Y_train)) > 1) {
         cv_folds <- 10L
         if (adaptive_cv && is_binary) {
           cv_info <- .adaptive_cv_folds(Y_train)
@@ -179,10 +179,10 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
         sl_risk <- fit$sl_risk
         sl_coef <- fit$sl_coef
 
-        # Counterfactual prediction: set A to regime value for ALL in risk set
+        # Counterfactual prediction: set A to regime value for at-risk subjects
         X_cf <- X_risk
         if (a_col %in% covariates) {
-          X_cf[[a_col]] <- dt_t$.longy_regime_a[still_in]
+          X_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
         }
 
         # Predict using the fitted model
@@ -193,58 +193,48 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
                                               type = "response"))
         } else {
           marg <- mean(Y_train)
-          preds <- rep(marg, n_risk)
+          preds <- rep(marg, n_at_risk)
         }
-      } else {
-        # Marginal fallback
-        if (!is.null(ow)) {
-          marg <- stats::weighted.mean(Y_train, ow)
         } else {
-          marg <- mean(Y_train)
+          # Marginal fallback
+          if (!is.null(ow)) {
+            marg <- stats::weighted.mean(Y_train, ow)
+          } else {
+            marg <- mean(Y_train)
+          }
+          preds <- rep(marg, n_at_risk)
+          method <- "marginal"
         }
-        preds <- rep(marg, n_risk)
-        method <- "marginal"
-        sl_risk <- NULL
-        sl_coef <- NULL
-      }
 
-      # Bound predictions for binary/survival
-      if (is_binary) {
-        preds <- .bound(preds, bounds[1], bounds[2])
-      }
-
-      # Survival absorbing-state override for predictions: subjects with a
-      # prior observed event must have pred=1 regardless of model output.
-      if (is_survival) {
-        fe_risk <- dt_t$.longy_first_event[still_in]
-        prior_ev <- !is.na(fe_risk) & fe_risk <= tt
-        if (any(prior_ev)) {
-          preds[prior_ev] <- 1
+        # Bound predictions for binary/survival
+        if (is_binary) {
+          preds <- .bound(preds, bounds[1], bounds[2])
         }
-      }
+      } # end if (n_train > 0)
+
+      # Combine at-risk predictions with hard-coded 1 for absorbed subjects
+      all_ids <- c(risk_ids, absorbed_ids)
+      all_preds <- c(preds, rep(1, n_absorbed))
 
       if (verbose) {
-        .vmsg("  Q target=%d time %d: n_risk=%d, n_train=%d, mean_Q=%.3f, method=%s",
-              target_t, tt, n_risk, n_train, mean(preds), method)
+        .vmsg("  Q target=%d time %d: n_at_risk=%d, n_train=%d, n_absorbed=%d, method=%s",
+              target_t, tt, n_at_risk, n_train, n_absorbed, method)
       }
 
       sl_info_target[[i]] <- list(time = tt, target_time = target_t,
                                   method = method,
                                   sl_risk = sl_risk, sl_coef = sl_coef,
-                                  n_risk = n_risk, n_train = n_train)
+                                  n_risk = n_at_risk, n_train = n_train)
 
-      # Propagate pseudo-outcomes backward: set Q at time tt-1 for subjects
-      # in the risk set at tt. Their Q at tt-1 becomes the prediction from tt.
+      # Propagate pseudo-outcomes backward
       prev_times <- all_time_vals[all_time_vals < tt]
-      if (length(prev_times) > 0) {
+      if (length(prev_times) > 0 && length(all_ids) > 0) {
         prev_t <- max(prev_times)
-        # For each subject in the risk set at tt, set their Q at prev_t
         pred_dt_prop <- data.table::data.table(
-          .tmp_id = risk_ids,
-          .tmp_pred = preds
+          .tmp_id = all_ids,
+          .tmp_pred = all_preds
         )
         data.table::setnames(pred_dt_prop, ".tmp_id", id_col)
-        # Match by id in the prev_t rows of dt
         prev_rows <- dt[[time_col]] == prev_t
         prev_ids <- dt[[id_col]][prev_rows]
         match_idx <- match(prev_ids, pred_dt_prop[[id_col]])
@@ -253,11 +243,11 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
       }
 
       # If this is the final backward step (earliest time), store predictions
-      if (tt == backward_times[n_back]) {
+      if (tt == backward_times[n_back] && length(all_ids) > 0) {
         predictions_list[[target_idx]] <- data.table::data.table(
-          .id = risk_ids,
+          .id = all_ids,
           .target_time = target_t,
-          .Q_hat = preds
+          .Q_hat = all_preds
         )
       }
     }
@@ -294,6 +284,9 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
   # Clean up tracking columns
   dt[, .longy_Q := NULL]
   dt[, .longy_regime_a := NULL]
+  if (is_survival && ".longy_first_event" %in% names(dt)) {
+    dt[, .longy_first_event := NULL]
+  }
   .remove_tracking_columns(obj$data)
 
   obj

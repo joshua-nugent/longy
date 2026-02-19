@@ -31,9 +31,13 @@
 #'   across estimators to avoid redundant fitting.
 #' @param covariates Character vector. Predictor columns for nuisance models.
 #'   If NULL, uses all baseline + timevarying.
-#' @param learners Character vector. SuperLearner library names (default
-#'   \code{c("SL.glm", "SL.mean")}). Set to NULL to use plain glm without
-#'   SuperLearner.
+#' @param learners Character vector or named list. SuperLearner library names
+#'   (default \code{c("SL.glm", "SL.mean")}). Set to NULL to use plain glm
+#'   without SuperLearner. When a named list, valid keys are \code{treatment},
+#'   \code{censoring}, \code{observation}, \code{outcome}, and \code{default}.
+#'   Missing keys fall back to \code{default}, which itself falls back to
+#'   \code{c("SL.glm", "SL.mean")}. Example:
+#'   \code{list(default = c("SL.glm", "SL.gam"), outcome = c("SL.glm", "SL.gam", "SL.earth"))}.
 #' @param stabilized Logical. Use stabilized weights (IPW only).
 #' @param truncation Numeric. Weight truncation cap (IPW only).
 #' @param truncation_quantile Numeric. Quantile-based weight truncation (IPW only).
@@ -110,6 +114,19 @@ longy <- function(data,
                   verbose = TRUE) {
 
   sl_fn <- match.arg(sl_fn, c("SuperLearner", "ffSL"))
+
+  # Resolve per-model learner libraries
+  if (is.list(learners) && !is.null(names(learners))) {
+    default_lib <- if (!is.null(learners$default)) learners$default else c("SL.glm", "SL.mean")
+    learners_treatment   <- if (!is.null(learners$treatment))   learners$treatment   else default_lib
+    learners_censoring   <- if (!is.null(learners$censoring))   learners$censoring   else default_lib
+    learners_observation <- if (!is.null(learners$observation))  learners$observation  else default_lib
+    learners_outcome     <- if (!is.null(learners$outcome))      learners$outcome      else default_lib
+  } else {
+    learners_treatment <- learners_censoring <-
+      learners_observation <- learners_outcome <- learners
+  }
+
   estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle", "both", "all"))
   do_ipw <- estimator %in% c("ipw", "both", "all")
   do_gcomp <- estimator %in% c("gcomp", "both", "all")
@@ -187,7 +204,7 @@ longy <- function(data,
       if (verbose) .vmsg("Step %d/%d: Fitting treatment model (g_A)...",
                           cur_step + 1L, n_steps)
       r_obj <- fit_treatment(r_obj, regime = rname, covariates = covariates,
-                             learners = learners, adaptive_cv = adaptive_cv,
+                             learners = learners_treatment, adaptive_cv = adaptive_cv,
                              min_obs = min_obs, bounds = bounds,
                              times = times, sl_fn = sl_fn,
                              verbose = verbose)
@@ -195,7 +212,7 @@ longy <- function(data,
       if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C)...",
                           cur_step + 2L, n_steps)
       r_obj <- fit_censoring(r_obj, regime = rname, covariates = covariates,
-                             learners = learners, adaptive_cv = adaptive_cv,
+                             learners = learners_censoring, adaptive_cv = adaptive_cv,
                              min_obs = min_obs, bounds = bounds,
                              times = times, sl_fn = sl_fn,
                              verbose = verbose)
@@ -203,7 +220,7 @@ longy <- function(data,
       if (verbose) .vmsg("Step %d/%d: Fitting observation model (g_R)...",
                           cur_step + 3L, n_steps)
       r_obj <- fit_observation(r_obj, regime = rname, covariates = covariates,
-                               learners = learners, adaptive_cv = adaptive_cv,
+                               learners = learners_observation, adaptive_cv = adaptive_cv,
                                min_obs = min_obs, bounds = bounds,
                                times = times, sl_fn = sl_fn,
                                verbose = verbose)
@@ -234,7 +251,7 @@ longy <- function(data,
       if (verbose) .vmsg("Step %d/%d: Fitting outcome model...",
                           cur_step + 1L, n_steps)
       r_obj <- fit_outcome(r_obj, regime = rname, covariates = covariates,
-                           learners = learners, adaptive_cv = adaptive_cv,
+                           learners = learners_outcome, adaptive_cv = adaptive_cv,
                            min_obs = min_obs, bounds = bounds,
                            times = times, sl_fn = sl_fn,
                            verbose = verbose)

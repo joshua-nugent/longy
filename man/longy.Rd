@@ -82,9 +82,13 @@ across estimators to avoid redundant fitting.}
 \item{covariates}{Character vector. Predictor columns for nuisance models.
 If NULL, uses all baseline + timevarying.}
 
-\item{learners}{Character vector. SuperLearner library names (default
-\code{c("SL.glm", "SL.mean")}). Set to NULL to use plain glm without
-SuperLearner.}
+\item{learners}{Character vector or named list. SuperLearner library names
+(default \code{c("SL.glm", "SL.mean")}). Set to NULL to use plain glm
+without SuperLearner. When a named list, valid keys are \code{treatment},
+\code{censoring}, \code{observation}, \code{outcome}, and \code{default}.
+Missing keys fall back to \code{default}, which itself falls back to
+\code{c("SL.glm", "SL.mean")}. Example:
+\code{list(default = c("SL.glm", "SL.gam"), outcome = c("SL.glm", "SL.gam", "SL.earth"))}.}
 
 \item{stabilized}{Logical. Use stabilized weights (IPW only).}
 

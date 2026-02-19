@@ -67,6 +67,7 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
   reg <- obj$regimes[[regime]]
 
   is_binary <- nodes$outcome_type %in% c("binary", "survival")
+  is_survival <- nodes$outcome_type == "survival"
 
   # Read outcome model settings (covariates, learners, bounds, sl_fn)
   outcome_settings <- obj$fits$outcome
@@ -111,6 +112,19 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
   regime_vals <- .evaluate_regime(reg, dt)
   dt[, .longy_regime_a := regime_vals]
 
+  # For survival: precompute first event time per subject
+  if (is_survival) {
+    event_rows <- dt[!is.na(dt[[y_col]]) & as.numeric(dt[[y_col]]) == 1]
+    if (nrow(event_rows) > 0) {
+      first_ev <- event_rows[, list(.longy_first_event = min(get(time_col))),
+                              by = c(id_col)]
+      dt[first_ev, .longy_first_event := i..longy_first_event, on = id_col]
+    }
+    if (!".longy_first_event" %in% names(dt)) {
+      dt[, .longy_first_event := NA_real_]
+    }
+  }
+
   # Epsilon for bounding Q to avoid log(0)
   eps <- q_bounds[1]
 
@@ -142,116 +156,137 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
       tt <- backward_times[i]
       dt_t <- dt[dt[[time_col]] == tt, ]
 
-      # Risk set: uncensored through t
+      # Uncensored subjects through t
       still_in <- dt_t$.longy_cum_uncens == 1L
       still_in[is.na(still_in)] <- FALSE
 
-      n_risk <- sum(still_in)
-      if (n_risk == 0) {
+      # For survival: exclude absorbed subjects (event strictly before tt)
+      if (is_survival) {
+        fe <- dt_t$.longy_first_event
+        absorbed <- still_in & !is.na(fe) & fe < tt
+      } else {
+        absorbed <- rep(FALSE, nrow(dt_t))
+      }
+      at_risk <- still_in & !absorbed
+      n_at_risk <- sum(at_risk)
+      n_absorbed <- sum(absorbed)
+      absorbed_ids <- dt_t[[id_col]][absorbed]
+
+      if (n_at_risk == 0 && n_absorbed == 0) {
         if (verbose) .vmsg("  TMLE time %d: 0 at risk, skipping", tt)
         next
       }
 
-      # Training subset: risk set AND Q is non-missing
-      Q_at_t <- dt_t$.longy_Q[still_in]
-      has_Q <- !is.na(Q_at_t)
-      n_train <- sum(has_Q)
+      # Model fitting on at-risk subjects only
+      risk_ids <- dt_t[[id_col]][at_risk]
+      Q_bar <- numeric(0)
+      method <- "none"
+      n_train <- 0L
 
-      if (n_train == 0) {
-        if (verbose) .vmsg("  TMLE time %d: 0 non-missing Q, skipping", tt)
-        next
+      if (n_at_risk > 0) {
+        Q_at_t <- dt_t$.longy_Q[at_risk]
+        has_Q <- !is.na(Q_at_t)
+        n_train <- sum(has_Q)
       }
 
-      risk_ids <- dt_t[[id_col]][still_in]
-      X_risk <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
-      X_train <- X_risk[has_Q, , drop = FALSE]
-      Y_train <- Q_at_t[has_Q]
+      if (n_train > 0) {
+        X_risk <- as.data.frame(dt_t[at_risk, covariates, with = FALSE])
+        X_train <- X_risk[has_Q, , drop = FALSE]
+        Y_train <- Q_at_t[has_Q]
 
-      # Fit Q model (always binomial family since Y in [0,1])
-      if (n_train >= min_obs && length(unique(Y_train)) > 1) {
-        ctx <- sprintf("TMLE-Q, target=%d, time=%d, n_train=%d", target_t, tt, n_train)
-        fit <- .safe_sl(Y = Y_train, X = X_train,
-                        family = stats::quasibinomial(),
-                        learners = learners, cv_folds = 10L,
-                        sl_fn = sl_fn, context = ctx, verbose = FALSE)
-        method <- fit$method
+        # Fit Q model (always binomial family since Y in [0,1])
+        if (n_train >= min_obs && length(unique(Y_train)) > 1) {
+          ctx <- sprintf("TMLE-Q, target=%d, time=%d, n_train=%d", target_t, tt, n_train)
+          fit <- .safe_sl(Y = Y_train, X = X_train,
+                          family = stats::quasibinomial(),
+                          learners = learners, cv_folds = 10L,
+                          sl_fn = sl_fn, context = ctx, verbose = FALSE)
+          method <- fit$method
 
-        # Counterfactual prediction: set A to regime value
-        X_cf <- X_risk
-        if (a_col %in% covariates) {
-          X_cf[[a_col]] <- dt_t$.longy_regime_a[still_in]
-        }
+          # Counterfactual prediction: set A to regime value
+          X_cf <- X_risk
+          if (a_col %in% covariates) {
+            X_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
+          }
 
-        if (method == "SuperLearner") {
-          Q_bar <- as.numeric(stats::predict(fit$fit, newdata = X_cf)$pred)
-        } else if (method == "glm") {
-          Q_bar <- as.numeric(stats::predict(fit$fit, newdata = X_cf,
-                                              type = "response"))
+          if (method == "SuperLearner") {
+            Q_bar <- as.numeric(stats::predict(fit$fit, newdata = X_cf)$pred)
+          } else if (method == "glm") {
+            Q_bar <- as.numeric(stats::predict(fit$fit, newdata = X_cf,
+                                                type = "response"))
+          } else {
+            Q_bar <- rep(mean(Y_train), n_at_risk)
+          }
         } else {
-          Q_bar <- rep(mean(Y_train), n_risk)
+          Q_bar <- rep(mean(Y_train), n_at_risk)
+          method <- "marginal"
         }
-      } else {
-        Q_bar <- rep(mean(Y_train), n_risk)
-        method <- "marginal"
+
+        # Bound Q_bar
+        Q_bar <- .bound(Q_bar, eps, 1 - eps)
+      } # end if (n_train > 0)
+
+      # --- TMLE fluctuation (at-risk subjects only) ---
+      fluct_epsilon <- 0
+      Q_star <- numeric(0)
+
+      if (n_train > 0) {
+        # Fluctuation set: regime-consistent AND uncensored through t
+        cum_consist <- dt_t$.longy_cum_consist[at_risk] == 1L
+        cum_consist[is.na(cum_consist)] <- FALSE
+        in_fluct <- cum_consist
+
+        # Get g_cum and g_r for at-risk subjects
+        g_at_t <- merge(
+          data.table::data.table(.tmp_id = risk_ids, .tmp_order = seq_along(risk_ids)),
+          g_cum_dt[g_cum_dt$.time == tt, c(id_col, ".g_cum", ".g_r"), with = FALSE],
+          by.x = ".tmp_id", by.y = id_col, all.x = TRUE
+        )
+        data.table::setorder(g_at_t, .tmp_order)
+        g_cum_vals <- g_at_t$.g_cum
+        g_r_vals <- g_at_t$.g_r
+        g_cum_vals[is.na(g_cum_vals)] <- 1
+        g_r_vals[is.na(g_r_vals)] <- 1
+
+        g_denom <- g_cum_vals * g_r_vals
+
+        # Pseudo-outcome: Q values for at-risk subjects
+        pseudo_out <- dt_t$.longy_Q[at_risk]
+
+        fluct <- .tmle_fluctuate(Q_bar = Q_bar,
+                                 pseudo_outcome = pseudo_out,
+                                 g_cum = g_denom,
+                                 in_fluctuation_set = in_fluct,
+                                 bounds = c(eps, 1 - eps))
+        Q_star <- fluct$Q_star
+        fluct_epsilon <- fluct$epsilon
       }
-
-      # Bound Q_bar
-      Q_bar <- .bound(Q_bar, eps, 1 - eps)
-
-      # --- TMLE fluctuation ---
-      # Fluctuation set: regime-consistent AND uncensored through t
-      consist_at_t <- dt_t$.longy_regime_consist[still_in] == 1L
-      consist_at_t[is.na(consist_at_t)] <- FALSE
-      # Cumulative consistency through t
-      cum_consist <- dt_t$.longy_cum_consist[still_in] == 1L
-      cum_consist[is.na(cum_consist)] <- FALSE
-      in_fluct <- cum_consist
-
-      # Get g_cum and g_r for risk set at this time
-      g_at_t <- merge(
-        data.table::data.table(.tmp_id = risk_ids, .tmp_order = seq_along(risk_ids)),
-        g_cum_dt[g_cum_dt$.time == tt, c(id_col, ".g_cum", ".g_r"), with = FALSE],
-        by.x = ".tmp_id", by.y = id_col, all.x = TRUE
-      )
-      data.table::setorder(g_at_t, .tmp_order)
-      g_cum_vals <- g_at_t$.g_cum
-      g_r_vals <- g_at_t$.g_r
-      # Subjects not in g_cum_dt (e.g., non-followers) get g_cum = NA -> set to 1
-      g_cum_vals[is.na(g_cum_vals)] <- 1
-      g_r_vals[is.na(g_r_vals)] <- 1
-
-      # Denominator for clever covariate: g_cum * g_r
-      g_denom <- g_cum_vals * g_r_vals
-
-      # Pseudo-outcome: Q values for subjects in fluctuation set
-      pseudo_out <- dt_t$.longy_Q[still_in]
-
-      fluct <- .tmle_fluctuate(Q_bar = Q_bar,
-                               pseudo_outcome = pseudo_out,
-                               g_cum = g_denom,
-                               in_fluctuation_set = in_fluct,
-                               bounds = c(eps, 1 - eps))
-      Q_star <- fluct$Q_star
 
       if (verbose) {
-        .vmsg("  TMLE time %d: n_risk=%d, n_train=%d, eps=%.4f, method=%s",
-              tt, n_risk, n_train, fluct$epsilon, method)
+        .vmsg("  TMLE time %d: n_at_risk=%d, n_train=%d, n_absorbed=%d, eps=%.4f, method=%s",
+              tt, n_at_risk, n_train, n_absorbed, fluct_epsilon, method)
       }
 
-      # Store Q* for EIF
-      Q_star_list[[as.character(tt)]] <- data.table::data.table(
-        .tmp_id = risk_ids,
-        .Q_star = Q_star
-      )
-      data.table::setnames(Q_star_list[[as.character(tt)]], ".tmp_id", id_col)
+      # Combine at-risk Q* with hard-coded 1 for absorbed subjects
+      all_ids <- c(risk_ids, absorbed_ids)
+      all_Q_star <- c(Q_star, rep(1, n_absorbed))
+
+      # Store Q* for EIF (includes absorbed subjects)
+      if (length(all_ids) > 0) {
+        Q_star_list[[as.character(tt)]] <- data.table::data.table(
+          .tmp_id = all_ids,
+          .Q_star = all_Q_star
+        )
+        data.table::setnames(Q_star_list[[as.character(tt)]], ".tmp_id", id_col)
+      }
 
       # Propagate: set Q at prev_t = Q*_t (TARGETED, not raw)
       prev_times <- all_time_vals[all_time_vals < tt]
-      if (length(prev_times) > 0) {
+      if (length(prev_times) > 0 && length(all_ids) > 0) {
         prev_t <- max(prev_times)
         pred_dt_prop <- data.table::data.table(
-          .tmp_id = risk_ids,
-          .tmp_pred = Q_star
+          .tmp_id = all_ids,
+          .tmp_pred = all_Q_star
         )
         data.table::setnames(pred_dt_prop, ".tmp_id", id_col)
         prev_rows <- dt[[time_col]] == prev_t
@@ -352,6 +387,9 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
   # Clean up
   dt[, .longy_Q := NULL]
   dt[, .longy_regime_a := NULL]
+  if (is_survival && ".longy_first_event" %in% names(dt)) {
+    dt[, .longy_first_event := NULL]
+  }
   .remove_tracking_columns(obj$data)
 
   result <- list(
