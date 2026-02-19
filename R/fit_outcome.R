@@ -52,7 +52,11 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
 
   # Determine family based on outcome type
   is_binary <- nodes$outcome_type %in% c("binary", "survival")
-  family <- if (is_binary) stats::binomial() else stats::gaussian()
+  # Use quasibinomial for binary/survival: during backward ICE, pseudo-outcomes
+
+  # are continuous predictions in [0,1], not strict 0/1. quasibinomial handles
+  # this correctly and triggers the SL.xgboost regression-objective swap.
+  family <- if (is_binary) stats::quasibinomial() else stats::gaussian()
 
   # Determine target times
   if (!is.null(times)) {
@@ -72,6 +76,22 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
   regime_vals <- .evaluate_regime(reg, dt)
   dt[, .longy_regime_a := regime_vals]
 
+  # For survival outcomes: precompute first observed event time per subject.
+  # Used to enforce the absorbing state (once Y=1, Q=1 at all future times)
+  # without requiring a Y_lag covariate.
+  is_survival <- nodes$outcome_type == "survival"
+  if (is_survival) {
+    event_rows <- dt[!is.na(dt[[y_col]]) & as.numeric(dt[[y_col]]) == 1]
+    if (nrow(event_rows) > 0) {
+      first_ev <- event_rows[, list(.longy_first_event = min(get(time_col))),
+                              by = c(id_col)]
+      dt[first_ev, .longy_first_event := i..longy_first_event, on = id_col]
+    }
+    if (!".longy_first_event" %in% names(dt)) {
+      dt[, .longy_first_event := NA_real_]
+    }
+  }
+
   # Outer loop: one backward pass per target time (ICE)
   predictions_list <- vector("list", length(target_times))
   sl_info_list <- vector("list", length(target_times))
@@ -90,6 +110,19 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
 
     for (i in seq_along(backward_times)) {
       tt <- backward_times[i]
+
+      # Survival absorbing-state override: if a subject was observed with Y=1
+      # at any time s <= tt, then Y(T)=1 with certainty (absorbing), so Q=1.
+      # This is set on dt BEFORE creating dt_t so the slice picks it up.
+      if (is_survival) {
+        rows_tt <- which(dt[[time_col]] == tt)
+        fe <- dt$.longy_first_event[rows_tt]
+        has_prior <- !is.na(fe) & fe <= tt
+        if (any(has_prior)) {
+          dt$.longy_Q[rows_tt[has_prior]] <- 1
+        }
+      }
+
       dt_t <- dt[dt[[time_col]] == tt, ]
 
       # Risk set: ALL uncensored subjects through t
@@ -136,10 +169,12 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
           cv_info <- .adaptive_cv_folds(Y_train)
           cv_folds <- cv_info$V
         }
+        ctx <- sprintf("Q, target=%d, time=%d, n_train=%d, mean_Q=%.3f",
+                       target_t, tt, n_train, mean(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, family = family,
                         learners = learners, cv_folds = cv_folds,
                         obs_weights = ow, sl_fn = sl_fn,
-                        verbose = verbose)
+                        context = ctx, verbose = verbose)
         method <- fit$method
         sl_risk <- fit$sl_risk
         sl_coef <- fit$sl_coef
@@ -176,6 +211,16 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
       # Bound predictions for binary/survival
       if (is_binary) {
         preds <- .bound(preds, bounds[1], bounds[2])
+      }
+
+      # Survival absorbing-state override for predictions: subjects with a
+      # prior observed event must have pred=1 regardless of model output.
+      if (is_survival) {
+        fe_risk <- dt_t$.longy_first_event[still_in]
+        prior_ev <- !is.na(fe_risk) & fe_risk <= tt
+        if (any(prior_ev)) {
+          preds[prior_ev] <- 1
+        }
       }
 
       if (verbose) {

@@ -169,10 +169,11 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
 
       # Fit Q model (always binomial family since Y in [0,1])
       if (n_train >= min_obs && length(unique(Y_train)) > 1) {
+        ctx <- sprintf("TMLE-Q, target=%d, time=%d, n_train=%d", target_t, tt, n_train)
         fit <- .safe_sl(Y = Y_train, X = X_train,
                         family = stats::quasibinomial(),
                         learners = learners, cv_folds = 10L,
-                        sl_fn = sl_fn, verbose = FALSE)
+                        sl_fn = sl_fn, context = ctx, verbose = FALSE)
         method <- fit$method
 
         # Counterfactual prediction: set A to regime value
@@ -388,9 +389,22 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
 
   # Subjects in fluctuation set with non-missing pseudo-outcome
   in_set <- in_fluctuation_set & !is.na(pseudo_outcome)
+  n_fluct <- sum(in_set)
+  n_risk <- length(Q_bar)
 
-  if (sum(in_set) < 2) {
+  if (n_fluct < 2) {
+    if (n_fluct > 0) {
+      warning(sprintf(
+        "Fluctuation set has only %d regime-consistent subject(s). Skipping targeting.",
+        n_fluct), call. = FALSE)
+    }
     return(list(Q_star = Q_bar, epsilon = 0))
+  }
+
+  if (n_risk > 0 && n_fluct < n_risk * 0.1) {
+    warning(sprintf(
+      "Fluctuation set (%d regime-consistent) is <10%% of risk set (%d). Targeting will have limited effect.",
+      n_fluct, n_risk), call. = FALSE)
   }
 
   offset_vals <- stats::qlogis(Q_bar[in_set])
@@ -410,10 +424,17 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
     )
     fluct_fit$coefficients[1]
   }, error = function(e) {
+    warning(sprintf(
+      "TMLE fluctuation failed: %s. Setting epsilon=0 (no targeting).",
+      e$message), call. = FALSE)
     0
   })
 
-  if (!is.finite(epsilon)) epsilon <- 0
+  if (!is.finite(epsilon)) {
+    warning("TMLE fluctuation produced non-finite epsilon; setting epsilon=0.",
+            call. = FALSE)
+    epsilon <- 0
+  }
 
   # Apply epsilon to ALL risk set subjects (counterfactual predictions)
   Q_star <- .expit(stats::qlogis(Q_bar) + epsilon)

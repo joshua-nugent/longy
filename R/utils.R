@@ -77,7 +77,7 @@
                      learners = c("SL.glm", "SL.mean"),
                      cv_folds = 10L, obs_weights = NULL,
                      sl_fn = "SuperLearner",
-                     verbose = FALSE) {
+                     context = "", verbose = FALSE) {
   X <- as.data.frame(X)
 
   # If SuperLearner is available and learners specified, try it
@@ -94,20 +94,68 @@
 
     sl_call_fn <- if (use_ffSL) .ffSL else SuperLearner::SuperLearner
 
+    # Many SL wrappers (SL.earth, SL.nnet, SL.ranger) only handle
+    # family$family == "gaussian" or "binomial". quasibinomial uses the
+    # same link/variance so we can safely substitute for SL compatibility.
+    sl_family <- family
+    is_quasi <- identical(family$family, "quasibinomial")
+    if (is_quasi) {
+      sl_family <- stats::binomial()
+    }
+
     # SuperLearner looks up learner and screening functions in env=;
-    # point it at the SuperLearner namespace so SL.glm, All, etc. are found
+    # use a combined environment so custom wrappers in globalenv() are
+    # found alongside standard SL learners in the SuperLearner namespace.
+    sl_env <- new.env(parent = asNamespace("SuperLearner"))
+    for (nm in ls(globalenv(), pattern = "^SL\\.")) {
+      assign(nm, get(nm, envir = globalenv()), envir = sl_env)
+    }
+
+    # When Y is continuous [0,1] (quasibinomial), xgboost's binary:logistic
+    # objective crashes. Swap SL.xgboost for a regression-objective wrapper
+    # that uses reg:squarederror, which handles continuous Y natively.
+    if (is_quasi && "SL.xgboost" %in% learners) {
+      xgb_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
+        SuperLearner::SL.xgboost(Y = Y, X = X, newX = newX,
+                                  family = stats::gaussian(),
+                                  obsWeights = obsWeights, id = id, ...)
+      }
+      assign("SL.xgboost.reg", xgb_reg_fn, envir = sl_env)
+      learners[learners == "SL.xgboost"] <- "SL.xgboost.reg"
+    }
+
     fit <- tryCatch(
       {
         sl_args <- list(
-          Y = Y, X = X, family = family,
+          Y = Y, X = X, family = sl_family,
           SL.library = learners,
           cvControl = list(V = cv_folds),
-          env = asNamespace("SuperLearner")
+          env = sl_env
         )
         if (!is.null(obs_weights)) {
           sl_args$obsWeights <- obs_weights
         }
         sl_fit <- do.call(sl_call_fn, sl_args)
+        # Post-fit learner failure diagnostics
+        cv_errs <- sl_fit$errorsInCVLibrary
+        lib_errs <- sl_fit$errorsInLibrary
+        all_errs <- as.logical(cv_errs) | as.logical(lib_errs)
+        n_failed <- sum(all_errs)
+        n_total <- length(all_errs)
+        if (n_failed > 0) {
+          failed_names <- sl_fit$libraryNames[all_errs]
+          ctx <- if (nzchar(context)) paste0(" [", context, "]") else ""
+          if (n_failed >= n_total * 0.5) {
+            warning(sprintf(
+              "%d/%d learner(s) failed%s: %s. SL is relying heavily on survivors.",
+              n_failed, n_total, ctx, paste(failed_names, collapse = ", ")),
+              call. = FALSE)
+          } else if (verbose) {
+            .vmsg("  %d/%d learner(s) failed%s: %s",
+                  n_failed, n_total, ctx, paste(failed_names, collapse = ", "))
+          }
+        }
+
         list(
           predictions = as.numeric(sl_fit$SL.predict),
           fit = sl_fit,
@@ -117,8 +165,9 @@
         )
       },
       error = function(e) {
-        warning(sprintf("SuperLearner failed: %s. Falling back to glm.",
-                        e$message), call. = FALSE)
+        ctx <- if (nzchar(context)) paste0(" [", context, "]") else ""
+        warning(sprintf("SuperLearner failed%s (n=%d, event_rate=%.3f): %s. Falling back to glm.",
+                        ctx, length(Y), mean(Y), e$message), call. = FALSE)
         NULL
       }
     )

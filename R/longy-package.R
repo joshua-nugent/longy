@@ -29,7 +29,9 @@ utils::globalVariables(c(
   # ggplot2 aes variables
   "time", "estimate", "ci_lower", "ci_upper", "regime", "estimator_label",
   # data.table special vars
-  "nu", "nfold"
+  "nu", "nfold",
+  # weights.R ESS diagnostics
+  ".ess", ".ess_pct", ".n"
 ))
 
 #' Simulated Longitudinal Dataset with Known Causal Effects

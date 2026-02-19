@@ -68,6 +68,7 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
 
     results <- vector("list", length(time_vals))
     sl_info <- vector("list", length(time_vals))
+    n_marginal <- 0L
 
     for (i in seq_along(time_vals)) {
       tt <- time_vals[i]
@@ -102,6 +103,9 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
       }
 
       if (length(unique(Y)) > 1 && n_risk >= min_obs) {
+        cens_rate <- 1 - mean(Y)  # Y = 1-C, so censoring rate = 1 - mean(Y)
+        ctx <- sprintf("g_C(%s), time=%d, n=%d, censoring_rate=%.3f",
+                       cvar, tt, n_risk, cens_rate)
         cv_folds <- 10L
         if (adaptive_cv) {
           cv_info <- .adaptive_cv_folds(Y)
@@ -109,7 +113,7 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
         }
         fit <- .safe_sl(Y = Y, X = X, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow,
-                        sl_fn = sl_fn, verbose = verbose)
+                        sl_fn = sl_fn, context = ctx, verbose = verbose)
         p_c <- .bound(fit$predictions, bounds[1], bounds[2])
         method <- fit$method
         sl_risk <- fit$sl_risk
@@ -120,6 +124,18 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
         method <- "marginal"
         sl_risk <- NULL
         sl_coef <- NULL
+        n_marginal <- n_marginal + 1L
+        if (length(unique(Y)) <= 1) {
+          cens_rate <- 1 - mean(Y)
+          warning(sprintf(
+            "g_C(%s) at time %d: no censoring events (rate=%.3f). Using marginal.",
+            cvar, tt, cens_rate), call. = FALSE)
+        } else {
+          cens_rate <- 1 - mean(Y)
+          warning(sprintf(
+            "g_C(%s) at time %d: only %d at risk, censoring_rate=%.3f. Using marginal.",
+            cvar, tt, n_risk, cens_rate), call. = FALSE)
+        }
       }
 
       marg_c <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
@@ -144,10 +160,15 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
     }
 
     non_null <- !vapply(results, is.null, logical(1))
+    n_fitted <- sum(non_null)
     if (!any(non_null)) {
       warning(sprintf(
         "No observations at risk for any time point in censoring (g_C) model for '%s'.",
         cvar), call. = FALSE)
+    } else if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
+      warning(sprintf(
+        "g_C(%s): marginal fallback used at %d/%d time points. Model may be unreliable.",
+        cvar, n_marginal, n_fitted), call. = FALSE)
     }
     results <- data.table::rbindlist(results[non_null])
     data.table::setnames(results, ".id", nodes$id)

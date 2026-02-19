@@ -61,6 +61,7 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
 
   results <- vector("list", length(time_vals))
   sl_info <- vector("list", length(time_vals))
+  n_marginal <- 0L
 
   for (i in seq_along(time_vals)) {
     tt <- time_vals[i]
@@ -96,9 +97,10 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
         cv_info <- .adaptive_cv_folds(Y)
         cv_folds <- cv_info$V
       }
+      ctx <- sprintf("g_A, time=%d, n=%d, event_rate=%.3f", tt, n_risk, mean(Y))
       fit <- .safe_sl(Y = Y, X = X, learners = learners,
                       cv_folds = cv_folds, obs_weights = ow,
-                      sl_fn = sl_fn, verbose = verbose)
+                      sl_fn = sl_fn, context = ctx, verbose = verbose)
       p_a <- .bound(fit$predictions, bounds[1], bounds[2])
       method <- fit$method
       sl_risk <- fit$sl_risk
@@ -109,6 +111,17 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
       method <- "marginal"
       sl_risk <- NULL
       sl_coef <- NULL
+      n_marginal <- n_marginal + 1L
+      # Warn with reason for marginal fallback
+      if (length(unique(Y)) <= 1) {
+        warning(sprintf(
+          "g_A at time %d: outcome is constant (all %s). Using marginal. Check treatment variation.",
+          tt, if (all(Y == 1)) "1" else "0"), call. = FALSE)
+      } else {
+        warning(sprintf(
+          "g_A at time %d: only %d at risk (min_obs=%d). Using marginal (=%.3f). Consider reducing min_obs.",
+          tt, n_risk, min_obs, marg), call. = FALSE)
+      }
     }
 
     marg_a <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
@@ -133,9 +146,14 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
   }
 
   non_null <- !vapply(results, is.null, logical(1))
+  n_fitted <- sum(non_null)
   if (!any(non_null)) {
     warning("No observations at risk for any time point in treatment (g_A) model.",
             call. = FALSE)
+  } else if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
+    warning(sprintf(
+      "g_A: marginal fallback used at %d/%d time points. Model may be unreliable.",
+      n_marginal, n_fitted), call. = FALSE)
   }
   results <- data.table::rbindlist(results[non_null])
   data.table::setnames(results, ".id", nodes$id)

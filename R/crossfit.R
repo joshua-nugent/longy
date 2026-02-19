@@ -104,9 +104,11 @@ NULL
           cv_info <- .adaptive_cv_folds(Y_train)
           cv_folds <- cv_info$V
         }
+        ctx <- sprintf("CF g_A, time=%d, fold=%d/%d, n_train=%d",
+                       tt, k, n_folds, length(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow_train,
-                        sl_fn = sl_fn, verbose = FALSE)
+                        sl_fn = sl_fn, context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
         marg_train <- if (!is.null(ow_train)) {
@@ -255,9 +257,11 @@ NULL
             cv_info <- .adaptive_cv_folds(Y_train)
             cv_folds <- cv_info$V
           }
+          ctx <- sprintf("CF g_C(%s), time=%d, fold=%d/%d, n_train=%d",
+                         cvar, tt, k, n_folds, length(Y_train))
           fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                           cv_folds = cv_folds, obs_weights = ow_train,
-                          sl_fn = sl_fn, verbose = FALSE)
+                          sl_fn = sl_fn, context = ctx, verbose = FALSE)
           preds_val <- .predict_from_fit(fit, X_val)
         } else {
           marg_train <- if (!is.null(ow_train)) {
@@ -406,9 +410,11 @@ NULL
           cv_info <- .adaptive_cv_folds(Y_train)
           cv_folds <- cv_info$V
         }
+        ctx <- sprintf("CF g_R, time=%d, fold=%d/%d, n_train=%d",
+                       tt, k, n_folds, length(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow_train,
-                        sl_fn = sl_fn, verbose = FALSE)
+                        sl_fn = sl_fn, context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
         marg_train <- if (!is.null(ow_train)) {
@@ -536,9 +542,10 @@ NULL
     }
 
     if (length(Y_k) >= min_obs && length(unique(Y_k)) > 1) {
+      ctx <- sprintf("CF Q-step, fold=%d/%d, n_train=%d", k, n_folds, length(Y_k))
       fit <- .safe_sl(Y = Y_k, X = X_k, family = family,
                       learners = learners, cv_folds = cv_folds,
-                      sl_fn = sl_fn, verbose = FALSE)
+                      sl_fn = sl_fn, context = ctx, verbose = FALSE)
       preds <- .predict_from_fit(fit, X_val_cf)
     } else {
       preds <- rep(mean(Y_k), length(val_idx))

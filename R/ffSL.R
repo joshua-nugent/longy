@@ -153,17 +153,15 @@
       stop(paste("Cannot find screening function:", screen_fn_name))
     }
 
-    testScreen <- try(do.call(screen_fn, list(
-      Y = tempOutcome, X = tempLearn, family = family,
-      id = tempId, obsWeights = tempObsWeights
-    )))
-
-    if (inherits(testScreen, "try-error")) {
-      warning(paste("replacing failed screening algorithm,", screen_fn_name,
-                    ", with All()\n "))
+    whichScreen <- tryCatch(
+      do.call(screen_fn, list(
+        Y = tempOutcome, X = tempLearn, family = family,
+        id = tempId, obsWeights = tempObsWeights
+      )),
+      error = function(e) NULL
+    )
+    if (is.null(whichScreen)) {
       whichScreen <- rep(TRUE, p)
-    } else {
-      whichScreen <- testScreen
     }
 
     pred_fn_name <- library$library$predAlgorithm[alg_idx]
@@ -176,16 +174,17 @@
       stop(paste("Cannot find function:", pred_fn_name))
     }
 
-    testAlg <- try(do.call(pred_fn, list(
-      Y = tempOutcome,
-      X = tempLearn[, whichScreen, drop = FALSE],
-      newX = tempValid[, whichScreen, drop = FALSE],
-      family = family, id = tempId, obsWeights = tempObsWeights
-    )))
+    testAlg <- tryCatch(
+      do.call(pred_fn, list(
+        Y = tempOutcome,
+        X = tempLearn[, whichScreen, drop = FALSE],
+        newX = tempValid[, whichScreen, drop = FALSE],
+        family = family, id = tempId, obsWeights = tempObsWeights
+      )),
+      error = function(e) NULL
+    )
 
-    if (inherits(testAlg, "try-error")) {
-      warning(paste("Error in algorithm", pred_fn_name,
-                    "\n  The Algorithm will be removed from the Super Learner (i.e. given weight 0) \n"))
+    if (is.null(testAlg)) {
       pred <- rep(NA, nrow(tempValid))
     } else {
       pred <- testAlg$pred
@@ -221,6 +220,11 @@
 
     errorsInCVLibrary <- apply(Z, 2, function(x) any(is.na(x)))
     if (sum(errorsInCVLibrary) > 0) {
+      n_cv_failed <- sum(errorsInCVLibrary)
+      failed_cv_names <- libraryNames[as.logical(errorsInCVLibrary)]
+      warning(sprintf(
+        "ffSL: %d learner(s) failed in CV and will be dropped: %s.",
+        n_cv_failed, paste(failed_cv_names, collapse = ", ")), call. = FALSE)
       Z[, as.logical(errorsInCVLibrary)] <- 0
     }
     if (all(Z == 0)) {
@@ -251,13 +255,12 @@
       stop(paste("Cannot find screening function:", fun))
     }
 
-    testScreen <- try(do.call(screen_fn, list))
-    if (inherits(testScreen, "try-error")) {
-      warning(paste("replacing failed screening algorithm,", fun,
-                    ", with All() in full data\n "))
+    out <- tryCatch(
+      do.call(screen_fn, list),
+      error = function(e) NULL
+    )
+    if (is.null(out)) {
       out <- rep(TRUE, ncol(list$X))
-    } else {
-      out <- testScreen
     }
     out
   }
@@ -282,15 +285,16 @@
         stop(paste("Cannot find function:", pred_fn_name))
       }
 
-      testAlg <- try(do.call(pred_fn, list(
-        Y = Y,
-        X = dataX[, whichScreen[lib$rowScreen[index], ], drop = FALSE],
-        newX = newX[, whichScreen[lib$rowScreen[index], ], drop = FALSE],
-        family = family, id = id, obsWeights = obsWeights
-      )))
-      if (inherits(testAlg, "try-error")) {
-        warning(paste("Error in algorithm", pred_fn_name, " on full data",
-                      "\n  The Algorithm will be removed from the Super Learner (i.e. given weight 0) \n"))
+      testAlg <- tryCatch(
+        do.call(pred_fn, list(
+          Y = Y,
+          X = dataX[, whichScreen[lib$rowScreen[index], ], drop = FALSE],
+          newX = newX[, whichScreen[lib$rowScreen[index], ], drop = FALSE],
+          family = family, id = id, obsWeights = obsWeights
+        )),
+        error = function(e) NULL
+      )
+      if (is.null(testAlg)) {
         out$pred <- rep.int(NA, times = nrow(newX))
       } else {
         out$pred <- testAlg$pred
@@ -320,9 +324,12 @@
 
     errorsInLibrary <- apply(predY, 2, function(xx) anyNA(xx))
     if (sum(errorsInLibrary) > 0) {
+      n_pred_failed <- sum(errorsInLibrary)
+      failed_pred_names <- libraryNames[as.logical(errorsInLibrary)]
+      warning(sprintf(
+        "ffSL: %d learner(s) failed in prediction: %s. Re-computing weights without them.",
+        n_pred_failed, paste(failed_pred_names, collapse = ", ")), call. = FALSE)
       if (sum(coef[as.logical(errorsInLibrary)]) > 0) {
-        warning(paste0("Re-running estimation of coefficients removing failed algorithm(s)\n",
-                       "Original coefficients are: \n", paste(coef, collapse = ", "), "\n"))
         Z[, as.logical(errorsInLibrary)] <- 0
         if (all(Z == 0)) {
           stop("All algorithms dropped from library")
