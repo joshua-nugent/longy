@@ -11,10 +11,16 @@ test_that("longy_data creates valid object from simple data", {
   expect_true(data.table::is.data.table(obj$data))
   expect_equal(obj$nodes$id, "id")
   expect_equal(obj$nodes$treatment, "A")
-  expect_equal(obj$nodes$censoring, "C")
+  expect_equal(obj$nodes$censoring, ".cens_censored")
+  expect_equal(obj$nodes$censoring_col, "C")
+  expect_equal(obj$nodes$censoring_levels, "censored")
   expect_equal(obj$nodes$observation, "R")
   expect_equal(obj$meta$n_subjects, 50)
   expect_equal(obj$meta$min_time, 0)
+  # Internal binary column should exist
+
+  expect_true(".cens_censored" %in% names(obj$data))
+  expect_true(all(obj$data$.cens_censored %in% c(0L, 1L)))
 })
 
 test_that("longy_data rejects missing columns", {
@@ -79,7 +85,6 @@ test_that("longy_data rejects non-constant baseline", {
 
 test_that("longy_data works without censoring or observation", {
   d <- simulate_no_censoring(n = 30, K = 3)
-  d$C <- NULL
   d$R <- NULL
   d$Y[is.na(d$Y)] <- 0  # fill NAs
   obj <- longy_data(
@@ -90,6 +95,7 @@ test_that("longy_data works without censoring or observation", {
   )
   expect_s3_class(obj, "longy_data")
   expect_null(obj$nodes$censoring)
+  expect_null(obj$nodes$censoring_col)
   expect_null(obj$nodes$observation)
 })
 
@@ -185,4 +191,75 @@ test_that("set_crossfit assigns folds at subject level", {
   # Each subject should have one fold value
   fold_by_id <- obj$data[, .(nfold = data.table::uniqueN(.longy_fold)), by = id]
   expect_true(all(fold_by_id$nfold == 1))
+})
+
+test_that("longy_data rejects non-character censoring column", {
+  d <- simulate_test_data(n = 20, K = 3)
+  d$C_num <- ifelse(d$C == "censored", 1L, 0L)
+  expect_error(
+    longy_data(d, id = "id", time = "time", outcome = "Y",
+               treatment = "A", censoring = "C_num", verbose = FALSE),
+    "character or factor"
+  )
+})
+
+test_that("longy_data rejects censoring column without 'uncensored'", {
+  d <- simulate_test_data(n = 20, K = 3)
+  d$C <- ifelse(d$C == "uncensored", "alive", d$C)
+  expect_error(
+    longy_data(d, id = "id", time = "time", outcome = "Y",
+               treatment = "A", censoring = "C", verbose = FALSE),
+    "uncensored"
+  )
+})
+
+test_that("longy_data rejects censoring column with NAs", {
+  d <- simulate_test_data(n = 20, K = 3)
+  d$C[1] <- NA
+  expect_error(
+    longy_data(d, id = "id", time = "time", outcome = "Y",
+               treatment = "A", censoring = "C", verbose = FALSE),
+    "NAs"
+  )
+})
+
+test_that("longy_data decomposes multi-cause censoring", {
+  d <- simulate_multi_censoring(n = 50, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+
+  expect_equal(obj$nodes$censoring_col, "C")
+  expect_equal(sort(obj$nodes$censoring_levels), c("death", "ltfu"))
+  expect_equal(sort(obj$nodes$censoring), c(".cens_death", ".cens_ltfu"))
+  # Internal binary columns should exist
+  expect_true(".cens_death" %in% names(obj$data))
+  expect_true(".cens_ltfu" %in% names(obj$data))
+  # Check decomposition correctness
+  expect_true(all(obj$data$.cens_death %in% c(0L, 1L)))
+  expect_true(all(obj$data$.cens_ltfu %in% c(0L, 1L)))
+  expect_equal(obj$data$.cens_death,
+               as.integer(obj$data$C == "death"))
+})
+
+test_that("longy_data accepts factor censoring column", {
+  d <- simulate_test_data(n = 30, K = 3)
+  d$C <- factor(d$C, levels = c("uncensored", "censored"))
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  expect_equal(obj$nodes$censoring, ".cens_censored")
+  expect_equal(obj$nodes$censoring_col, "C")
+})
+
+test_that("print and summary show censoring causes", {
+  d <- simulate_multi_censoring(n = 30, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  expect_output(print(obj), "causes:")
+  expect_output(summary(obj), "death")
 })

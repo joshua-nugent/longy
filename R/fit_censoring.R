@@ -1,10 +1,17 @@
 #' Fit Censoring Models (g_C)
 #'
-#' Fits models for P(C(t) = 0 | past) at each time point. The risk set
-#' additionally requires regime-consistency AT time t (the subject has already
-#' received A(t) before C(t) is determined).
+#' Fits models for P(C(t) = 0 | past) at each time point, separately for
+#' each censoring cause. The risk set additionally requires
+#' regime-consistency AT time t (the subject has already received A(t) before
+#' C(t) is determined).
 #'
-#' @param obj A `longy_data` object with at least one regime defined.
+#' This function loops over the internal binary censoring columns stored in
+#' \code{obj$nodes$censoring} (e.g. \code{".cens_censored"}, \code{".cens_death"}).
+#' These are created automatically by \code{\link{longy_data}} from the
+#' user-provided character censoring column. If there are no censoring columns
+#' (censoring is NULL), the function returns immediately.
+#'
+#' @param obj A \code{longy_data} object with at least one regime defined.
 #' @param regime Character. Name of the regime.
 #' @param covariates Character vector. Predictor columns. If NULL, uses all
 #'   baseline + timevarying covariates.
@@ -13,12 +20,14 @@
 #' @param adaptive_cv Logical. Adaptive CV fold selection.
 #' @param min_obs Integer. Minimum observations for model fitting.
 #' @param bounds Numeric(2). Prediction bounds.
-#' @param times Numeric vector. If provided, only fit through `max(times)`.
+#' @param times Numeric vector. If provided, only fit through \code{max(times)}.
 #' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
 #'   (default) or \code{"ffSL"} (future-factorial parallel).
 #' @param verbose Logical. Progress messages.
 #'
-#' @return Modified `longy_data` object with censoring fits stored.
+#' @return Modified \code{longy_data} object with censoring fits stored in
+#'   \code{obj$fits$censoring}, a named list keyed by internal column name
+#'   (e.g. \code{".cens_censored"}).
 #' @export
 fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                           sl_control = list(), adaptive_cv = TRUE,

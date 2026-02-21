@@ -16,7 +16,7 @@ longy_data(
   timevarying = character(0),
   sampling_weights = NULL,
   outcome_type = "binary",
-  competing_risks = FALSE,
+  competing = NULL,
   verbose = TRUE
 )
 }
@@ -31,13 +31,23 @@ longy_data(
 
 \item{treatment}{Character. Column name for binary treatment (0/1).}
 
-\item{censoring}{Character vector. Column name(s) for absorbing censoring
-indicators (1 = censored). Once censored, subject is gone. Can be NULL
-if no censoring. When multiple censoring sources are provided, each is
-modeled separately and their weights are multiplied. \strong{Important}: if
-multiple censoring events can occur within the same interval, the data
-should be prepared so that only the first censoring event is recorded.
-The package does not model within-interval ordering of censoring sources.}
+\item{censoring}{Character (length 1). Column name for a character/factor
+censoring status column. The column must contain \code{"uncensored"} for
+rows where the subject is not censored; any other value (e.g.
+\code{"censored"}, \code{"death"}, \code{"ltfu"}) is treated as a
+distinct censoring cause. Censoring is absorbing: once a subject has a
+non-\code{"uncensored"} value, they should have no further rows (or all
+subsequent rows should also be non-\code{"uncensored"}).
+
+Each non-\code{"uncensored"} level is automatically decomposed into an
+internal binary indicator column (named \code{.cens_<cause>}) and modeled
+separately by \code{\link{fit_censoring}}. The internal column names are
+stored in \code{nodes$censoring}; the original column name and cause
+labels are in \code{nodes$censoring_col} and \code{nodes$censoring_levels}.
+
+NAs are not allowed in the censoring column. If all values are
+\code{"uncensored"}, censoring is treated as NULL (no censoring).
+NULL if no censoring column exists.}
 
 \item{observation}{Character. Column name for intermittent outcome
 measurement indicator (1 = observed). Subject can return after R=0.
@@ -59,12 +69,37 @@ weights, and multiply the final IPW weight. Follows ltmle's
 
 \item{outcome_type}{Character. One of \code{"binary"}, \code{"continuous"}, \code{"survival"}.}
 
-\item{competing_risks}{Logical. Whether the outcome involves competing risks.}
+\item{competing}{Character. Column name for a binary absorbing competing
+event indicator (1 = competing event occurred). Once D=1, must remain 1.
+Used with \code{outcome_type = "survival"} to estimate cause-specific
+cumulative incidence. Subjects who experience the competing event are
+excluded from the risk set with Q hard-coded to 0. NULL if no competing
+risks.}
 
 \item{verbose}{Logical. Print progress messages.}
 }
 \value{
-An S3 object of class \code{"longy_data"}.
+An S3 object of class \code{"longy_data"}, a list with components:
+\describe{
+\item{data}{A \code{data.table} keyed on (id, time), including any
+internal columns created during validation (e.g. \code{.cens_*},
+\code{.obs}).}
+\item{nodes}{A list of column name mappings: \code{id}, \code{time},
+\code{outcome}, \code{treatment}, \code{censoring} (internal binary
+column names or NULL), \code{censoring_col} (original column name or
+NULL), \code{censoring_levels} (cause labels or NULL),
+\code{observation}, \code{sampling_weights}, \code{baseline},
+\code{timevarying}, \code{outcome_type}, \code{competing}.}
+\item{regimes}{Initially empty list; populated by
+\code{\link{define_regime}}.}
+\item{fits}{Initially empty; populated by \code{fit_treatment},
+\code{fit_censoring}, \code{fit_observation}.}
+\item{weights}{NULL until \code{\link{compute_weights}} is called.}
+\item{crossfit}{Cross-fitting configuration (enabled, n_folds,
+fold_id).}
+\item{meta}{Dataset metadata: n_subjects, n_obs, n_times, time_values,
+max_time, min_time.}
+}
 }
 \description{
 Constructs and validates a \code{longy_data} S3 object from a long-format dataset
@@ -72,12 +107,25 @@ Constructs and validates a \code{longy_data} S3 object from a long-format datase
 }
 \examples{
 \dontrun{
+# Single censoring cause (C has values "uncensored" and "censored")
 obj <- longy_data(
   data = sim_longy,
   id = "id", time = "time", outcome = "Y",
   treatment = "A", censoring = "C", observation = "R",
   baseline = c("W1", "W2"), timevarying = c("L1", "L2")
 )
+obj$nodes$censoring       # ".cens_censored"
+obj$nodes$censoring_col   # "C"
+
+# Multiple censoring causes (C has values "uncensored", "death", "ltfu")
+obj2 <- longy_data(
+  data = my_data,
+  id = "id", time = "time", outcome = "Y",
+  treatment = "A", censoring = "C_status",
+  baseline = c("W1", "W2"), timevarying = c("L1", "L2")
+)
+obj2$nodes$censoring       # c(".cens_death", ".cens_ltfu")
+obj2$nodes$censoring_levels # c("death", "ltfu")
 }
 
 }

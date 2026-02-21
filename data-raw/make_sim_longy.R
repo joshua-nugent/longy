@@ -43,7 +43,8 @@ generate_one_subject <- function(id) {
     if (C == 1) {
       rows[[length(rows) + 1]] <- data.frame(
         id = id, time = tt, W1 = W1, W2 = W2,
-        L1 = L1, L2 = L2, A = A, C = 1L, R = 0L, Y = NA_real_
+        L1 = L1, L2 = L2, A = A, C = "censored", R = 0L, Y = NA_real_,
+        stringsAsFactors = FALSE
       )
       alive <- FALSE
       next
@@ -63,7 +64,8 @@ generate_one_subject <- function(id) {
 
     rows[[length(rows) + 1]] <- data.frame(
       id = id, time = tt, W1 = W1, W2 = W2,
-      L1 = L1, L2 = L2, A = A, C = 0L, R = R, Y = Y
+      L1 = L1, L2 = L2, A = A, C = "uncensored", R = R, Y = Y,
+      stringsAsFactors = FALSE
     )
 
     A_prev <- A
@@ -76,7 +78,6 @@ sim_longy <- do.call(rbind, lapply(1:n, generate_one_subject))
 sim_longy$id <- as.integer(sim_longy$id)
 sim_longy$time <- as.integer(sim_longy$time)
 sim_longy$A <- as.integer(sim_longy$A)
-sim_longy$C <- as.integer(sim_longy$C)
 sim_longy$R <- as.integer(sim_longy$R)
 sim_longy$W2 <- as.integer(sim_longy$W2)
 sim_longy$L2 <- as.integer(sim_longy$L2)

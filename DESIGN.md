@@ -2,25 +2,33 @@
 
 ## Estimator Roadmap
 
-### v0.1 (current)
+### v0.1 (completed 2026-02-12)
 - IPW with stabilized weights
 - IC-based inference (+ sandwich, bootstrap)
 - Weight diagnostics and positivity diagnostics
 - Three nuisance models: g_A, g_C, g_R
 
-### v0.2 (planned)
+### v0.2 (completed)
 - G-computation (outcome regression)
-- Sequential regression / iterated conditional expectations
+- Sequential regression / iterated conditional expectations (backward ICE)
 
-### v0.3 (planned)
+### v0.3 (completed)
 - TMLE (targeted minimum loss-based estimation)
-- Doubly-robust estimator combining IPW + G-comp
-- Cross-fitting infrastructure activated
+- Doubly-robust estimator via backward ICE + quasibinomial fluctuation + EIF inference
+- Competing risks support (`competing` parameter)
 
-### v0.4+ (planned)
+### v0.4 (completed 2026-02-18)
+- Cross-fitting infrastructure (CV-TMLE with pooled fluctuation)
+- g_R in TMLE clever covariate: H(s) = 1 / (g_cum(s) * g_r(s))
+- ffSL (future-factorial parallel SuperLearner)
+
+### v0.5 (completed 2026-02-21)
+- Single character column censoring interface (replaces multiple binary columns)
+- Multi-cause censoring decomposition (`"death"`, `"ltfu"`, etc.)
+
+### Future
 - Stochastic interventions
 - Continuous treatments
-- Competing risks
 - Marginal structural models
 
 ## Data Model
@@ -31,19 +39,23 @@ Long format only: one row per (subject, time). All variables are columns.
 - **id**: subject identifier
 - **time**: integer time index
 - **outcome** (Y): the event/measurement of interest
-- **treatment** (A): binary intervention variable
-- **censoring** (C): absorbing dropout indicators (can be multiple). When multiple
-  censoring sources exist, each is modeled independently and weights are multiplied.
-  The package does not model within-interval ordering of censoring events — if
-  multiple sources can trigger in the same interval, the data should record only
-  the first censoring event.
-- **observation** (R): intermittent outcome measurement indicator
+- **treatment** (A): binary intervention variable (0/1)
+- **censoring** (C): a single character/factor column with values like `"uncensored"`,
+  `"censored"`, `"death"`, `"ltfu"`. Internally decomposed into binary `.cens_<cause>`
+  indicator columns by `longy_data()`. Each cause is modeled independently and
+  their weights are multiplied. The package does not model within-interval
+  ordering of censoring events.
+- **observation** (R): intermittent outcome measurement indicator (binary 0/1)
 - **baseline** (W): time-invariant covariates
 - **timevarying** (L): time-varying covariates
+- **competing** (D): binary absorbing competing event indicator (0/1), used with
+  `outcome_type = "survival"` only
+- **sampling_weights**: external survey/sampling weights (numeric, constant within subject)
 
 ### Censoring vs Observation
 This is a critical distinction:
-- **Censoring (C)**: absorbing. Once C=1, the subject is gone forever. Weights are cumulated.
+- **Censoring (C)**: absorbing. Once a non-`"uncensored"` value appears, the subject is
+  gone forever. Weights are cumulated over time.
 - **Observation (R)**: intermittent. R=0 means outcome not measured at this time, but
   subject can return at t+1. Weights are point-in-time (NOT cumulated).
 
@@ -67,7 +79,7 @@ At-risk at time t if (most restrictive):
 - Regime-consistent through t-1
 - Uncensored through t-1
 - Treatment at time t consistent with regime
-- Uncensored at time t (C(t) = 0)
+- Uncensored at time t (C(t) = "uncensored")
 
 ## Key Design Decisions
 
@@ -83,15 +95,22 @@ At-risk at time t if (most restrictive):
 4. **Pipe-friendly**: Each step returns the modified longy_data object, enabling
    `|>` chaining.
 
-5. **Cross-fitting deferred**: Architecture supports it (fold_id in longy_data),
-   but actual sample-splitting is v0.3.
+5. **Cross-fitting at subject level**: Folds are assigned to subjects, not rows.
+   All rows for a subject belong to the same fold. Implemented via `.longy_fold`
+   column and dispatch at the `fit_*` level.
 
-6. **No ffSL dependency**: The reference code uses a custom parallel SL wrapper.
-   We use standard SuperLearner with glm fallback. Users can extend later.
+6. **ffSL for parallelism**: The `sl_fn = "ffSL"` option parallelizes SuperLearner
+   CV folds x algorithms via `future.apply`. Default in `longy()` wrapper;
+   individual `fit_*` functions default to `"SuperLearner"` (sequential).
 
-## Open Questions
+7. **Character censoring column**: Users provide a single character column
+   (e.g. `"uncensored"`, `"death"`, `"ltfu"`). `longy_data()` decomposes it into
+   binary `.cens_<cause>` columns internally. This keeps the user interface simple
+   while all downstream code operates on binary indicators as before.
 
-- Should we support multiple outcome types (survival, continuous, binary) in v0.1?
-  Decision: Yes, outcome_type is stored but v0.1 mainly targets binary.
-- Marginal structural model (MSM) smoothing across time points?
-  Decision: Deferred to v0.4.
+## Outcome Types
+
+Three outcome types are supported:
+- **binary**: Y in {0, 1}
+- **continuous**: Y numeric, scaled to [0,1] internally for TMLE (quasibinomial)
+- **survival**: Y absorbing (once Y=1, stays 1), optionally with competing risks

@@ -26,7 +26,7 @@ test_that("fit_observation risk set is most restrictive", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
 
   preds_r <- obj$fits$observation$predictions
-  preds_c <- obj$fits$censoring[["C"]]$predictions
+  preds_c <- obj$fits$censoring[[".cens_censored"]]$predictions
 
   # g_R risk set should be <= g_C risk set at each time
   for (tt in unique(preds_r$.time)) {

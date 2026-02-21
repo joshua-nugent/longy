@@ -74,7 +74,7 @@ test_that("G-comp works without censoring or observation", {
 test_that("G-comp handles intermittent observation (R=0)", {
   d <- simulate_test_data(n = 200, K = 4, seed = 77)
   # Ensure some R=0 exist
-  expect_true(any(d$R == 0 & d$C == 0))
+  expect_true(any(d$R == 0 & d$C == "uncensored"))
 
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -218,7 +218,7 @@ test_that("G-comp continuous outcome recovers known truth at each time", {
   d <- do.call(rbind, rows)
 
   obj1 <- longy_data(d, id = "id", time = "time", outcome = "Y",
-                     treatment = "A", censoring = "C", observation = "R",
+                     treatment = "A", censoring = NULL, observation = "R",
                      baseline = "W1", timevarying = "L1",
                      outcome_type = "continuous", verbose = FALSE)
   obj1 <- define_regime(obj1, "always", static = 1L)
@@ -226,7 +226,7 @@ test_that("G-comp continuous outcome recovers known truth at each time", {
   res1 <- estimate_gcomp(obj1, regime = "always", n_boot = 0, verbose = FALSE)
 
   obj0 <- longy_data(d, id = "id", time = "time", outcome = "Y",
-                     treatment = "A", censoring = "C", observation = "R",
+                     treatment = "A", censoring = NULL, observation = "R",
                      baseline = "W1", timevarying = "L1",
                      outcome_type = "continuous", verbose = FALSE)
   obj0 <- define_regime(obj0, "never", static = 0L)
@@ -289,7 +289,7 @@ test_that("G-comp ICE recovers carryover truth (past A affects future L)", {
   d <- simulate_carryover_continuous(n = 3000, K = K, seed = 42)
 
   obj1 <- longy_data(d, id = "id", time = "time", outcome = "Y",
-                     treatment = "A", censoring = "C", observation = "R",
+                     treatment = "A", censoring = NULL, observation = "R",
                      baseline = "W1", timevarying = "L1",
                      outcome_type = "continuous", verbose = FALSE)
   obj1 <- define_regime(obj1, "always", static = 1L)
@@ -297,7 +297,7 @@ test_that("G-comp ICE recovers carryover truth (past A affects future L)", {
   res1 <- estimate_gcomp(obj1, regime = "always", n_boot = 0, verbose = FALSE)
 
   obj0 <- longy_data(d, id = "id", time = "time", outcome = "Y",
-                     treatment = "A", censoring = "C", observation = "R",
+                     treatment = "A", censoring = NULL, observation = "R",
                      baseline = "W1", timevarying = "L1",
                      outcome_type = "continuous", verbose = FALSE)
   obj0 <- define_regime(obj0, "never", static = 0L)

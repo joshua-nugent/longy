@@ -16,11 +16,12 @@ simulate_test_data <- function(n = 100, K = 5, seed = 42) {
       p_a <- plogis(-0.2 + 0.4 * L1 + 0.3 * W1 - 0.2 * L2)
       A <- rbinom(1, 1, p_a)
       p_c <- plogis(-3 + 0.2 * L1 - 0.1 * A + 0.1 * tt)
-      C <- rbinom(1, 1, p_c)
-      if (C == 1) {
+      C_event <- rbinom(1, 1, p_c)
+      if (C_event == 1) {
         rows[[length(rows) + 1]] <- data.frame(
           id = i, time = tt, W1 = W1, W2 = W2,
-          L1 = L1, L2 = L2, A = A, C = 1L, R = 0L, Y = NA_real_
+          L1 = L1, L2 = L2, A = A, C = "censored", R = 0L, Y = NA_real_,
+          stringsAsFactors = FALSE
         )
         alive <- FALSE
         next
@@ -35,7 +36,8 @@ simulate_test_data <- function(n = 100, K = 5, seed = 42) {
       }
       rows[[length(rows) + 1]] <- data.frame(
         id = i, time = tt, W1 = W1, W2 = W2,
-        L1 = L1, L2 = L2, A = A, C = 0L, R = R, Y = Y
+        L1 = L1, L2 = L2, A = A, C = "uncensored", R = R, Y = Y,
+        stringsAsFactors = FALSE
       )
     }
   }
@@ -64,7 +66,8 @@ simulate_no_confounding <- function(n = 200, K = 5, seed = 123) {
       }
       rows[[length(rows) + 1]] <- data.frame(
         id = i, time = tt, W1 = W1, W2 = W2,
-        L1 = L1, L2 = L2, A = A, C = 0L, R = R, Y = Y
+        L1 = L1, L2 = L2, A = A, C = "uncensored", R = R, Y = Y,
+        stringsAsFactors = FALSE
       )
     }
   }
@@ -88,14 +91,13 @@ simulate_no_censoring <- function(n = 200, K = 5, seed = 456) {
       Y <- rbinom(1, 1, p_y)
       rows[[length(rows) + 1]] <- data.frame(
         id = i, time = tt, W1 = W1, W2 = W2,
-        L1 = L1, L2 = L2, A = A, C = 0L, R = 1L, Y = Y
+        L1 = L1, L2 = L2, A = A, R = 1L, Y = Y
       )
     }
   }
   do.call(rbind, rows)
 }
 
-#' Simulate data with censoring but outcome always observed (R=1 always)
 #' Simulate data with continuous outcome
 simulate_continuous_outcome <- function(n = 200, K = 5, seed = 321) {
   set.seed(seed)
@@ -111,11 +113,12 @@ simulate_continuous_outcome <- function(n = 200, K = 5, seed = 321) {
       p_a <- plogis(-0.2 + 0.4 * L1 + 0.3 * W1 - 0.2 * L2)
       A <- rbinom(1, 1, p_a)
       p_c <- plogis(-3 + 0.2 * L1 - 0.1 * A + 0.1 * tt)
-      C <- rbinom(1, 1, p_c)
-      if (C == 1) {
+      C_event <- rbinom(1, 1, p_c)
+      if (C_event == 1) {
         rows[[length(rows) + 1]] <- data.frame(
           id = i, time = tt, W1 = W1, W2 = W2,
-          L1 = L1, L2 = L2, A = A, C = 1L, R = 0L, Y = NA_real_
+          L1 = L1, L2 = L2, A = A, C = "censored", R = 0L, Y = NA_real_,
+          stringsAsFactors = FALSE
         )
         alive <- FALSE
         next
@@ -129,7 +132,8 @@ simulate_continuous_outcome <- function(n = 200, K = 5, seed = 321) {
       }
       rows[[length(rows) + 1]] <- data.frame(
         id = i, time = tt, W1 = W1, W2 = W2,
-        L1 = L1, L2 = L2, A = A, C = 0L, R = R, Y = Y
+        L1 = L1, L2 = L2, A = A, C = "uncensored", R = R, Y = Y,
+        stringsAsFactors = FALSE
       )
     }
   }
@@ -152,11 +156,12 @@ simulate_survival_outcome <- function(n = 200, K = 5, seed = 654) {
       p_a <- plogis(-0.2 + 0.4 * L1 + 0.3 * W1 - 0.2 * L2)
       A <- rbinom(1, 1, p_a)
       p_c <- plogis(-3 + 0.2 * L1 - 0.1 * A + 0.1 * tt)
-      C <- rbinom(1, 1, p_c)
-      if (C == 1) {
+      C_event <- rbinom(1, 1, p_c)
+      if (C_event == 1) {
         rows[[length(rows) + 1]] <- data.frame(
           id = i, time = tt, W1 = W1, W2 = W2,
-          L1 = L1, L2 = L2, A = A, C = 1L, R = 0L, Y = NA_real_
+          L1 = L1, L2 = L2, A = A, C = "censored", R = 0L, Y = NA_real_,
+          stringsAsFactors = FALSE
         )
         alive <- FALSE
         next
@@ -176,7 +181,8 @@ simulate_survival_outcome <- function(n = 200, K = 5, seed = 654) {
       }
       rows[[length(rows) + 1]] <- data.frame(
         id = i, time = tt, W1 = W1, W2 = W2,
-        L1 = L1, L2 = L2, A = A, C = 0L, R = as.integer(R), Y = Y
+        L1 = L1, L2 = L2, A = A, C = "uncensored", R = as.integer(R), Y = Y,
+        stringsAsFactors = FALSE
       )
     }
   }
@@ -200,7 +206,7 @@ simulate_carryover_continuous <- function(n = 200, K = 5, seed = 42) {
       Y <- 0.5 * L1 + 0.3 * A + 0.2 * W1 + rnorm(1)
       rows[[length(rows) + 1]] <- data.frame(
         id = i, time = tt, W1 = W1, L1 = L1,
-        A = A, C = 0L, R = 1L, Y = Y
+        A = A, R = 1L, Y = Y
       )
       A_prev <- A
     }
@@ -223,11 +229,12 @@ simulate_always_observed <- function(n = 200, K = 5, seed = 789) {
       p_a <- plogis(-0.1 + 0.3 * L1 + 0.2 * W1)
       A <- rbinom(1, 1, p_a)
       p_c <- plogis(-3 + 0.15 * L1 + 0.1 * tt)
-      C <- rbinom(1, 1, p_c)
-      if (C == 1) {
+      C_event <- rbinom(1, 1, p_c)
+      if (C_event == 1) {
         rows[[length(rows) + 1]] <- data.frame(
           id = i, time = tt, W1 = W1, W2 = W2,
-          L1 = L1, L2 = L2, A = A, C = 1L, R = 0L, Y = NA_real_
+          L1 = L1, L2 = L2, A = A, C = "censored", R = 0L, Y = NA_real_,
+          stringsAsFactors = FALSE
         )
         alive <- FALSE
         next
@@ -236,7 +243,8 @@ simulate_always_observed <- function(n = 200, K = 5, seed = 789) {
       Y <- rbinom(1, 1, p_y)
       rows[[length(rows) + 1]] <- data.frame(
         id = i, time = tt, W1 = W1, W2 = W2,
-        L1 = L1, L2 = L2, A = A, C = 0L, R = 1L, Y = Y
+        L1 = L1, L2 = L2, A = A, C = "uncensored", R = 1L, Y = Y,
+        stringsAsFactors = FALSE
       )
     }
   }
@@ -262,12 +270,13 @@ simulate_competing_risks <- function(n = 200, K = 5, seed = 111) {
       A <- rbinom(1, 1, p_a)
       # Censoring
       p_c <- plogis(-3 + 0.2 * L1 - 0.1 * A + 0.1 * tt)
-      C <- rbinom(1, 1, p_c)
-      if (C == 1) {
+      C_event <- rbinom(1, 1, p_c)
+      if (C_event == 1) {
         rows[[length(rows) + 1]] <- data.frame(
           id = i, time = tt, W1 = W1, W2 = W2,
-          L1 = L1, L2 = L2, A = A, C = 1L, R = 0L,
-          Y = NA_integer_, D = NA_integer_
+          L1 = L1, L2 = L2, A = A, C = "censored", R = 0L,
+          Y = NA_integer_, D = NA_integer_,
+          stringsAsFactors = FALSE
         )
         alive <- FALSE
         next
@@ -296,8 +305,62 @@ simulate_competing_risks <- function(n = 200, K = 5, seed = 111) {
       }
       rows[[length(rows) + 1]] <- data.frame(
         id = i, time = tt, W1 = W1, W2 = W2,
-        L1 = L1, L2 = L2, A = A, C = 0L, R = R,
-        Y = Y, D = D
+        L1 = L1, L2 = L2, A = A, C = "uncensored", R = R,
+        Y = Y, D = D,
+        stringsAsFactors = FALSE
+      )
+    }
+  }
+  do.call(rbind, rows)
+}
+
+#' Simulate data with multiple censoring causes
+#' C_status has values "uncensored", "death", "ltfu"
+simulate_multi_censoring <- function(n = 200, K = 5, seed = 222) {
+  set.seed(seed)
+  rows <- list()
+  for (i in seq_len(n)) {
+    W1 <- rnorm(1)
+    W2 <- rbinom(1, 1, 0.3)
+    alive <- TRUE
+    for (tt in 0:(K - 1)) {
+      if (!alive) break
+      L1 <- rnorm(1, mean = 0.3 * W1 + 0.1 * tt)
+      L2 <- rbinom(1, 1, plogis(-0.5 + 0.3 * L1))
+      p_a <- plogis(-0.2 + 0.4 * L1 + 0.3 * W1 - 0.2 * L2)
+      A <- rbinom(1, 1, p_a)
+      # Two censoring causes
+      p_death <- plogis(-4 + 0.2 * L1 + 0.1 * tt)
+      p_ltfu <- plogis(-3.5 + 0.15 * L1 - 0.1 * A + 0.1 * tt)
+      u <- runif(1)
+      if (u < p_death) {
+        C_status <- "death"
+      } else if (u < p_death + p_ltfu) {
+        C_status <- "ltfu"
+      } else {
+        C_status <- "uncensored"
+      }
+      if (C_status != "uncensored") {
+        rows[[length(rows) + 1]] <- data.frame(
+          id = i, time = tt, W1 = W1, W2 = W2,
+          L1 = L1, L2 = L2, A = A, C = C_status, R = 0L, Y = NA_real_,
+          stringsAsFactors = FALSE
+        )
+        alive <- FALSE
+        next
+      }
+      p_r <- plogis(1.5 - 0.2 * L1 + 0.1 * A)
+      R <- rbinom(1, 1, p_r)
+      if (R == 1) {
+        p_y <- plogis(-2 + 0.3 * L1 + 0.2 * A + 0.2 * W1 + 0.1 * tt)
+        Y <- rbinom(1, 1, p_y)
+      } else {
+        Y <- NA_real_
+      }
+      rows[[length(rows) + 1]] <- data.frame(
+        id = i, time = tt, W1 = W1, W2 = W2,
+        L1 = L1, L2 = L2, A = A, C = "uncensored", R = R, Y = Y,
+        stringsAsFactors = FALSE
       )
     }
   }

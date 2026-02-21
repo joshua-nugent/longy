@@ -8,13 +8,23 @@
 #' @param time Character. Column name for time index (integer).
 #' @param outcome Character. Column name for the outcome variable.
 #' @param treatment Character. Column name for binary treatment (0/1).
-#' @param censoring Character vector. Column name(s) for absorbing censoring
-#'   indicators (1 = censored). Once censored, subject is gone. Can be NULL
-#'   if no censoring. When multiple censoring sources are provided, each is
-#'   modeled separately and their weights are multiplied. **Important**: if
-#'   multiple censoring events can occur within the same interval, the data
-#'   should be prepared so that only the first censoring event is recorded.
-#'   The package does not model within-interval ordering of censoring sources.
+#' @param censoring Character (length 1). Column name for a character/factor
+#'   censoring status column. The column must contain \code{"uncensored"} for
+#'   rows where the subject is not censored; any other value (e.g.
+#'   \code{"censored"}, \code{"death"}, \code{"ltfu"}) is treated as a
+#'   distinct censoring cause. Censoring is absorbing: once a subject has a
+#'   non-\code{"uncensored"} value, they should have no further rows (or all
+#'   subsequent rows should also be non-\code{"uncensored"}).
+#'
+#'   Each non-\code{"uncensored"} level is automatically decomposed into an
+#'   internal binary indicator column (named \code{.cens_<cause>}) and modeled
+#'   separately by \code{\link{fit_censoring}}. The internal column names are
+#'   stored in \code{nodes$censoring}; the original column name and cause
+#'   labels are in \code{nodes$censoring_col} and \code{nodes$censoring_levels}.
+#'
+#'   NAs are not allowed in the censoring column. If all values are
+#'   \code{"uncensored"}, censoring is treated as NULL (no censoring).
+#'   NULL if no censoring column exists.
 #' @param observation Character. Column name for intermittent outcome
 #'   measurement indicator (1 = observed). Subject can return after R=0.
 #'   If NULL, auto-detected from NA values in the outcome column among
@@ -38,16 +48,49 @@
 #'   risks.
 #' @param verbose Logical. Print progress messages.
 #'
-#' @return An S3 object of class `"longy_data"`.
+#' @return An S3 object of class \code{"longy_data"}, a list with components:
+#'   \describe{
+#'     \item{data}{A \code{data.table} keyed on (id, time), including any
+#'       internal columns created during validation (e.g. \code{.cens_*},
+#'       \code{.obs}).}
+#'     \item{nodes}{A list of column name mappings: \code{id}, \code{time},
+#'       \code{outcome}, \code{treatment}, \code{censoring} (internal binary
+#'       column names or NULL), \code{censoring_col} (original column name or
+#'       NULL), \code{censoring_levels} (cause labels or NULL),
+#'       \code{observation}, \code{sampling_weights}, \code{baseline},
+#'       \code{timevarying}, \code{outcome_type}, \code{competing}.}
+#'     \item{regimes}{Initially empty list; populated by
+#'       \code{\link{define_regime}}.}
+#'     \item{fits}{Initially empty; populated by \code{fit_treatment},
+#'       \code{fit_censoring}, \code{fit_observation}.}
+#'     \item{weights}{NULL until \code{\link{compute_weights}} is called.}
+#'     \item{crossfit}{Cross-fitting configuration (enabled, n_folds,
+#'       fold_id).}
+#'     \item{meta}{Dataset metadata: n_subjects, n_obs, n_times, time_values,
+#'       max_time, min_time.}
+#'   }
 #'
 #' @examples
 #' \dontrun{
+#' # Single censoring cause (C has values "uncensored" and "censored")
 #' obj <- longy_data(
 #'   data = sim_longy,
 #'   id = "id", time = "time", outcome = "Y",
 #'   treatment = "A", censoring = "C", observation = "R",
 #'   baseline = c("W1", "W2"), timevarying = c("L1", "L2")
 #' )
+#' obj$nodes$censoring       # ".cens_censored"
+#' obj$nodes$censoring_col   # "C"
+#'
+#' # Multiple censoring causes (C has values "uncensored", "death", "ltfu")
+#' obj2 <- longy_data(
+#'   data = my_data,
+#'   id = "id", time = "time", outcome = "Y",
+#'   treatment = "A", censoring = "C_status",
+#'   baseline = c("W1", "W2"), timevarying = c("L1", "L2")
+#' )
+#' obj2$nodes$censoring       # c(".cens_death", ".cens_ltfu")
+#' obj2$nodes$censoring_levels # c("death", "ltfu")
 #' }
 #'
 #' @export
@@ -91,15 +134,48 @@ longy_data <- function(data,
     stop("Treatment column must be binary {0, 1}.", call. = FALSE)
   }
 
-  # --- Validate censoring columns are binary {0, 1} ---
+  # --- Validate and decompose censoring column ---
+  censoring_col <- NULL
+  censoring_levels <- NULL
   if (!is.null(censoring)) {
-    for (cvar in censoring) {
-      c_vals <- dt[[cvar]]
-      c_vals_nona <- c_vals[!is.na(c_vals)]
-      if (!all(c_vals_nona %in% c(0L, 1L, 0, 1))) {
-        stop(sprintf("Censoring column '%s' must be binary {0, 1}.", cvar),
-             call. = FALSE)
+    if (length(censoring) != 1L) {
+      stop("censoring must be a single column name (or NULL).", call. = FALSE)
+    }
+    c_vals <- dt[[censoring]]
+    if (!is.character(c_vals) && !is.factor(c_vals)) {
+      stop(sprintf(
+        "Censoring column '%s' must be character or factor (e.g. 'uncensored', 'censored').",
+        censoring), call. = FALSE)
+    }
+    if (is.factor(c_vals)) c_vals <- as.character(c_vals)
+    if (any(is.na(c_vals))) {
+      stop(sprintf("Censoring column '%s' must not contain NAs.", censoring),
+           call. = FALSE)
+    }
+    if (!"uncensored" %in% c_vals) {
+      stop(sprintf(
+        "Censoring column '%s' must contain 'uncensored' as a value.", censoring),
+        call. = FALSE)
+    }
+    # Decompose into binary indicator columns
+    censoring_col <- censoring
+    all_levels <- sort(unique(c_vals))
+    censoring_levels <- setdiff(all_levels, "uncensored")
+    if (length(censoring_levels) == 0L) {
+      # All rows are "uncensored" — treat as no censoring
+      censoring_col <- NULL
+      censoring_levels <- NULL
+      censoring <- NULL
+    } else {
+      internal_cols <- character(length(censoring_levels))
+      for (j in seq_along(censoring_levels)) {
+        lvl <- censoring_levels[j]
+        col_name <- paste0(".cens_", lvl)
+        data.table::set(dt, j = col_name,
+                        value = as.integer(c_vals == lvl))
+        internal_cols[j] <- col_name
       }
+      censoring <- internal_cols
     }
   }
 
@@ -154,9 +230,8 @@ longy_data <- function(data,
   # --- Auto-detect observation from outcome NAs ---
   if (is.null(observation)) {
     # Check for NAs in outcome among uncensored rows
-    if (!is.null(censoring) && length(censoring) > 0) {
-      censored <- Reduce(`|`, lapply(censoring, function(cv) dt[[cv]] == 1L))
-      censored[is.na(censored)] <- TRUE
+    if (!is.null(censoring_col)) {
+      censored <- dt[[censoring_col]] != "uncensored"
       uncensored_na <- !censored & is.na(dt[[outcome]])
     } else {
       uncensored_na <- is.na(dt[[outcome]])
@@ -297,11 +372,7 @@ longy_data <- function(data,
 
   # --- Ensure integer types for binary columns ---
   dt[, (treatment) := as.integer(get(treatment))]
-  if (!is.null(censoring)) {
-    for (cvar in censoring) {
-      dt[, (cvar) := as.integer(get(cvar))]
-    }
-  }
+  # Internal .cens_* columns already created as integer during decomposition
   if (!is.null(observation)) {
     dt[, (observation) := as.integer(get(observation))]
   }
@@ -322,6 +393,8 @@ longy_data <- function(data,
     outcome = outcome,
     treatment = treatment,
     censoring = censoring,
+    censoring_col = censoring_col,
+    censoring_levels = censoring_levels,
     observation = observation,
     sampling_weights = sampling_weights,
     baseline = baseline,
@@ -436,8 +509,14 @@ print.longy_data <- function(x, ...) {
               x$nodes$outcome, x$nodes$outcome_type))
   cat(sprintf("  Treatment:   %s\n", x$nodes$treatment))
   if (!is.null(x$nodes$censoring)) {
-    cat(sprintf("  Censoring:   %s\n",
-                paste(x$nodes$censoring, collapse = ", ")))
+    if (!is.null(x$nodes$censoring_col)) {
+      cat(sprintf("  Censoring:   %s (causes: %s)\n",
+                  x$nodes$censoring_col,
+                  paste(x$nodes$censoring_levels, collapse = ", ")))
+    } else {
+      cat(sprintf("  Censoring:   %s\n",
+                  paste(x$nodes$censoring, collapse = ", ")))
+    }
   }
   if (!is.null(x$nodes$observation)) {
     cat(sprintf("  Observation: %s\n", x$nodes$observation))
@@ -480,10 +559,21 @@ summary.longy_data <- function(object, ...) {
 
   # Censoring summary
   if (!is.null(object$nodes$censoring)) {
-    for (cvar in object$nodes$censoring) {
-      c_vals <- object$data[[cvar]]
+    if (!is.null(object$nodes$censoring_col)) {
+      c_vals <- object$data[[object$nodes$censoring_col]]
+      total_cens <- 100 * mean(c_vals != "uncensored", na.rm = TRUE)
       cat(sprintf("Censoring (%s): %.1f%% censored overall\n",
-                  cvar, 100 * mean(c_vals, na.rm = TRUE)))
+                  object$nodes$censoring_col, total_cens))
+      for (lvl in object$nodes$censoring_levels) {
+        lvl_pct <- 100 * mean(c_vals == lvl, na.rm = TRUE)
+        cat(sprintf("  - %s: %.1f%%\n", lvl, lvl_pct))
+      }
+    } else {
+      for (cvar in object$nodes$censoring) {
+        c_vals <- object$data[[cvar]]
+        cat(sprintf("Censoring (%s): %.1f%% censored overall\n",
+                    cvar, 100 * mean(c_vals, na.rm = TRUE)))
+      }
     }
   }
 

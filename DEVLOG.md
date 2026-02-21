@@ -1,5 +1,47 @@
 # longy Development Log
 
+## v0.5 — Completed 2026-02-21
+
+### What was built
+
+**Single-column censoring interface**
+- `censoring` parameter now accepts a single character/factor column name
+  (e.g. `censoring = "C"` where C has values `"uncensored"`, `"censored"`)
+- Multi-cause censoring: column can have values like `"uncensored"`, `"death"`,
+  `"ltfu"` — each non-`"uncensored"` value is a distinct censoring cause
+- `longy_data()` decomposes the character column into internal binary `.cens_<cause>`
+  indicator columns (e.g. `.cens_censored`, `.cens_death`, `.cens_ltfu`)
+- Stored as: `nodes$censoring` = internal binary col names,
+  `nodes$censoring_col` = original column name, `nodes$censoring_levels` = cause labels
+- All downstream code (`fit_censoring`, `compute_weights`, `.add_tracking_columns`,
+  TMLE, cross-fitting) unchanged — they already operated on binary column name vectors
+- Validation: column must be character/factor, must contain `"uncensored"`, no NAs allowed
+- If all values are `"uncensored"`, treated as no censoring (censoring = NULL)
+- `print()` and `summary()` show original column name and per-cause censoring rates
+
+### Files changed
+
+| File | Changes |
+|------|---------|
+| `R/data_input.R` | New validation + decomposition logic, updated print/summary |
+| `R/longy.R` | Updated `@param censoring` docs |
+| `R/fit_censoring.R` | Updated roxygen docs only (code unchanged) |
+| `R/longy-package.R` | Updated `sim_longy` docs, added missing `globalVariables` |
+| `data-raw/make_sim_longy.R` | Character C column in dataset generator |
+| `data/sim_longy.rda` | Regenerated with character C column |
+| `tests/testthat/helper-simulate.R` | All simulators: character C, added `simulate_multi_censoring()` |
+| `tests/testthat/test-data-input.R` | Updated expectations, added validation tests |
+| `tests/testthat/test-fit-censoring.R` | Updated `fits$censoring` key names |
+| `tests/testthat/test-fit-observation.R` | Updated censoring fit key reference |
+| `tests/testthat/test-estimate-gcomp.R` | Fixed `d$C == 0` to `d$C == "uncensored"` |
+| `CLAUDE.md` | Full rewrite: accurate node structure, censoring docs, file map |
+| `DESIGN.md` | Updated roadmap, censoring description, design decisions |
+
+### Test status
+- 339 tests passing, 0 errors/warnings/notes in R CMD check
+
+---
+
 ## v0.4 — Completed 2026-02-18
 
 ### What was built

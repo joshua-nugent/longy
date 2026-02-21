@@ -9,7 +9,8 @@ utils::globalVariables(c(
   ".longy_regime_consist", ".longy_cum_consist",
   ".longy_uncens", ".longy_cum_uncens",
   ".longy_consist_prev", ".longy_uncens_prev",
-  ".longy_check_surv", ".longy_fold",
+  ".longy_check_surv", ".longy_check_comp", ".longy_fold",
+  ".longy_first_competing", "i..longy_first_competing",
   ".sw_a", ".sw_c", ".sw_ac", ".csw_ac", ".sw_r", ".final_weight",
   ".marg_a", ".marg_c", ".marg_r",
   ".p_a", ".p_c", ".p_r",
@@ -49,9 +50,9 @@ utils::globalVariables(c(
 #'   \item{L1}{Time-varying confounder, continuous (affected by past treatment)}
 #'   \item{L2}{Time-varying confounder, binary}
 #'   \item{A}{Treatment indicator (binary, 0/1)}
-#'   \item{C}{Censoring indicator (binary, 1 = censored, absorbing)}
+#'   \item{C}{Censoring status (character: \code{"uncensored"} or \code{"censored"})}
 #'   \item{R}{Outcome observation indicator (binary, 1 = observed, intermittent)}
-#'   \item{Y}{Outcome (binary, observed only when R=1 and C=0)}
+#'   \item{Y}{Outcome (binary, observed only when R=1 and C=\code{"uncensored"})}
 #' }
 #'
 #' The dataset has an attribute `"true_effects"` containing a data.frame with

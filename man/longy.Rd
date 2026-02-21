@@ -16,6 +16,7 @@ longy(
   timevarying = character(0),
   sampling_weights = NULL,
   outcome_type = "binary",
+  competing = NULL,
   regimes = list(always = 1L, never = 0L),
   estimator = "ipw",
   covariates = NULL,
@@ -50,7 +51,11 @@ longy(
 
 \item{treatment}{Character. Binary treatment column.}
 
-\item{censoring}{Character vector. Censoring column(s) (absorbing). NULL if none.}
+\item{censoring}{Character (length 1). Column name for a character/factor
+censoring status column. Must contain \code{"uncensored"} for non-censored
+rows; other values (e.g. \code{"censored"}, \code{"death"}, \code{"ltfu"})
+are treated as distinct censoring causes, each modeled separately. See
+\code{\link{longy_data}} for full details. NULL if no censoring.}
 
 \item{observation}{Character. Intermittent observation column. NULL to
 auto-detect from NA values in the outcome column (see
@@ -64,6 +69,11 @@ auto-detect from NA values in the outcome column (see
 weights. See \code{\link[=longy_data]{longy_data()}} for details. NULL if none.}
 
 \item{outcome_type}{Character. \code{"binary"}, \code{"continuous"}, or \code{"survival"}.}
+
+\item{competing}{Character. Column name for a binary absorbing competing
+event indicator. Used with \code{outcome_type = "survival"} to estimate
+cause-specific cumulative incidence. See \code{\link[=longy_data]{longy_data()}} for details. NULL
+if no competing risks.}
 
 \item{regimes}{Named list. Each element defines a regime:
 \itemize{

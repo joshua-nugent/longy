@@ -8,7 +8,11 @@
 #' @param time Character. Time index column.
 #' @param outcome Character. Outcome column.
 #' @param treatment Character. Binary treatment column.
-#' @param censoring Character vector. Censoring column(s) (absorbing). NULL if none.
+#' @param censoring Character (length 1). Column name for a character/factor
+#'   censoring status column. Must contain \code{"uncensored"} for non-censored
+#'   rows; other values (e.g. \code{"censored"}, \code{"death"}, \code{"ltfu"})
+#'   are treated as distinct censoring causes, each modeled separately. See
+#'   \code{\link{longy_data}} for full details. NULL if no censoring.
 #' @param observation Character. Intermittent observation column. NULL to
 #'   auto-detect from NA values in the outcome column (see
 #'   \code{\link{longy_data}}).

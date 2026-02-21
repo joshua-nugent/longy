@@ -14,9 +14,9 @@ A data.frame with the following columns:
 \item{L1}{Time-varying confounder, continuous (affected by past treatment)}
 \item{L2}{Time-varying confounder, binary}
 \item{A}{Treatment indicator (binary, 0/1)}
-\item{C}{Censoring indicator (binary, 1 = censored, absorbing)}
+\item{C}{Censoring status (character: \code{"uncensored"} or \code{"censored"})}
 \item{R}{Outcome observation indicator (binary, 1 = observed, intermittent)}
-\item{Y}{Outcome (binary, observed only when R=1 and C=0)}
+\item{Y}{Outcome (binary, observed only when R=1 and C=\code{"uncensored"})}
 }
 
 The dataset has an attribute \code{"true_effects"} containing a data.frame with
