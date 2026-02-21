@@ -103,3 +103,45 @@ test_that("fit_treatment errors on missing regime", {
     "not found"
   )
 })
+
+test_that("fit_* functions accept named learner lists", {
+  skip_if_not_installed("SuperLearner")
+  d <- simulate_test_data(n = 200, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  # Named list (longy() per-model format)
+  lib <- list(treatment = c("SL.glm", "SL.mean"),
+              censoring = c("SL.glm", "SL.mean"),
+              observation = c("SL.glm", "SL.mean"),
+              outcome = c("SL.glm", "SL.mean"))
+
+  obj <- fit_treatment(obj, regime = "always", learners = lib, verbose = FALSE)
+  expect_false(is.null(obj$fits$treatment))
+
+  obj <- fit_censoring(obj, regime = "always", learners = lib, verbose = FALSE)
+  expect_true(length(obj$fits$censoring) > 0)
+
+  obj <- fit_observation(obj, regime = "always", learners = lib, verbose = FALSE)
+
+  obj <- fit_outcome(obj, regime = "always", learners = lib, verbose = FALSE)
+  expect_false(is.null(obj$fits$outcome))
+})
+
+test_that(".resolve_learners extracts correct model", {
+  lib <- list(treatment = c("SL.glm"), outcome = c("SL.ranger", "SL.mean"))
+  expect_equal(.resolve_learners(lib, "treatment"), "SL.glm")
+  expect_equal(.resolve_learners(lib, "outcome"), c("SL.ranger", "SL.mean"))
+  # Missing model falls back to default element
+  lib2 <- list(default = c("SL.mean"), treatment = c("SL.glm"))
+  expect_equal(.resolve_learners(lib2, "outcome"), "SL.mean")
+  # No default falls back to SL.glm + SL.mean
+  expect_equal(.resolve_learners(lib, "censoring"), c("SL.glm", "SL.mean"))
+  # NULL passes through
+  expect_null(.resolve_learners(NULL, "treatment"))
+  # Character vector passes through
+  expect_equal(.resolve_learners(c("SL.glm"), "treatment"), "SL.glm")
+})

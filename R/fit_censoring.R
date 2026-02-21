@@ -35,6 +35,7 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                           times = NULL, sl_fn = "SuperLearner",
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
+  learners <- .resolve_learners(learners, "censoring")
 
   if (isTRUE(obj$crossfit$enabled)) {
     return(.cf_fit_censoring(obj, regime, covariates = covariates,

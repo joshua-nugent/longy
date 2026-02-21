@@ -1,6 +1,25 @@
 # Internal utility functions for longy
 # None of these are exported
 
+#' Resolve learners argument for fit_* functions
+#'
+#' When \code{learners} is a named list (the \code{longy()} per-model format),
+#' extracts the element matching \code{model_name} (falling back to
+#' \code{$default}, then \code{c("SL.glm", "SL.mean")}). When it is a
+#' character vector or NULL, returns it unchanged.
+#' @param learners Character vector, named list, or NULL.
+#' @param model_name One of "treatment", "censoring", "observation", "outcome".
+#' @return Character vector of learner names, or NULL.
+#' @noRd
+.resolve_learners <- function(learners, model_name) {
+  if (is.list(learners) && !is.null(names(learners))) {
+    if (!is.null(learners[[model_name]])) return(learners[[model_name]])
+    if (!is.null(learners$default))       return(learners$default)
+    return(c("SL.glm", "SL.mean"))
+  }
+  learners
+}
+
 #' Bound values to a range
 #' @noRd
 .bound <- function(x, lower = 0.005, upper = 0.995) {

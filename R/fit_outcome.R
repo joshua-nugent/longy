@@ -35,6 +35,7 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
                         times = NULL, sl_fn = "SuperLearner",
                         verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
+  learners <- .resolve_learners(learners, "outcome")
 
   if (!regime %in% names(obj$regimes)) {
     stop(sprintf("Regime '%s' not found. Use define_regime() first.", regime),
