@@ -1,15 +1,27 @@
+# Extract longy_data from any longy object type
+# Accepts longy_data, longy_result, or longy_results (takes first element)
+.extract_longy_data <- function(obj) {
+  if (inherits(obj, "longy_data")) return(obj)
+  if (inherits(obj, "longy_result")) return(obj$obj)
+  if (inherits(obj, "longy_results")) return(obj[[1]]$obj)
+  stop("Expected a longy_data, longy_result, or longy_results object.",
+       call. = FALSE)
+}
+
 #' Weight Diagnostics
 #'
 #' Summarizes weight distributions by time point, including mean, median,
 #' maximum, quantiles, and effective sample size.
 #'
-#' @param obj A `longy_data` object with weights computed.
+#' @param obj A \code{longy_data}, \code{longy_result}, or \code{longy_results}
+#'   object with weights computed. For \code{longy_results}, uses the first
+#'   element.
 #' @param by_time Logical. If TRUE (default), summarize by time point.
 #'
 #' @return A data.table with weight summary statistics.
 #' @export
 weight_diagnostics <- function(obj, by_time = TRUE) {
-  stopifnot(inherits(obj, "longy_data"))
+  obj <- .extract_longy_data(obj)
   if (is.null(obj$weights)) {
     stop("Weights not computed. Run compute_weights() first.", call. = FALSE)
   }
@@ -60,14 +72,16 @@ weight_diagnostics <- function(obj, by_time = TRUE) {
 #' Identifies observations with extreme propensity scores that may indicate
 #' positivity violations.
 #'
-#' @param obj A `longy_data` object with treatment model fit.
+#' @param obj A \code{longy_data}, \code{longy_result}, or \code{longy_results}
+#'   object with treatment model fit. For \code{longy_results}, uses the first
+#'   element.
 #' @param threshold Numeric. Flag observations with predicted probabilities
 #'   below this value (or above 1 - threshold). Default 0.025.
 #'
 #' @return A data.table with flagged observations and their propensity scores.
 #' @export
 positivity_diagnostics <- function(obj, threshold = 0.025) {
-  stopifnot(inherits(obj, "longy_data"))
+  obj <- .extract_longy_data(obj)
   if (is.null(obj$fits$treatment)) {
     stop("Treatment model not fit. Run fit_treatment() first.", call. = FALSE)
   }
@@ -97,4 +111,106 @@ positivity_diagnostics <- function(obj, threshold = 0.025) {
                   nrow(flagged), threshold, nrow(summary_dt)))
 
   summary_dt
+}
+
+#' SuperLearner Diagnostics
+#'
+#' Extracts SuperLearner fit information from all fitted nuisance models,
+#' including method used (SL, glm, marginal), CV risk, and learner coefficients.
+#'
+#' @param obj A \code{longy_data}, \code{longy_result}, or \code{longy_results}
+#'   object with at least one model fit. For \code{longy_results}, uses the
+#'   first element.
+#' @param model Character. Which model(s) to include: \code{"all"} (default),
+#'   \code{"treatment"}, \code{"censoring"}, \code{"observation"}, or
+#'   \code{"outcome"}.
+#'
+#' @return A data.table with columns: \code{model} (model type),
+#'   \code{submodel} (censoring cause or NA), \code{time} (time point),
+#'   \code{method} (fitting method used), \code{sl_risk} (CV risk of the
+#'   SuperLearner, or NA), \code{sl_coef} (list-column of learner weights,
+#'   or NULL).
+#' @export
+sl_diagnostics <- function(obj, model = "all") {
+  obj <- .extract_longy_data(obj)
+
+  model <- match.arg(model, c("all", "treatment", "censoring",
+                               "observation", "outcome"))
+  include <- if (model == "all") {
+    c("treatment", "censoring", "observation", "outcome")
+  } else {
+    model
+  }
+
+  rows <- list()
+
+  # Treatment
+  if ("treatment" %in% include && !is.null(obj$fits$treatment$sl_info)) {
+    for (entry in obj$fits$treatment$sl_info) {
+      rows[[length(rows) + 1L]] <- list(
+        model = "treatment",
+        submodel = NA_character_,
+        time = entry$time,
+        method = entry$method,
+        sl_risk = entry$sl_risk %||% NA_real_,
+        sl_coef = list(entry$sl_coef)
+      )
+    }
+  }
+
+  # Censoring (one sub-list per cause)
+  if ("censoring" %in% include && length(obj$fits$censoring) > 0) {
+    for (cvar in names(obj$fits$censoring)) {
+      sl_info <- obj$fits$censoring[[cvar]]$sl_info
+      if (is.null(sl_info)) next
+      for (entry in sl_info) {
+        rows[[length(rows) + 1L]] <- list(
+          model = "censoring",
+          submodel = cvar,
+          time = entry$time,
+          method = entry$method,
+          sl_risk = entry$sl_risk %||% NA_real_,
+          sl_coef = list(entry$sl_coef)
+        )
+      }
+    }
+  }
+
+  # Observation
+  if ("observation" %in% include && !is.null(obj$fits$observation$sl_info)) {
+    for (entry in obj$fits$observation$sl_info) {
+      rows[[length(rows) + 1L]] <- list(
+        model = "observation",
+        submodel = NA_character_,
+        time = entry$time,
+        method = entry$method,
+        sl_risk = entry$sl_risk %||% NA_real_,
+        sl_coef = list(entry$sl_coef)
+      )
+    }
+  }
+
+  # Outcome
+  if ("outcome" %in% include && !is.null(obj$fits$outcome$sl_info)) {
+    for (entry in obj$fits$outcome$sl_info) {
+      rows[[length(rows) + 1L]] <- list(
+        model = "outcome",
+        submodel = NA_character_,
+        time = entry$time,
+        method = entry$method,
+        sl_risk = entry$sl_risk %||% NA_real_,
+        sl_coef = list(entry$sl_coef)
+      )
+    }
+  }
+
+  if (length(rows) == 0) {
+    message("No model fits found.")
+    return(invisible(data.table::data.table(
+      model = character(), submodel = character(), time = integer(),
+      method = character(), sl_risk = numeric(), sl_coef = list()
+    )))
+  }
+
+  data.table::rbindlist(rows)
 }

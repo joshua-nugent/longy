@@ -7,7 +7,9 @@
 weight_diagnostics(obj, by_time = TRUE)
 }
 \arguments{
-\item{obj}{A \code{longy_data} object with weights computed.}
+\item{obj}{A \code{longy_data}, \code{longy_result}, or \code{longy_results}
+object with weights computed. For \code{longy_results}, uses the first
+element.}
 
 \item{by_time}{Logical. If TRUE (default), summarize by time point.}
 }
