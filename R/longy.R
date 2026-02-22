@@ -57,6 +57,9 @@
 #' @param times Numeric vector. Time points for estimation. NULL = all.
 #' @param adaptive_cv Logical. Adaptive CV fold selection.
 #' @param min_obs Integer. Minimum observations for model fitting.
+#' @param min_events Integer. Minimum minority-class events required to fit a
+#'   model. When the minority class count is below this AND the minority rate
+#'   is below 0.01, marginal fallback is used. Default 20.
 #' @param bounds Numeric(2). Prediction probability bounds.
 #' @param g_bounds Numeric(2). Bounds for cumulative g (denominator of clever
 #'   covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.
@@ -114,6 +117,7 @@ longy <- function(data,
                   times = NULL,
                   adaptive_cv = TRUE,
                   min_obs = 50L,
+                  min_events = 20L,
                   bounds = c(0.005, 0.995),
                   g_bounds = c(0.01, 1),
                   outcome_range = NULL,
@@ -215,7 +219,8 @@ longy <- function(data,
                           cur_step + 1L, n_steps)
       r_obj <- fit_treatment(r_obj, regime = rname, covariates = covariates,
                              learners = learners_treatment, adaptive_cv = adaptive_cv,
-                             min_obs = min_obs, bounds = bounds,
+                             min_obs = min_obs, min_events = min_events,
+                             bounds = bounds,
                              times = times, sl_fn = sl_fn,
                              verbose = verbose)
 
@@ -223,7 +228,8 @@ longy <- function(data,
                           cur_step + 2L, n_steps)
       r_obj <- fit_censoring(r_obj, regime = rname, covariates = covariates,
                              learners = learners_censoring, adaptive_cv = adaptive_cv,
-                             min_obs = min_obs, bounds = bounds,
+                             min_obs = min_obs, min_events = min_events,
+                             bounds = bounds,
                              times = times, sl_fn = sl_fn,
                              verbose = verbose)
 
@@ -231,7 +237,8 @@ longy <- function(data,
                           cur_step + 3L, n_steps)
       r_obj <- fit_observation(r_obj, regime = rname, covariates = covariates,
                                learners = learners_observation, adaptive_cv = adaptive_cv,
-                               min_obs = min_obs, bounds = bounds,
+                               min_obs = min_obs, min_events = min_events,
+                               bounds = bounds,
                                times = times, sl_fn = sl_fn,
                                verbose = verbose)
       cur_step <- cur_step + 3L

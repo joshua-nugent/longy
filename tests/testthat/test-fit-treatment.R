@@ -145,3 +145,85 @@ test_that(".resolve_learners extracts correct model", {
   # Character vector passes through
   expect_equal(.resolve_learners(c("SL.glm"), "treatment"), "SL.glm")
 })
+
+test_that("fit_treatment uses marginal for rare events with large dataset", {
+  # 1000 subjects, treatment rate ~0.5% at time 0 (5 events out of 1000)
+  set.seed(99)
+  n <- 1000
+  d <- data.frame(
+    id = rep(seq_len(n), each = 2),
+    time = rep(0:1, n),
+    W1 = rep(rnorm(n), each = 2),
+    A = 0L,
+    R = 1L,
+    Y = rbinom(2 * n, 1, 0.3)
+  )
+  # Make treatment very rare at time 0: only 5 treated
+  d$A[d$time == 0] <- c(rep(1L, 5), rep(0L, n - 5))
+  # time 1: normal treatment rate
+  d$A[d$time == 1] <- rbinom(n, 1, 0.5)
+
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", baseline = "W1", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  expect_warning(
+    obj <- fit_treatment(obj, regime = "always", min_events = 20L,
+                         verbose = FALSE),
+    "minority-class events"
+  )
+  t0 <- obj$fits$treatment$predictions[obj$fits$treatment$predictions$.time == 0, ]
+  expect_equal(unique(t0$.method), "marginal")
+})
+
+test_that("fit_treatment still fits SL when rate > 1% even with few events", {
+
+  # 50 subjects, 15 events = 30% rate -> should NOT trigger rare-events fallback
+  set.seed(100)
+  n <- 80
+  d <- data.frame(
+    id = rep(seq_len(n), each = 2),
+    time = rep(0:1, n),
+    W1 = rep(rnorm(n), each = 2),
+    A = rbinom(2 * n, 1, 0.3),
+    R = 1L,
+    Y = rbinom(2 * n, 1, 0.3)
+  )
+
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", baseline = "W1", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  obj <- fit_treatment(obj, regime = "always", min_obs = 10L,
+                       min_events = 20L, verbose = FALSE)
+  t0 <- obj$fits$treatment$predictions[obj$fits$treatment$predictions$.time == 0, ]
+  # With 30% event rate and enough obs, should not be marginal
+  expect_true(unique(t0$.method) != "marginal")
+})
+
+test_that("fit_treatment respects custom min_events value", {
+  # With min_events = 3, even very rare events should pass
+  set.seed(101)
+  n <- 500
+  d <- data.frame(
+    id = rep(seq_len(n), each = 2),
+    time = rep(0:1, n),
+    W1 = rep(rnorm(n), each = 2),
+    A = 0L,
+    R = 1L,
+    Y = rbinom(2 * n, 1, 0.3)
+  )
+  # 5 events out of 500 = 1% rate
+  d$A[d$time == 0] <- c(rep(1L, 5), rep(0L, n - 5))
+  d$A[d$time == 1] <- rbinom(n, 1, 0.5)
+
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", baseline = "W1", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  # With min_events = 3, 5 events should be enough -> SL used
+  obj <- fit_treatment(obj, regime = "always", min_events = 3L,
+                       verbose = FALSE)
+  t0 <- obj$fits$treatment$predictions[obj$fits$treatment$predictions$.time == 0, ]
+  expect_true(unique(t0$.method) != "marginal")
+})

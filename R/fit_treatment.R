@@ -14,6 +14,9 @@
 #'   sample size.
 #' @param min_obs Integer. Minimum observations to fit a model; below this
 #'   threshold, uses marginal mean.
+#' @param min_events Integer. Minimum minority-class events required to fit a
+#'   model. When the minority class count is below this AND the minority rate
+#'   is below 0.01, marginal fallback is used. Default 20.
 #' @param bounds Numeric vector of length 2. Bounds for predicted probabilities.
 #' @param times Numeric vector. If provided, only fit models through
 #'   `max(times)`. Saves computation when estimation is only needed at
@@ -26,7 +29,8 @@
 #' @export
 fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
                           sl_control = list(), adaptive_cv = TRUE,
-                          min_obs = 50L, bounds = c(0.005, 0.995),
+                          min_obs = 50L, min_events = 20L,
+                          bounds = c(0.005, 0.995),
                           times = NULL, sl_fn = "SuperLearner",
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
@@ -36,6 +40,7 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
     return(.cf_fit_treatment(obj, regime, covariates = covariates,
                               learners = learners, sl_control = sl_control,
                               adaptive_cv = adaptive_cv, min_obs = min_obs,
+                              min_events = min_events,
                               bounds = bounds, times = times, sl_fn = sl_fn,
                               verbose = verbose))
   }
@@ -92,7 +97,10 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
     }
 
     # Fit model or use marginal
-    if (length(unique(Y)) > 1 && n_risk >= min_obs) {
+    n_minority <- min(sum(Y == 1), sum(Y == 0))
+    minority_rate <- min(mean(Y), 1 - mean(Y))
+    rare_events <- n_minority < min_events && minority_rate < 0.01
+    if (length(unique(Y)) > 1 && n_risk >= min_obs && !rare_events) {
       cv_folds <- 10L
       if (adaptive_cv) {
         cv_info <- .adaptive_cv_folds(Y)
@@ -118,6 +126,10 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
         warning(sprintf(
           "g_A at time %d: outcome is constant (all %s). Using marginal. Check treatment variation.",
           tt, if (all(Y == 1)) "1" else "0"), call. = FALSE)
+      } else if (rare_events) {
+        warning(sprintf(
+          "g_A at time %d: only %d minority-class events (rate=%.3f, min_events=%d). Using marginal.",
+          tt, n_minority, minority_rate, min_events), call. = FALSE)
       } else {
         warning(sprintf(
           "g_A at time %d: only %d at risk (min_obs=%d). Using marginal (=%.3f). Consider reducing min_obs.",

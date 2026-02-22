@@ -19,6 +19,9 @@
 #' @param sl_control List. Additional SuperLearner arguments.
 #' @param adaptive_cv Logical. Adaptive CV fold selection.
 #' @param min_obs Integer. Minimum observations for model fitting.
+#' @param min_events Integer. Minimum minority-class events required to fit a
+#'   model. When the minority class count is below this AND the minority rate
+#'   is below 0.01, marginal fallback is used. Default 20.
 #' @param bounds Numeric(2). Prediction bounds.
 #' @param times Numeric vector. If provided, only fit through \code{max(times)}.
 #' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
@@ -31,7 +34,8 @@
 #' @export
 fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                           sl_control = list(), adaptive_cv = TRUE,
-                          min_obs = 50L, bounds = c(0.005, 0.995),
+                          min_obs = 50L, min_events = 20L,
+                          bounds = c(0.005, 0.995),
                           times = NULL, sl_fn = "SuperLearner",
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
@@ -41,6 +45,7 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
     return(.cf_fit_censoring(obj, regime, covariates = covariates,
                               learners = learners, sl_control = sl_control,
                               adaptive_cv = adaptive_cv, min_obs = min_obs,
+                              min_events = min_events,
                               bounds = bounds, times = times, sl_fn = sl_fn,
                               verbose = verbose))
   }
@@ -112,7 +117,10 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
         ow <- dt_t[[nodes$sampling_weights]][still_in]
       }
 
-      if (length(unique(Y)) > 1 && n_risk >= min_obs) {
+      n_minority <- min(sum(Y == 1), sum(Y == 0))
+      minority_rate <- min(mean(Y), 1 - mean(Y))
+      rare_events <- n_minority < min_events && minority_rate < 0.01
+      if (length(unique(Y)) > 1 && n_risk >= min_obs && !rare_events) {
         cens_rate <- 1 - mean(Y)  # Y = 1-C, so censoring rate = 1 - mean(Y)
         ctx <- sprintf("g_C(%s), time=%d, n=%d, censoring_rate=%.3f",
                        cvar, tt, n_risk, cens_rate)
@@ -140,6 +148,10 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
           warning(sprintf(
             "g_C(%s) at time %d: no censoring events (rate=%.3f). Using marginal.",
             cvar, tt, cens_rate), call. = FALSE)
+        } else if (rare_events) {
+          warning(sprintf(
+            "g_C(%s) at time %d: only %d minority-class events (rate=%.3f, min_events=%d). Using marginal.",
+            cvar, tt, n_minority, minority_rate, min_events), call. = FALSE)
         } else {
           cens_rate <- 1 - mean(Y)
           warning(sprintf(

@@ -24,7 +24,8 @@ NULL
 #' @noRd
 .cf_fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
                                sl_control = list(), adaptive_cv = TRUE,
-                               min_obs = 50L, bounds = c(0.005, 0.995),
+                               min_obs = 50L, min_events = 20L,
+                               bounds = c(0.005, 0.995),
                                times = NULL, sl_fn = "SuperLearner",
                                verbose = TRUE) {
   reg <- obj$regimes[[regime]]
@@ -98,7 +99,10 @@ NULL
 
       ow_train <- if (!is.null(ow_risk)) ow_risk[train_idx] else NULL
 
-      if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1) {
+      n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
+      minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
+      rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
+      if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
         cv_folds <- 10L
         if (adaptive_cv) {
           cv_info <- .adaptive_cv_folds(Y_train)
@@ -170,7 +174,8 @@ NULL
 #' @noRd
 .cf_fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                                sl_control = list(), adaptive_cv = TRUE,
-                               min_obs = 50L, bounds = c(0.005, 0.995),
+                               min_obs = 50L, min_events = 20L,
+                               bounds = c(0.005, 0.995),
                                times = NULL, sl_fn = "SuperLearner",
                                verbose = TRUE) {
   nodes <- obj$nodes
@@ -251,7 +256,10 @@ NULL
 
         ow_train <- if (!is.null(ow_risk)) ow_risk[train_idx] else NULL
 
-        if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1) {
+        n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
+        minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
+        rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
+        if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
           cv_folds <- 10L
           if (adaptive_cv) {
             cv_info <- .adaptive_cv_folds(Y_train)
@@ -324,7 +332,8 @@ NULL
 #' @noRd
 .cf_fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
                                  sl_control = list(), adaptive_cv = TRUE,
-                                 min_obs = 50L, bounds = c(0.005, 0.995),
+                                 min_obs = 50L, min_events = 20L,
+                                 bounds = c(0.005, 0.995),
                                  times = NULL, sl_fn = "SuperLearner",
                                  verbose = TRUE) {
   nodes <- obj$nodes
@@ -404,7 +413,10 @@ NULL
 
       ow_train <- if (!is.null(ow_risk)) ow_risk[train_idx] else NULL
 
-      if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1) {
+      n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
+      minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
+      rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
+      if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
         cv_folds <- 10L
         if (adaptive_cv) {
           cv_info <- .adaptive_cv_folds(Y_train)

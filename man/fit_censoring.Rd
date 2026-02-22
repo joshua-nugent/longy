@@ -12,6 +12,7 @@ fit_censoring(
   sl_control = list(),
   adaptive_cv = TRUE,
   min_obs = 50L,
+  min_events = 20L,
   bounds = c(0.005, 0.995),
   times = NULL,
   sl_fn = "SuperLearner",
@@ -33,6 +34,10 @@ baseline + timevarying covariates.}
 \item{adaptive_cv}{Logical. Adaptive CV fold selection.}
 
 \item{min_obs}{Integer. Minimum observations for model fitting.}
+
+\item{min_events}{Integer. Minimum minority-class events required to fit a
+model. When the minority class count is below this AND the minority rate
+is below 0.01, marginal fallback is used. Default 20.}
 
 \item{bounds}{Numeric(2). Prediction bounds.}
 

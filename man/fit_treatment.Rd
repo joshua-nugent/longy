@@ -12,6 +12,7 @@ fit_treatment(
   sl_control = list(),
   adaptive_cv = TRUE,
   min_obs = 50L,
+  min_events = 20L,
   bounds = c(0.005, 0.995),
   times = NULL,
   sl_fn = "SuperLearner",
@@ -36,6 +37,10 @@ sample size.}
 
 \item{min_obs}{Integer. Minimum observations to fit a model; below this
 threshold, uses marginal mean.}
+
+\item{min_events}{Integer. Minimum minority-class events required to fit a
+model. When the minority class count is below this AND the minority rate
+is below 0.01, marginal fallback is used. Default 20.}
 
 \item{bounds}{Numeric vector of length 2. Bounds for predicted probabilities.}
 

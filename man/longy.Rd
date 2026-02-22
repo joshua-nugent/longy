@@ -31,6 +31,7 @@ longy(
   times = NULL,
   adaptive_cv = TRUE,
   min_obs = 50L,
+  min_events = 20L,
   bounds = c(0.005, 0.995),
   g_bounds = c(0.01, 1),
   outcome_range = NULL,
@@ -120,6 +121,10 @@ Ignored for G-comp (always bootstrap).}
 \item{adaptive_cv}{Logical. Adaptive CV fold selection.}
 
 \item{min_obs}{Integer. Minimum observations for model fitting.}
+
+\item{min_events}{Integer. Minimum minority-class events required to fit a
+model. When the minority class count is below this AND the minority rate
+is below 0.01, marginal fallback is used. Default 20.}
 
 \item{bounds}{Numeric(2). Prediction probability bounds.}
 

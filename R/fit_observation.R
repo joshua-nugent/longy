@@ -14,6 +14,9 @@
 #' @param sl_control List. Additional SuperLearner arguments.
 #' @param adaptive_cv Logical. Adaptive CV fold selection.
 #' @param min_obs Integer. Minimum observations for model fitting.
+#' @param min_events Integer. Minimum minority-class events required to fit a
+#'   model. When the minority class count is below this AND the minority rate
+#'   is below 0.01, marginal fallback is used. Default 20.
 #' @param bounds Numeric(2). Prediction bounds.
 #' @param times Numeric vector. If provided, only fit through `max(times)`.
 #' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
@@ -24,7 +27,8 @@
 #' @export
 fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
                             sl_control = list(), adaptive_cv = TRUE,
-                            min_obs = 50L, bounds = c(0.005, 0.995),
+                            min_obs = 50L, min_events = 20L,
+                            bounds = c(0.005, 0.995),
                             times = NULL, sl_fn = "SuperLearner",
                             verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
@@ -34,6 +38,7 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
     return(.cf_fit_observation(obj, regime, covariates = covariates,
                                 learners = learners, sl_control = sl_control,
                                 adaptive_cv = adaptive_cv, min_obs = min_obs,
+                                min_events = min_events,
                                 bounds = bounds, times = times, sl_fn = sl_fn,
                                 verbose = verbose))
   }
@@ -100,7 +105,10 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
       ow <- dt_t[[nodes$sampling_weights]][still_in]
     }
 
-    if (length(unique(Y)) > 1 && n_risk >= min_obs) {
+    n_minority <- min(sum(Y == 1), sum(Y == 0))
+    minority_rate <- min(mean(Y), 1 - mean(Y))
+    rare_events <- n_minority < min_events && minority_rate < 0.01
+    if (length(unique(Y)) > 1 && n_risk >= min_obs && !rare_events) {
       obs_rate <- mean(Y)
       ctx <- sprintf("g_R, time=%d, n=%d, obs_rate=%.3f", tt, n_risk, obs_rate)
       cv_folds <- 10L
@@ -126,6 +134,10 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
         warning(sprintf(
           "g_R at time %d: outcome is constant (obs_rate=%.3f). Using marginal.",
           tt, mean(Y)), call. = FALSE)
+      } else if (rare_events) {
+        warning(sprintf(
+          "g_R at time %d: only %d minority-class events (rate=%.3f, min_events=%d). Using marginal.",
+          tt, n_minority, minority_rate, min_events), call. = FALSE)
       } else {
         warning(sprintf(
           "g_R at time %d: only %d at risk (min_obs=%d). Using marginal (=%.3f). Consider reducing min_obs.",
