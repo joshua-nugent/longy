@@ -318,6 +318,16 @@
     )
     predY <- do.call('cbind', lapply(foo, '[[', 'pred'))
     newFitLib <- lapply(foo, '[[', 'fitLibrary')
+    # Replace NULL fitLibrary entries (failed learners) with SL.mean dummy
+    # fits so predict.SuperLearner doesn't crash when re-predicting
+    Y_mean <- mean(Y)
+    for (j in seq_along(newFitLib)) {
+      if (is.null(newFitLib[[j]])) {
+        mean_obj <- Y_mean
+        class(mean_obj) <- "SL.mean"
+        newFitLib[[j]] <- list(object = mean_obj)
+      }
+    }
     names(newFitLib) <- libraryNames
     assign('fitLibrary', newFitLib, envir = fitLibEnv)
     rm(foo)
