@@ -211,16 +211,7 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
           X_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
         }
 
-        # Predict using the fitted model
-        if (method == "SuperLearner") {
-          preds <- as.numeric(stats::predict(fit$fit, newdata = X_cf)$pred)
-        } else if (method == "glm") {
-          preds <- as.numeric(stats::predict(fit$fit, newdata = X_cf,
-                                              type = "response"))
-        } else {
-          marg <- mean(Y_train)
-          preds <- rep(marg, n_at_risk)
-        }
+        preds <- .predict_from_fit(fit, X_cf)
         } else {
           # Marginal fallback
           if (!is.null(ow)) {

@@ -234,14 +234,7 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
             X_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
           }
 
-          if (method == "SuperLearner") {
-            Q_bar <- as.numeric(stats::predict(fit$fit, newdata = X_cf)$pred)
-          } else if (method == "glm") {
-            Q_bar <- as.numeric(stats::predict(fit$fit, newdata = X_cf,
-                                                type = "response"))
-          } else {
-            Q_bar <- rep(mean(Y_train), n_at_risk)
-          }
+          Q_bar <- .predict_from_fit(fit, X_cf)
         } else {
           Q_bar <- rep(mean(Y_train), n_at_risk)
           method <- "marginal"
