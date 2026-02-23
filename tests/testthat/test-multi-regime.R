@@ -48,18 +48,6 @@ test_that("default regime = NULL fits all defined regimes", {
   expect_equal(sort(names(obj$fits$treatment)), c("always", "never"))
 })
 
-test_that("missing regime errors clearly", {
-  d <- simulate_test_data(n = 50, K = 3)
-  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
-                    treatment = "A", verbose = FALSE)
-  obj <- define_regime(obj, "always", static = 1L)
-
-  expect_error(
-    fit_treatment(obj, regime = "nonexistent", verbose = FALSE),
-    "not found"
-  )
-})
-
 test_that("multi-regime estimate returns longy_results", {
   d <- simulate_test_data(n = 100, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",

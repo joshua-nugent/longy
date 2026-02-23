@@ -154,47 +154,6 @@ test_that("G-comp no-confounding recovery", {
   expect_equal(gcomp_est, crude, tolerance = 0.15)
 })
 
-test_that("longy() with estimator = 'gcomp' works end-to-end", {
-  d <- simulate_test_data(n = 100, K = 3)
-  results <- longy(
-    data = d,
-    id = "id", time = "time", outcome = "Y",
-    treatment = "A", censoring = "C", observation = "R",
-    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
-    regimes = list(always = 1L),
-    estimator = "gcomp",
-    n_boot = 0,
-    verbose = FALSE
-  )
-
-  expect_s3_class(results, "longy_results")
-  expect_true("always" %in% names(results))
-  expect_s3_class(results$always, "longy_result")
-  expect_true(nrow(results$always$estimates) > 0)
-  expect_true(all(results$always$estimates$estimate >= 0 &
-                  results$always$estimates$estimate <= 1, na.rm = TRUE))
-})
-
-test_that("longy() with estimator = 'both' returns IPW and G-comp", {
-  d <- simulate_test_data(n = 100, K = 3)
-  results <- longy(
-    data = d,
-    id = "id", time = "time", outcome = "Y",
-    treatment = "A", censoring = "C", observation = "R",
-    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
-    regimes = list(always = 1L),
-    estimator = "both",
-    n_boot = 0,
-    verbose = FALSE
-  )
-
-  expect_s3_class(results, "longy_results")
-  expect_true("always_ipw" %in% names(results))
-  expect_true("always_gcomp" %in% names(results))
-  expect_s3_class(results$always_ipw, "longy_result")
-  expect_s3_class(results$always_gcomp, "longy_result")
-})
-
 test_that("G-comp continuous outcome recovers known truth at each time", {
   # Clean DGP: no censoring, always observed, continuous outcome
   # L1 ~ N(0.3*W1 + 0.1*t, 1), A ~ Bern(plogis(0.5*L1))
@@ -366,15 +325,3 @@ test_that("G-comp bootstrap runs in parallel with future.apply", {
   expect_true("ci_upper" %in% names(result$estimates))
 })
 
-test_that("G-comp print method works", {
-  d <- simulate_test_data(n = 80, K = 3)
-  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
-                    treatment = "A", censoring = "C", observation = "R",
-                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
-                    verbose = FALSE)
-  obj <- define_regime(obj, "always", static = 1L)
-  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
-
-  expect_output(print(result), "G-comp")
-})

@@ -99,21 +99,13 @@ test_that("longy_data works without censoring or observation", {
   expect_null(obj$nodes$observation)
 })
 
-test_that("print.longy_data runs without error", {
+test_that("print and summary methods work for longy_data", {
   d <- simulate_test_data(n = 20, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
                     baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
                     verbose = FALSE)
   expect_output(print(obj), "longy_data object")
-})
-
-test_that("summary.longy_data runs without error", {
-  d <- simulate_test_data(n = 20, K = 3)
-  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
-                    treatment = "A", censoring = "C", observation = "R",
-                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
-                    verbose = FALSE)
   expect_output(summary(obj), "longy_data summary")
 })
 

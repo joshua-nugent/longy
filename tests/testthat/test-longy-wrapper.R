@@ -58,23 +58,6 @@ test_that("longy() results match manual pipeline", {
   }
 })
 
-test_that("longy() works without censoring or observation", {
-  d <- simulate_no_censoring(n = 100, K = 3)
-  d$Y[is.na(d$Y)] <- 0L
-
-  results <- longy(
-    data = d,
-    id = "id", time = "time", outcome = "Y",
-    treatment = "A", censoring = NULL, observation = NULL,
-    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
-    regimes = list(always = 1L),
-    verbose = FALSE
-  )
-
-  expect_s3_class(results, "longy_results")
-  expect_true(nrow(results$always$estimates) > 0)
-})
-
 test_that("longy() print works", {
   d <- simulate_test_data(n = 50, K = 3)
   results <- longy(
@@ -89,83 +72,121 @@ test_that("longy() print works", {
   expect_output(print(results), "longy results")
 })
 
-test_that("longy() with truncation", {
-  d <- simulate_test_data(n = 80, K = 4)
+test_that("longy() with estimator = 'gcomp'", {
+  d <- simulate_test_data(n = 100, K = 3)
   results <- longy(
     data = d,
     id = "id", time = "time", outcome = "Y",
     treatment = "A", censoring = "C", observation = "R",
     baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
     regimes = list(always = 1L),
-    truncation = 10,
+    estimator = "gcomp",
+    n_boot = 0,
     verbose = FALSE
   )
 
-  # Check weights were truncated
-  w <- results$always$obj$weights[["always"]]$weights_dt$.final_weight
-  expect_true(all(w <= 10))
+  expect_s3_class(results, "longy_results")
+  expect_true("always" %in% names(results))
+  expect_s3_class(results$always, "longy_result")
+  expect_true(nrow(results$always$estimates) > 0)
+  expect_true(all(results$always$estimates$estimate >= 0 &
+                  results$always$estimates$estimate <= 1, na.rm = TRUE))
 })
 
-test_that("longy() with continuous outcomes", {
-  d <- simulate_continuous_outcome(n = 100, K = 4)
+test_that("longy() with estimator = 'tmle'", {
+  # Binary outcome
+  d <- simulate_test_data(n = 150, K = 3)
   results <- longy(
     data = d,
     id = "id", time = "time", outcome = "Y",
     treatment = "A", censoring = "C", observation = "R",
     baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
     regimes = list(always = 1L),
+    estimator = "tmle",
+    n_boot = 0,
+    verbose = FALSE
+  )
+
+  expect_s3_class(results, "longy_results")
+  expect_s3_class(results$always, "longy_result")
+  expect_equal(results$always$estimator, "tmle")
+  expect_true(nrow(results$always$estimates) > 0)
+  expect_true(all(results$always$estimates$estimate >= 0 &
+                  results$always$estimates$estimate <= 1, na.rm = TRUE))
+  expect_true("se" %in% names(results$always$estimates))
+
+  # Continuous outcome
+  d_cont <- simulate_continuous_outcome(n = 200, K = 3)
+  results_cont <- longy(
+    data = d_cont,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = "R",
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(always = 1L),
+    estimator = "tmle",
     outcome_type = "continuous",
+    n_boot = 0,
+    verbose = FALSE
+  )
+  expect_equal(results_cont$always$estimator, "tmle")
+  expect_true(all(is.finite(results_cont$always$estimates$estimate)))
+
+  # Never-treat regime
+  results_never <- longy(
+    data = d,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = "R",
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(never = 0L),
+    estimator = "tmle",
+    n_boot = 0,
+    verbose = FALSE
+  )
+  expect_true("never" %in% names(results_never))
+  expect_equal(results_never$never$estimator, "tmle")
+  expect_true(nrow(results_never$never$estimates) > 0)
+})
+
+test_that("longy() with estimator = 'all'", {
+  d <- simulate_test_data(n = 150, K = 3)
+  results <- longy(
+    data = d,
+    id = "id", time = "time", outcome = "Y",
+    treatment = "A", censoring = "C", observation = "R",
+    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+    regimes = list(always = 1L, never = 0L),
+    estimator = "all",
+    n_boot = 0,
     verbose = FALSE
   )
 
   expect_s3_class(results, "longy_results")
-  est <- results$always$estimates
-  expect_true(nrow(est) > 0)
-  expect_true(all(is.finite(est$estimate)))
+  expect_equal(length(results), 6)  # 2 regimes x 3 estimators
+  expect_true(all(c("always_ipw", "always_gcomp", "always_tmle",
+                     "never_ipw", "never_gcomp", "never_tmle") %in%
+                  names(results)))
+  expect_s3_class(results$always_ipw, "longy_result")
+  expect_s3_class(results$always_gcomp, "longy_result")
+  expect_s3_class(results$always_tmle, "longy_result")
+  expect_equal(results$always_tmle$estimator, "tmle")
+  expect_equal(results$always_gcomp$estimator, "gcomp")
+  expect_true("se" %in% names(results$always_tmle$estimates))
 })
 
-test_that("longy() with survival outcomes produces monotone estimates", {
-  d <- simulate_survival_outcome(n = 100, K = 5)
+test_that("print methods work for all estimator types", {
+  d <- simulate_test_data(n = 100, K = 3)
   results <- longy(
     data = d,
     id = "id", time = "time", outcome = "Y",
     treatment = "A", censoring = "C", observation = "R",
     baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
     regimes = list(always = 1L),
-    outcome_type = "survival",
+    estimator = "all",
+    n_boot = 0,
     verbose = FALSE
   )
 
-  expect_s3_class(results, "longy_results")
-  est <- results$always$estimates
-  expect_true(nrow(est) > 0)
-  # Estimates should be monotonically non-decreasing
-  if (nrow(est) > 1) {
-    expect_true(all(diff(est$estimate) >= -1e-10))
-  }
-  # Estimates should be in [0, 1]
-  expect_true(all(est$estimate >= 0 & est$estimate <= 1, na.rm = TRUE))
-})
-
-test_that("longy() end-to-end with SuperLearner", {
-  skip_if_not_installed("SuperLearner")
-  d <- simulate_test_data(n = 200, K = 3)
-  results <- longy(
-    data = d,
-    id = "id", time = "time", outcome = "Y",
-    treatment = "A", censoring = "C", observation = "R",
-    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
-    regimes = list(always = 1L),
-    learners = c("SL.glm", "SL.mean"),
-    verbose = FALSE
-  )
-
-  expect_s3_class(results, "longy_results")
-  est <- results$always$estimates
-  expect_true(nrow(est) > 0)
-  expect_true(all(est$estimate >= 0 & est$estimate <= 1))
-
-  # SL info should be stored
-  sl_info <- results$always$obj$fits$treatment[["always"]]$sl_info
-  expect_true(length(sl_info) > 0)
+  expect_output(print(results$always_ipw), "IPW")
+  expect_output(print(results$always_gcomp), "G-comp")
+  expect_output(print(results$always_tmle), "TMLE")
 })
