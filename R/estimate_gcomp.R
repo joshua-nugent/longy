@@ -22,18 +22,24 @@
 #'   }
 #'
 #' @export
-estimate_gcomp <- function(obj, regime, times = NULL,
+estimate_gcomp <- function(obj, regime = NULL, times = NULL,
                            ci_level = 0.95, n_boot = 200L,
                            verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
+  regime <- .resolve_regimes(obj, regime)
 
-  if (is.null(obj$fits$outcome)) {
-    stop("Outcome model not fitted. Run fit_outcome() first.", call. = FALSE)
+  all_regime_results <- list()
+
+  for (rname in regime) {
+
+  if (is.null(obj$fits$outcome[[rname]]) || length(obj$fits$outcome[[rname]]) == 0) {
+    stop(sprintf("Outcome model not fitted for regime '%s'. Run fit_outcome() first.", rname),
+         call. = FALSE)
   }
 
   nodes <- obj$nodes
   id_col <- nodes$id
-  pred_dt <- obj$fits$outcome$predictions
+  pred_dt <- obj$fits$outcome[[rname]]$predictions
 
   # Determine time points
   available_times <- sort(unique(pred_dt$.target_time))
@@ -68,7 +74,7 @@ estimate_gcomp <- function(obj, regime, times = NULL,
   # Bootstrap inference
   if (n_boot > 0) {
     inf_dt <- .bootstrap_gcomp_inference(
-      obj, regime = regime, times = times,
+      obj, regime = rname, times = times,
       n_boot = n_boot, ci_level = ci_level, verbose = verbose
     )
     estimates <- cbind(estimates, inf_dt)
@@ -88,12 +94,18 @@ estimate_gcomp <- function(obj, regime, times = NULL,
 
   result <- list(
     estimates = estimates,
-    regime = regime,
+    regime = rname,
     estimator = "gcomp",
     inference = "bootstrap",
     ci_level = ci_level,
     obj = obj
   )
   class(result) <- "longy_result"
-  result
+  all_regime_results[[rname]] <- result
+
+  } # end for (rname in regime)
+
+  if (length(all_regime_results) == 1) return(all_regime_results[[1]])
+  class(all_regime_results) <- "longy_results"
+  all_regime_results
 }

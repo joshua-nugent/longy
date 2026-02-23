@@ -6,7 +6,7 @@
 \usage{
 estimate_gcomp(
   obj,
-  regime,
+  regime = NULL,
   times = NULL,
   ci_level = 0.95,
   n_boot = 200L,

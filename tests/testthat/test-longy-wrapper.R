@@ -102,7 +102,7 @@ test_that("longy() with truncation", {
   )
 
   # Check weights were truncated
-  w <- results$always$obj$weights$weights_dt$.final_weight
+  w <- results$always$obj$weights[["always"]]$weights_dt$.final_weight
   expect_true(all(w <= 10))
 })
 
@@ -166,6 +166,6 @@ test_that("longy() end-to-end with SuperLearner", {
   expect_true(all(est$estimate >= 0 & est$estimate <= 1))
 
   # SL info should be stored
-  sl_info <- results$always$obj$fits$treatment$sl_info
+  sl_info <- results$always$obj$fits$treatment[["always"]]$sl_info
   expect_true(length(sl_info) > 0)
 })

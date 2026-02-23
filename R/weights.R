@@ -21,7 +21,7 @@
 
 
   # --- Treatment component: g_a ---
-  gA <- obj$fits$treatment$predictions
+  gA <- obj$fits$treatment[[regime]]$predictions
   if (reg$type == "static") {
     if (reg$value == 1L) {
       # P(A=1|past) for regime-followers who had A=1
@@ -42,10 +42,11 @@
   }
 
   # --- Censoring component: g_c ---
-  if (length(obj$fits$censoring) > 0) {
+  cens_fits <- obj$fits$censoring[[regime]]
+  if (length(cens_fits) > 0) {
     g_c_combined <- NULL
-    for (cvar in names(obj$fits$censoring)) {
-      gC <- obj$fits$censoring[[cvar]]$predictions
+    for (cvar in names(cens_fits)) {
+      gC <- cens_fits[[cvar]]$predictions
       # Keep uncensored rows (C=0), p_c = P(C=0|past)
       gC_uncens <- gC[gC$.censored == 0L, ]
       gc_col <- gC_uncens[, c(id_col, ".time", ".p_c"), with = FALSE]
@@ -58,7 +59,7 @@
       }
     }
     # Product of all censoring sources
-    c_cols <- paste0(".g_c_", names(obj$fits$censoring))
+    c_cols <- paste0(".g_c_", names(cens_fits))
     g_c_combined[, .g_c := Reduce(`*`, .SD), .SDcols = c_cols]
     g_c_combined <- g_c_combined[, c(id_col, ".time", ".g_c"), with = FALSE]
     g_dt <- merge(g_dt, g_c_combined, by = c(id_col, ".time"), all = FALSE)
@@ -86,8 +87,9 @@
   g_dt[, .g_cum := pmin(.g_cum, g_bounds[2])]
 
   # --- Observation component: g_r (point-in-time, NOT cumulated) ---
-  if (!is.null(obj$fits$observation)) {
-    gR <- obj$fits$observation$predictions
+  obs_fit <- obj$fits$observation[[regime]]
+  if (!is.null(obs_fit)) {
+    gR <- obs_fit$predictions
     # Keep observed rows (R=1), p_r = P(R=1|past)
     gR_obs <- gR[gR$.observed == 1L, ]
     gr_col <- gR_obs[, c(id_col, ".time", ".p_r"), with = FALSE]
@@ -122,20 +124,24 @@
 #'
 #' @return Modified `longy_data` object with weights stored.
 #' @export
-compute_weights <- function(obj, regime, stabilized = TRUE,
+compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
                             truncation = NULL, truncation_quantile = NULL,
                             g_bounds = c(0.01, 1)) {
   stopifnot(inherits(obj, "longy_data"))
+  regime <- .resolve_regimes(obj, regime)
 
-  if (is.null(obj$fits$treatment)) {
-    stop("Treatment model not fit. Run fit_treatment() first.", call. = FALSE)
+  for (rname in regime) {
+
+  if (is.null(obj$fits$treatment[[rname]]) || length(obj$fits$treatment[[rname]]) == 0) {
+    stop(sprintf("Treatment model not fit for regime '%s'. Run fit_treatment() first.", rname),
+         call. = FALSE)
   }
 
   nodes <- obj$nodes
-  reg <- obj$regimes[[regime]]
+  reg <- obj$regimes[[rname]]
 
   # --- Treatment weights ---
-  gA <- obj$fits$treatment$predictions
+  gA <- obj$fits$treatment[[rname]]$predictions
   if (reg$type == "static") {
     if (reg$value == 1L) {
       # Keep only rows where treatment == 1 (regime followers)
@@ -156,9 +162,10 @@ compute_weights <- function(obj, regime, stabilized = TRUE,
   w <- gA_follow[, c(id_col, ".time", ".sw_a"), with = FALSE]
 
   # --- Censoring weights ---
-  if (length(obj$fits$censoring) > 0) {
-    for (cvar in names(obj$fits$censoring)) {
-      gC <- obj$fits$censoring[[cvar]]$predictions
+  cens_fits <- obj$fits$censoring[[rname]]
+  if (length(cens_fits) > 0) {
+    for (cvar in names(cens_fits)) {
+      gC <- cens_fits[[cvar]]$predictions
       # Keep uncensored rows (censored == 0)
       gC_uncens <- gC[gC$.censored == 0L, ]
       gC_uncens[, .sw_c := if (stabilized) .marg_c / .p_c else 1 / .p_c]
@@ -169,7 +176,7 @@ compute_weights <- function(obj, regime, stabilized = TRUE,
     }
 
     # Combined censoring weight (product of all sources)
-    c_sw_cols <- paste0(".sw_c_", names(obj$fits$censoring))
+    c_sw_cols <- paste0(".sw_c_", names(cens_fits))
     w[, .sw_c := Reduce(`*`, .SD), .SDcols = c_sw_cols]
   } else {
     w[, .sw_c := 1]
@@ -183,8 +190,9 @@ compute_weights <- function(obj, regime, stabilized = TRUE,
   w[, .csw_ac := cumprod(.sw_ac), by = c(id_col)]
 
   # --- Observation weights (point-in-time, NOT cumulated) ---
-  if (!is.null(obj$fits$observation)) {
-    gR <- obj$fits$observation$predictions
+  obs_fit <- obj$fits$observation[[rname]]
+  if (!is.null(obs_fit)) {
+    gR <- obs_fit$predictions
     # Keep observed rows (observed == 1)
     gR_obs <- gR[gR$.observed == 1L, ]
     gR_obs[, .sw_r := if (stabilized) .marg_r / .p_r else 1 / .p_r]
@@ -265,14 +273,16 @@ compute_weights <- function(obj, regime, stabilized = TRUE,
     }
   }
 
-  obj$weights <- list(
-    regime = regime,
+  obj$weights[[rname]] <- list(
+    regime = rname,
     weights_dt = w,
     stabilized = stabilized,
     truncation = truncation,
     truncation_quantile = truncation_quantile,
     g_bounds = g_bounds
   )
+
+  } # end for (rname in regime)
 
   obj
 }

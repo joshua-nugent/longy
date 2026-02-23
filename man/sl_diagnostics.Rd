@@ -4,12 +4,15 @@
 \alias{sl_diagnostics}
 \title{SuperLearner Diagnostics}
 \usage{
-sl_diagnostics(obj, model = "all")
+sl_diagnostics(obj, regime = NULL, model = "all")
 }
 \arguments{
 \item{obj}{A \code{longy_data}, \code{longy_result}, or \code{longy_results}
 object with at least one model fit. For \code{longy_results}, uses the
 first element.}
+
+\item{regime}{Character. Name of the regime. If NULL, uses the first
+available regime.}
 
 \item{model}{Character. Which model(s) to include: \code{"all"} (default),
 \code{"treatment"}, \code{"censoring"}, \code{"observation"}, or

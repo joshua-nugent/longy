@@ -10,8 +10,8 @@ test_that("fit_observation runs with intermittent data", {
 
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
 
-  expect_false(is.null(obj$fits$observation))
-  expect_true(nrow(obj$fits$observation$predictions) > 0)
+  expect_false(is.null(obj$fits$observation[["always"]]))
+  expect_true(nrow(obj$fits$observation[["always"]]$predictions) > 0)
 })
 
 test_that("fit_observation risk set is most restrictive", {
@@ -25,8 +25,8 @@ test_that("fit_observation risk set is most restrictive", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
 
-  preds_r <- obj$fits$observation$predictions
-  preds_c <- obj$fits$censoring[[".cens_censored"]]$predictions
+  preds_r <- obj$fits$observation[["always"]]$predictions
+  preds_c <- obj$fits$censoring[["always"]][[".cens_censored"]]$predictions
 
   # g_R risk set should be <= g_C risk set at each time
   for (tt in unique(preds_r$.time)) {
@@ -52,7 +52,7 @@ test_that("fit_observation skips when observation=NULL", {
 
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
 
-  expect_null(obj$fits$observation)
+  expect_null(obj$fits$observation[["always"]])
 })
 
 test_that("fit_observation predictions are bounded", {
@@ -68,7 +68,7 @@ test_that("fit_observation predictions are bounded", {
   bounds <- c(0.01, 0.99)
   obj <- fit_observation(obj, regime = "always", bounds = bounds, verbose = FALSE)
 
-  preds <- obj$fits$observation$predictions$.p_r
+  preds <- obj$fits$observation[["always"]]$predictions$.p_r
   expect_true(all(preds >= bounds[1]))
   expect_true(all(preds <= bounds[2]))
 })
@@ -88,9 +88,9 @@ test_that("fit_observation works with SuperLearner library", {
                          learners = c("SL.glm", "SL.mean"),
                          verbose = FALSE)
 
-  preds <- obj$fits$observation$predictions
+  preds <- obj$fits$observation[["always"]]$predictions
   expect_true(nrow(preds) > 0)
 
-  sl_info <- obj$fits$observation$sl_info
+  sl_info <- obj$fits$observation[["always"]]$sl_info
   expect_true(length(sl_info) > 0)
 })

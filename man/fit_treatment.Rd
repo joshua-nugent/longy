@@ -6,7 +6,7 @@
 \usage{
 fit_treatment(
   obj,
-  regime,
+  regime = NULL,
   covariates = NULL,
   learners = NULL,
   sl_control = list(),

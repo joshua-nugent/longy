@@ -16,17 +16,23 @@
 #' @param obj A \code{longy_data}, \code{longy_result}, or \code{longy_results}
 #'   object with weights computed. For \code{longy_results}, uses the first
 #'   element.
+#' @param regime Character. Name of the regime. If NULL, uses the first
+#'   available regime.
 #' @param by_time Logical. If TRUE (default), summarize by time point.
 #'
 #' @return A data.table with weight summary statistics.
 #' @export
-weight_diagnostics <- function(obj, by_time = TRUE) {
+weight_diagnostics <- function(obj, regime = NULL, by_time = TRUE) {
   obj <- .extract_longy_data(obj)
-  if (is.null(obj$weights)) {
+  if (length(obj$weights) == 0) {
     stop("Weights not computed. Run compute_weights() first.", call. = FALSE)
   }
+  if (is.null(regime)) regime <- names(obj$weights)[1]
+  if (is.null(obj$weights[[regime]])) {
+    stop(sprintf("No weights found for regime '%s'.", regime), call. = FALSE)
+  }
 
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[[regime]]$weights_dt
 
   if (by_time) {
     diag <- w_dt[, list(
@@ -75,18 +81,24 @@ weight_diagnostics <- function(obj, by_time = TRUE) {
 #' @param obj A \code{longy_data}, \code{longy_result}, or \code{longy_results}
 #'   object with treatment model fit. For \code{longy_results}, uses the first
 #'   element.
+#' @param regime Character. Name of the regime. If NULL, uses the first
+#'   available regime.
 #' @param threshold Numeric. Flag observations with predicted probabilities
 #'   below this value (or above 1 - threshold). Default 0.025.
 #'
 #' @return A data.table with flagged observations and their propensity scores.
 #' @export
-positivity_diagnostics <- function(obj, threshold = 0.025) {
+positivity_diagnostics <- function(obj, regime = NULL, threshold = 0.025) {
   obj <- .extract_longy_data(obj)
-  if (is.null(obj$fits$treatment)) {
+  if (length(obj$fits$treatment) == 0) {
     stop("Treatment model not fit. Run fit_treatment() first.", call. = FALSE)
   }
+  if (is.null(regime)) regime <- names(obj$fits$treatment)[1]
+  if (is.null(obj$fits$treatment[[regime]])) {
+    stop(sprintf("No treatment fit found for regime '%s'.", regime), call. = FALSE)
+  }
 
-  gA <- obj$fits$treatment$predictions
+  gA <- obj$fits$treatment[[regime]]$predictions
   id_col <- obj$nodes$id
 
   # Flag extreme propensity scores
@@ -121,6 +133,8 @@ positivity_diagnostics <- function(obj, threshold = 0.025) {
 #' @param obj A \code{longy_data}, \code{longy_result}, or \code{longy_results}
 #'   object with at least one model fit. For \code{longy_results}, uses the
 #'   first element.
+#' @param regime Character. Name of the regime. If NULL, uses the first
+#'   available regime.
 #' @param model Character. Which model(s) to include: \code{"all"} (default),
 #'   \code{"treatment"}, \code{"censoring"}, \code{"observation"}, or
 #'   \code{"outcome"}.
@@ -131,7 +145,7 @@ positivity_diagnostics <- function(obj, threshold = 0.025) {
 #'   SuperLearner, or NA), \code{sl_coef} (list-column of learner weights,
 #'   or NULL).
 #' @export
-sl_diagnostics <- function(obj, model = "all") {
+sl_diagnostics <- function(obj, regime = NULL, model = "all") {
   obj <- .extract_longy_data(obj)
 
   model <- match.arg(model, c("all", "treatment", "censoring",
@@ -142,11 +156,29 @@ sl_diagnostics <- function(obj, model = "all") {
     model
   }
 
+  # Resolve regime: default to first available
+  if (is.null(regime)) {
+    available <- names(obj$fits$treatment)
+    if (length(available) == 0) available <- names(obj$fits$outcome)
+    if (length(available) == 0) available <- names(obj$fits$observation)
+    regime <- available[1]
+  }
+
   rows <- list()
 
+  # If no regime resolved (no fits at all), skip to empty result
+  if (is.na(regime) || is.null(regime)) {
+    message("No model fits found.")
+    return(invisible(data.table::data.table(
+      model = character(), submodel = character(), time = integer(),
+      method = character(), sl_risk = numeric(), sl_coef = list()
+    )))
+  }
+
   # Treatment
-  if ("treatment" %in% include && !is.null(obj$fits$treatment$sl_info)) {
-    for (entry in obj$fits$treatment$sl_info) {
+  trt_fit <- obj$fits$treatment[[regime]]
+  if ("treatment" %in% include && !is.null(trt_fit$sl_info)) {
+    for (entry in trt_fit$sl_info) {
       rows[[length(rows) + 1L]] <- list(
         model = "treatment",
         submodel = NA_character_,
@@ -159,9 +191,10 @@ sl_diagnostics <- function(obj, model = "all") {
   }
 
   # Censoring (one sub-list per cause)
-  if ("censoring" %in% include && length(obj$fits$censoring) > 0) {
-    for (cvar in names(obj$fits$censoring)) {
-      sl_info <- obj$fits$censoring[[cvar]]$sl_info
+  cens_fits <- obj$fits$censoring[[regime]]
+  if ("censoring" %in% include && length(cens_fits) > 0) {
+    for (cvar in names(cens_fits)) {
+      sl_info <- cens_fits[[cvar]]$sl_info
       if (is.null(sl_info)) next
       for (entry in sl_info) {
         rows[[length(rows) + 1L]] <- list(
@@ -177,8 +210,9 @@ sl_diagnostics <- function(obj, model = "all") {
   }
 
   # Observation
-  if ("observation" %in% include && !is.null(obj$fits$observation$sl_info)) {
-    for (entry in obj$fits$observation$sl_info) {
+  obs_fit <- obj$fits$observation[[regime]]
+  if ("observation" %in% include && !is.null(obs_fit$sl_info)) {
+    for (entry in obs_fit$sl_info) {
       rows[[length(rows) + 1L]] <- list(
         model = "observation",
         submodel = NA_character_,
@@ -191,8 +225,9 @@ sl_diagnostics <- function(obj, model = "all") {
   }
 
   # Outcome
-  if ("outcome" %in% include && !is.null(obj$fits$outcome$sl_info)) {
-    for (entry in obj$fits$outcome$sl_info) {
+  out_fit <- obj$fits$outcome[[regime]]
+  if ("outcome" %in% include && !is.null(out_fit$sl_info)) {
+    for (entry in out_fit$sl_info) {
       rows[[length(rows) + 1L]] <- list(
         model = "outcome",
         submodel = NA_character_,

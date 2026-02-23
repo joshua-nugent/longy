@@ -34,28 +34,36 @@
 #'   }
 #'
 #' @export
-estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
+estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
                           ci_level = 0.95, n_boot = 200L,
                           g_bounds = c(0.01, 1), outcome_range = NULL,
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
+  regime <- .resolve_regimes(obj, regime)
+  inference <- match.arg(inference, c("eif", "bootstrap", "none"))
+
+  all_regime_results <- list()
+
+  for (rname in regime) {
 
   if (isTRUE(obj$crossfit$enabled)) {
-    return(.cf_estimate_tmle(obj, regime = regime, times = times,
+    cf_result <- .cf_estimate_tmle(obj, regime = rname, times = times,
                               inference = inference, ci_level = ci_level,
                               n_boot = n_boot, g_bounds = g_bounds,
                               outcome_range = outcome_range,
-                              verbose = verbose))
+                              verbose = verbose)
+    all_regime_results[[rname]] <- cf_result
+    next
   }
 
-  if (is.null(obj$fits$treatment)) {
-    stop("Treatment model not fit. Run fit_treatment() first.", call. = FALSE)
+  if (is.null(obj$fits$treatment[[rname]]) || length(obj$fits$treatment[[rname]]) == 0) {
+    stop(sprintf("Treatment model not fit for regime '%s'. Run fit_treatment() first.", rname),
+         call. = FALSE)
   }
-  if (is.null(obj$fits$outcome)) {
-    stop("Outcome model not fitted. Run fit_outcome() first.", call. = FALSE)
+  if (is.null(obj$fits$outcome[[rname]]) || length(obj$fits$outcome[[rname]]) == 0) {
+    stop(sprintf("Outcome model not fitted for regime '%s'. Run fit_outcome() first.", rname),
+         call. = FALSE)
   }
-
-  inference <- match.arg(inference, c("eif", "bootstrap", "none"))
 
   nodes <- obj$nodes
   dt <- obj$data
@@ -64,13 +72,13 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
   a_col <- nodes$treatment
   y_col <- nodes$outcome
   all_time_vals <- obj$meta$time_values
-  reg <- obj$regimes[[regime]]
+  reg <- obj$regimes[[rname]]
 
   is_binary <- nodes$outcome_type %in% c("binary", "survival")
   is_survival <- nodes$outcome_type == "survival"
 
   # Read outcome model settings (covariates, learners, bounds, sl_fn)
-  outcome_settings <- obj$fits$outcome
+  outcome_settings <- obj$fits$outcome[[rname]]
   covariates <- outcome_settings$covariates
   learners <- outcome_settings$learners
   q_bounds <- outcome_settings$bounds
@@ -85,7 +93,7 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
   }
 
   # Compute cumulative g (shared helper from weights.R)
-  g_cum_dt <- .compute_cumulative_g(obj, regime = regime, g_bounds = g_bounds)
+  g_cum_dt <- .compute_cumulative_g(obj, regime = rname, g_bounds = g_bounds)
 
   # --- Outcome scaling for continuous outcomes ---
   # Scale Y to [0,1] so we can use quasibinomial for all types
@@ -349,7 +357,7 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
         obj = obj,
         target_t = target_t,
         psi_hat = psi_scaled,  # on scaled [0,1]
-        regime = regime,
+        regime = rname,
         y_min = y_min,
         y_range_width = y_range_width
       )
@@ -379,7 +387,7 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
   # Bootstrap inference
   if (inference == "bootstrap" && n_boot > 0) {
     inf_dt <- .bootstrap_tmle_inference(
-      obj, regime = regime, times = target_times,
+      obj, regime = rname, times = target_times,
       n_boot = n_boot, ci_level = ci_level,
       g_bounds = g_bounds, outcome_range = outcome_range,
       verbose = verbose
@@ -416,14 +424,20 @@ estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
 
   result <- list(
     estimates = estimates,
-    regime = regime,
+    regime = rname,
     estimator = "tmle",
     inference = inference,
     ci_level = ci_level,
     obj = obj
   )
   class(result) <- "longy_result"
-  result
+  all_regime_results[[rname]] <- result
+
+  } # end for (rname in regime)
+
+  if (length(all_regime_results) == 1) return(all_regime_results[[1]])
+  class(all_regime_results) <- "longy_results"
+  all_regime_results
 }
 
 #' TMLE Fluctuation Step

@@ -150,7 +150,7 @@ NULL
   results <- data.table::rbindlist(results[non_null])
   data.table::setnames(results, ".id", nodes$id)
 
-  obj$fits$treatment <- list(
+  obj$fits$treatment[[regime]] <- list(
     regime = regime,
     predictions = results,
     covariates = covariates,
@@ -182,7 +182,7 @@ NULL
 
   if (is.null(nodes$censoring) || length(nodes$censoring) == 0) {
     if (verbose) .vmsg("  No censoring columns defined, skipping CF fit_censoring()")
-    obj$fits$censoring <- list()
+    obj$fits$censoring[[regime]] <- list()
     return(obj)
   }
 
@@ -202,6 +202,9 @@ NULL
   n_folds <- obj$crossfit$n_folds
 
   dt <- .add_tracking_columns(dt, nodes, reg)
+
+  # Initialize per-regime censoring list
+  obj$fits$censoring[[regime]] <- list()
 
   for (cvar in nodes$censoring) {
     if (verbose) .vmsg("  CF fitting censoring model for '%s'...", cvar)
@@ -308,7 +311,7 @@ NULL
     results <- data.table::rbindlist(results[non_null])
     data.table::setnames(results, ".id", nodes$id)
 
-    obj$fits$censoring[[cvar]] <- list(
+    obj$fits$censoring[[regime]][[cvar]] <- list(
       predictions = results,
       covariates = covariates,
       learners = learners,
@@ -340,7 +343,6 @@ NULL
 
   if (is.null(nodes$observation)) {
     if (verbose) .vmsg("  No observation column defined, skipping CF fit_observation()")
-    obj$fits$observation <- NULL
     return(obj)
   }
 
@@ -464,7 +466,7 @@ NULL
   results <- data.table::rbindlist(results[non_null])
   data.table::setnames(results, ".id", nodes$id)
 
-  obj$fits$observation <- list(
+  obj$fits$observation[[regime]] <- list(
     regime = regime,
     predictions = results,
     covariates = covariates,
@@ -599,7 +601,7 @@ NULL
   is_binary <- nodes$outcome_type %in% c("binary", "survival")
   is_survival <- nodes$outcome_type == "survival"
 
-  outcome_settings <- obj$fits$outcome
+  outcome_settings <- obj$fits$outcome[[regime]]
   covariates <- outcome_settings$covariates
   learners <- outcome_settings$learners
   q_bounds <- outcome_settings$bounds

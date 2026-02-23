@@ -29,20 +29,18 @@
 #' @return Modified \code{longy_data} object with outcome fits stored in
 #'   \code{obj$fits$outcome}.
 #' @export
-fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
+fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                         sl_control = list(), adaptive_cv = TRUE,
                         min_obs = 50L, bounds = c(0.005, 0.995),
                         times = NULL, sl_fn = "SuperLearner",
                         verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
   learners <- .resolve_learners(learners, "outcome")
+  regime <- .resolve_regimes(obj, regime)
 
-  if (!regime %in% names(obj$regimes)) {
-    stop(sprintf("Regime '%s' not found. Use define_regime() first.", regime),
-         call. = FALSE)
-  }
+  for (rname in regime) {
 
-  reg <- obj$regimes[[regime]]
+  reg <- obj$regimes[[rname]]
   dt <- obj$data
   nodes <- obj$nodes
   all_time_vals <- obj$meta$time_values
@@ -288,8 +286,8 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
   sl_info <- unlist(sl_info_list, recursive = FALSE)
   sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
 
-  obj$fits$outcome <- list(
-    regime = regime,
+  obj$fits$outcome[[rname]] <- list(
+    regime = rname,
     predictions = all_preds,
     covariates = covariates,
     learners = learners,
@@ -309,6 +307,8 @@ fit_outcome <- function(obj, regime, covariates = NULL, learners = NULL,
     dt[, .longy_first_competing := NULL]
   }
   .remove_tracking_columns(obj$data)
+
+  } # end for (rname in regime)
 
   obj
 }

@@ -4,12 +4,15 @@
 \alias{positivity_diagnostics}
 \title{Positivity Diagnostics}
 \usage{
-positivity_diagnostics(obj, threshold = 0.025)
+positivity_diagnostics(obj, regime = NULL, threshold = 0.025)
 }
 \arguments{
 \item{obj}{A \code{longy_data}, \code{longy_result}, or \code{longy_results}
 object with treatment model fit. For \code{longy_results}, uses the first
 element.}
+
+\item{regime}{Character. Name of the regime. If NULL, uses the first
+available regime.}
 
 \item{threshold}{Numeric. Flag observations with predicted probabilities
 below this value (or above 1 - threshold). Default 0.025.}

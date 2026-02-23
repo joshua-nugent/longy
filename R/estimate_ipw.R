@@ -22,18 +22,24 @@
 #'   }
 #'
 #' @export
-estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
+estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
                          ci_level = 0.95, n_boot = 200L, cluster = NULL) {
   stopifnot(inherits(obj, "longy_data"))
+  regime <- .resolve_regimes(obj, regime)
+  inference <- match.arg(inference, c("ic", "bootstrap", "sandwich", "none"))
 
-  if (is.null(obj$weights)) {
-    stop("Weights not computed. Run compute_weights() first.", call. = FALSE)
+  all_regime_results <- list()
+
+  for (rname in regime) {
+
+  if (is.null(obj$weights[[rname]]) || length(obj$weights[[rname]]) == 0) {
+    stop(sprintf("Weights not computed for regime '%s'. Run compute_weights() first.", rname),
+         call. = FALSE)
   }
 
-  inference <- match.arg(inference, c("ic", "bootstrap", "sandwich", "none"))
   nodes <- obj$nodes
   id_col <- nodes$id
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[[rname]]$weights_dt
 
   # Determine time points
   available_times <- sort(unique(w_dt$.time))
@@ -74,16 +80,16 @@ estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
 
   # Inference (computed on raw/unsmoothed estimates)
   if (inference == "ic") {
-    inf_dt <- .ic_inference(estimates, obj, ci_level = ci_level,
+    inf_dt <- .ic_inference(estimates, obj, regime = rname, ci_level = ci_level,
                             cluster = cluster)
     estimates <- cbind(estimates, inf_dt)
   } else if (inference == "bootstrap") {
-    inf_dt <- .bootstrap_inference(obj, regime = regime, times = times,
+    inf_dt <- .bootstrap_inference(obj, regime = rname, times = times,
                                    n_boot = n_boot, ci_level = ci_level)
     estimates <- cbind(estimates, inf_dt)
   } else if (inference == "sandwich") {
-    inf_dt <- .sandwich_inference(obj, times = times, ci_level = ci_level,
-                                  cluster = cluster)
+    inf_dt <- .sandwich_inference(obj, regime = rname, times = times,
+                                  ci_level = ci_level, cluster = cluster)
     estimates <- cbind(estimates, inf_dt)
   }
 
@@ -103,13 +109,19 @@ estimate_ipw <- function(obj, regime, times = NULL, inference = "ic",
 
   result <- list(
     estimates = estimates,
-    regime = regime,
+    regime = rname,
     inference = inference,
     ci_level = ci_level,
     obj = obj
   )
   class(result) <- "longy_result"
-  result
+  all_regime_results[[rname]] <- result
+
+  } # end for (rname in regime)
+
+  if (length(all_regime_results) == 1) return(all_regime_results[[1]])
+  class(all_regime_results) <- "longy_results"
+  all_regime_results
 }
 
 #' @export
@@ -142,9 +154,11 @@ summary.longy_result <- function(object, ...) {
   cat(sprintf("=== longy %s Result Summary ===\n\n", est_label))
   print(object)
 
-  if (!is.null(object$obj$weights)) {
+  regime_name <- object$regime
+  w_obj <- object$obj$weights[[regime_name]]
+  if (!is.null(w_obj)) {
     cat("\nWeight summary:\n")
-    w_dt <- object$obj$weights$weights_dt
+    w_dt <- w_obj$weights_dt
     cat(sprintf("  Mean final weight:   %.3f\n", mean(w_dt$.final_weight)))
     cat(sprintf("  Median final weight: %.3f\n", stats::median(w_dt$.final_weight)))
     cat(sprintf("  Max final weight:    %.3f\n", max(w_dt$.final_weight)))

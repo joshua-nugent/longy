@@ -8,8 +8,8 @@ test_that("fit_treatment runs without error on basic data", {
 
   obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
 
-  expect_false(is.null(obj$fits$treatment))
-  expect_true(nrow(obj$fits$treatment$predictions) > 0)
+  expect_false(is.null(obj$fits$treatment[["always"]]))
+  expect_true(nrow(obj$fits$treatment[["always"]]$predictions) > 0)
 })
 
 test_that("fit_treatment predictions are bounded", {
@@ -23,7 +23,7 @@ test_that("fit_treatment predictions are bounded", {
   bounds <- c(0.01, 0.99)
   obj <- fit_treatment(obj, regime = "always", bounds = bounds, verbose = FALSE)
 
-  preds <- obj$fits$treatment$predictions$.p_a
+  preds <- obj$fits$treatment[["always"]]$predictions$.p_a
   expect_true(all(preds >= bounds[1]))
   expect_true(all(preds <= bounds[2]))
 })
@@ -37,7 +37,7 @@ test_that("fit_treatment uses correct risk set", {
   obj <- define_regime(obj, "always", static = 1L)
   obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
 
-  preds <- obj$fits$treatment$predictions
+  preds <- obj$fits$treatment[["always"]]$predictions
   # At time 0, everyone should be at risk
   t0 <- preds[preds$.time == 0, ]
   expect_equal(t0$.n_risk[1], sum(d$time == 0))
@@ -58,7 +58,7 @@ test_that("fit_treatment falls back to marginal with constant treatment", {
   obj <- define_regime(obj, "always", static = 1L)
 
   obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
-  t0 <- obj$fits$treatment$predictions[obj$fits$treatment$predictions$.time == 0, ]
+  t0 <- obj$fits$treatment[["always"]]$predictions[obj$fits$treatment[["always"]]$predictions$.time == 0, ]
   # When all Y=1, marginal method should be used
   expect_equal(unique(t0$.method), "marginal")
 })
@@ -76,7 +76,7 @@ test_that("fit_treatment works with SuperLearner library", {
                        learners = c("SL.glm", "SL.mean"),
                        verbose = FALSE)
 
-  preds <- obj$fits$treatment$predictions
+  preds <- obj$fits$treatment[["always"]]$predictions
   expect_true(nrow(preds) > 0)
 
   # Should use SuperLearner, not marginal
@@ -84,7 +84,7 @@ test_that("fit_treatment works with SuperLearner library", {
   expect_true(any(methods %in% c("SuperLearner", "glm")))
 
   # sl_info should contain risk and coef
-  sl_info <- obj$fits$treatment$sl_info
+  sl_info <- obj$fits$treatment[["always"]]$sl_info
   expect_true(length(sl_info) > 0)
   sl_entry <- sl_info[[1]]
   if (sl_entry$method %in% c("SuperLearner", "glm")) {
@@ -120,15 +120,15 @@ test_that("fit_* functions accept named learner lists", {
               outcome = c("SL.glm", "SL.mean"))
 
   obj <- fit_treatment(obj, regime = "always", learners = lib, verbose = FALSE)
-  expect_false(is.null(obj$fits$treatment))
+  expect_false(is.null(obj$fits$treatment[["always"]]))
 
   obj <- fit_censoring(obj, regime = "always", learners = lib, verbose = FALSE)
-  expect_true(length(obj$fits$censoring) > 0)
+  expect_true(length(obj$fits$censoring[["always"]]) > 0)
 
   obj <- fit_observation(obj, regime = "always", learners = lib, verbose = FALSE)
 
   obj <- fit_outcome(obj, regime = "always", learners = lib, verbose = FALSE)
-  expect_false(is.null(obj$fits$outcome))
+  expect_false(is.null(obj$fits$outcome[["always"]]))
 })
 
 test_that(".resolve_learners extracts correct model", {
@@ -172,7 +172,7 @@ test_that("fit_treatment uses marginal for rare events with large dataset", {
                          verbose = FALSE),
     "minority-class events"
   )
-  t0 <- obj$fits$treatment$predictions[obj$fits$treatment$predictions$.time == 0, ]
+  t0 <- obj$fits$treatment[["always"]]$predictions[obj$fits$treatment[["always"]]$predictions$.time == 0, ]
   expect_equal(unique(t0$.method), "marginal")
 })
 
@@ -196,7 +196,7 @@ test_that("fit_treatment still fits SL when rate > 1% even with few events", {
 
   obj <- fit_treatment(obj, regime = "always", min_obs = 10L,
                        min_events = 20L, verbose = FALSE)
-  t0 <- obj$fits$treatment$predictions[obj$fits$treatment$predictions$.time == 0, ]
+  t0 <- obj$fits$treatment[["always"]]$predictions[obj$fits$treatment[["always"]]$predictions$.time == 0, ]
   # With 30% event rate and enough obs, should not be marginal
   expect_true(unique(t0$.method) != "marginal")
 })
@@ -224,6 +224,6 @@ test_that("fit_treatment respects custom min_events value", {
   # With min_events = 3, 5 events should be enough -> SL used
   obj <- fit_treatment(obj, regime = "always", min_events = 3L,
                        verbose = FALSE)
-  t0 <- obj$fits$treatment$predictions[obj$fits$treatment$predictions$.time == 0, ]
+  t0 <- obj$fits$treatment[["always"]]$predictions[obj$fits$treatment[["always"]]$predictions$.time == 0, ]
   expect_true(unique(t0$.method) != "marginal")
 })

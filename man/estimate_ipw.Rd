@@ -6,7 +6,7 @@
 \usage{
 estimate_ipw(
   obj,
-  regime,
+  regime = NULL,
   times = NULL,
   inference = "ic",
   ci_level = 0.95,

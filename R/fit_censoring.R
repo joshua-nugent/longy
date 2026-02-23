@@ -32,7 +32,7 @@
 #'   \code{obj$fits$censoring}, a named list keyed by internal column name
 #'   (e.g. \code{".cens_censored"}).
 #' @export
-fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
+fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                           sl_control = list(), adaptive_cv = TRUE,
                           min_obs = 50L, min_events = 20L,
                           bounds = c(0.005, 0.995),
@@ -40,31 +40,29 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
   learners <- .resolve_learners(learners, "censoring")
-
-  if (isTRUE(obj$crossfit$enabled)) {
-    return(.cf_fit_censoring(obj, regime, covariates = covariates,
-                              learners = learners, sl_control = sl_control,
-                              adaptive_cv = adaptive_cv, min_obs = min_obs,
-                              min_events = min_events,
-                              bounds = bounds, times = times, sl_fn = sl_fn,
-                              verbose = verbose))
-  }
+  regime <- .resolve_regimes(obj, regime)
 
   nodes <- obj$nodes
 
   # If no censoring columns, nothing to do
   if (is.null(nodes$censoring) || length(nodes$censoring) == 0) {
     if (verbose) .vmsg("  No censoring columns defined, skipping fit_censoring()")
-    obj$fits$censoring <- list()
     return(obj)
   }
 
-  if (!regime %in% names(obj$regimes)) {
-    stop(sprintf("Regime '%s' not found. Use define_regime() first.", regime),
-         call. = FALSE)
+  for (rname in regime) {
+
+  if (isTRUE(obj$crossfit$enabled)) {
+    obj <- .cf_fit_censoring(obj, rname, covariates = covariates,
+                              learners = learners, sl_control = sl_control,
+                              adaptive_cv = adaptive_cv, min_obs = min_obs,
+                              min_events = min_events,
+                              bounds = bounds, times = times, sl_fn = sl_fn,
+                              verbose = verbose)
+    next
   }
 
-  reg <- obj$regimes[[regime]]
+  reg <- obj$regimes[[rname]]
   dt <- obj$data
   time_vals <- obj$meta$time_values
   if (!is.null(times)) {
@@ -76,6 +74,9 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
   }
 
   dt <- .add_tracking_columns(dt, nodes, reg)
+
+  # Initialize per-regime censoring list
+  obj$fits$censoring[[rname]] <- list()
 
   # Fit per censoring source
   for (cvar in nodes$censoring) {
@@ -197,7 +198,7 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
 
     sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
 
-    obj$fits$censoring[[cvar]] <- list(
+    obj$fits$censoring[[rname]][[cvar]] <- list(
       predictions = results,
       covariates = covariates,
       learners = learners,
@@ -208,6 +209,8 @@ fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
   }
 
   .remove_tracking_columns(obj$data)
+
+  } # end for (rname in regime)
 
   obj
 }

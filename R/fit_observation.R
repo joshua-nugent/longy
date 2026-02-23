@@ -25,7 +25,7 @@
 #'
 #' @return Modified `longy_data` object with observation fits stored.
 #' @export
-fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
+fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                             sl_control = list(), adaptive_cv = TRUE,
                             min_obs = 50L, min_events = 20L,
                             bounds = c(0.005, 0.995),
@@ -33,31 +33,29 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
                             verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
   learners <- .resolve_learners(learners, "observation")
-
-  if (isTRUE(obj$crossfit$enabled)) {
-    return(.cf_fit_observation(obj, regime, covariates = covariates,
-                                learners = learners, sl_control = sl_control,
-                                adaptive_cv = adaptive_cv, min_obs = min_obs,
-                                min_events = min_events,
-                                bounds = bounds, times = times, sl_fn = sl_fn,
-                                verbose = verbose))
-  }
+  regime <- .resolve_regimes(obj, regime)
 
   nodes <- obj$nodes
 
   # If no observation column, skip
   if (is.null(nodes$observation)) {
     if (verbose) .vmsg("  No observation column defined, skipping fit_observation()")
-    obj$fits$observation <- NULL
     return(obj)
   }
 
-  if (!regime %in% names(obj$regimes)) {
-    stop(sprintf("Regime '%s' not found. Use define_regime() first.", regime),
-         call. = FALSE)
+  for (rname in regime) {
+
+  if (isTRUE(obj$crossfit$enabled)) {
+    obj <- .cf_fit_observation(obj, rname, covariates = covariates,
+                                learners = learners, sl_control = sl_control,
+                                adaptive_cv = adaptive_cv, min_obs = min_obs,
+                                min_events = min_events,
+                                bounds = bounds, times = times, sl_fn = sl_fn,
+                                verbose = verbose)
+    next
   }
 
-  reg <- obj$regimes[[regime]]
+  reg <- obj$regimes[[rname]]
   dt <- obj$data
   time_vals <- obj$meta$time_values
   if (!is.null(times)) {
@@ -181,8 +179,8 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
 
   sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
 
-  obj$fits$observation <- list(
-    regime = regime,
+  obj$fits$observation[[rname]] <- list(
+    regime = rname,
     predictions = results,
     covariates = covariates,
     learners = learners,
@@ -192,6 +190,8 @@ fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
   )
 
   .remove_tracking_columns(obj$data)
+
+  } # end for (rname in regime)
 
   obj
 }

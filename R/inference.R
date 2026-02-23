@@ -35,11 +35,11 @@
 #' @param cluster Character. Column name for cluster-robust SEs.
 #' @return data.table with se, ci_lower, ci_upper added
 #' @noRd
-.ic_inference <- function(estimates, obj, ci_level = 0.95, cluster = NULL) {
+.ic_inference <- function(estimates, obj, regime, ci_level = 0.95, cluster = NULL) {
   z <- stats::qnorm(1 - (1 - ci_level) / 2)
   nodes <- obj$nodes
   id_col <- nodes$id
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[[regime]]$weights_dt
 
   results <- vector("list", nrow(estimates))
 
@@ -140,39 +140,41 @@
       )
       b_obj$regimes <- obj$regimes
       b_obj <- fit_treatment(b_obj, regime = regime,
-                             covariates = obj$fits$treatment$covariates,
-                             learners = obj$fits$treatment$learners,
-                             bounds = obj$fits$treatment$bounds,
-                             sl_fn = obj$fits$treatment$sl_fn,
+                             covariates = obj$fits$treatment[[regime]]$covariates,
+                             learners = obj$fits$treatment[[regime]]$learners,
+                             bounds = obj$fits$treatment[[regime]]$bounds,
+                             sl_fn = obj$fits$treatment[[regime]]$sl_fn,
                              verbose = FALSE)
-      if (length(obj$fits$censoring) > 0) {
-        cov_c <- obj$fits$censoring[[1]]$covariates
-        lrn_c <- obj$fits$censoring[[1]]$learners
-        bnd_c <- obj$fits$censoring[[1]]$bounds
-        slfn_c <- obj$fits$censoring[[1]]$sl_fn
+      cens_fits <- obj$fits$censoring[[regime]]
+      if (length(cens_fits) > 0) {
+        cov_c <- cens_fits[[1]]$covariates
+        lrn_c <- cens_fits[[1]]$learners
+        bnd_c <- cens_fits[[1]]$bounds
+        slfn_c <- cens_fits[[1]]$sl_fn
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
                                bounds = bnd_c, sl_fn = slfn_c,
                                verbose = FALSE)
       }
-      if (!is.null(obj$fits$observation)) {
+      obs_fit <- obj$fits$observation[[regime]]
+      if (!is.null(obs_fit)) {
         b_obj <- fit_observation(b_obj, regime = regime,
-                                 covariates = obj$fits$observation$covariates,
-                                 learners = obj$fits$observation$learners,
-                                 bounds = obj$fits$observation$bounds,
-                                 sl_fn = obj$fits$observation$sl_fn,
+                                 covariates = obs_fit$covariates,
+                                 learners = obs_fit$learners,
+                                 bounds = obs_fit$bounds,
+                                 sl_fn = obs_fit$sl_fn,
                                  verbose = FALSE)
       }
       b_obj <- compute_weights(b_obj, regime = regime,
-                               stabilized = obj$weights$stabilized,
-                               truncation = obj$weights$truncation,
-                               truncation_quantile = obj$weights$truncation_quantile)
+                               stabilized = obj$weights[[regime]]$stabilized,
+                               truncation = obj$weights[[regime]]$truncation,
+                               truncation_quantile = obj$weights[[regime]]$truncation_quantile)
       b_obj
     }, error = function(e) NULL)
 
     if (is.null(boot_obj)) return(rep(NA_real_, length(times)))
 
-    vapply(times, function(tt) .hajek_estimate(boot_obj, tt), numeric(1))
+    vapply(times, function(tt) .hajek_estimate(boot_obj, regime, tt), numeric(1))
   }
 
   boot_list <- .run_bootstrap(n_boot, one_boot, verbose)
@@ -208,7 +210,7 @@
 #' @param cluster Cluster column
 #' @return data.table with se, ci_lower, ci_upper
 #' @noRd
-.sandwich_inference <- function(obj, times, ci_level = 0.95, cluster = NULL) {
+.sandwich_inference <- function(obj, regime, times, ci_level = 0.95, cluster = NULL) {
   if (!requireNamespace("survey", quietly = TRUE)) {
     stop("Package 'survey' is required for sandwich inference. Install with install.packages('survey').",
          call. = FALSE)
@@ -216,7 +218,7 @@
 
   nodes <- obj$nodes
   id_col <- nodes$id
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[[regime]]$weights_dt
 
   results <- vector("list", length(times))
 
@@ -272,7 +274,7 @@
   id_col <- nodes$id
   ids <- unique(obj$data[[id_col]])
   n <- length(ids)
-  outcome_fit <- obj$fits$outcome
+  outcome_fit <- obj$fits$outcome[[regime]]
 
   one_boot <- function(b) {
     boot_ids <- sample(ids, n, replace = TRUE)
@@ -310,7 +312,8 @@
 
     if (is.null(boot_obj)) return(rep(NA_real_, length(times)))
 
-    pred_dt <- boot_obj$fits$outcome$predictions
+    pred_dt <- boot_obj$fits$outcome[[regime]]$predictions
+    if (is.null(pred_dt)) return(rep(NA_real_, length(times)))
     vapply(times, function(tt) {
       q_t <- pred_dt[pred_dt$.target_time == tt, ]
       if (nrow(q_t) > 0) mean(q_t$.Q_hat) else NA_real_
@@ -365,7 +368,7 @@
   id_col <- nodes$id
   ids <- unique(obj$data[[id_col]])
   n <- length(ids)
-  outcome_fit <- obj$fits$outcome
+  outcome_fit <- obj$fits$outcome[[regime]]
 
   one_boot <- function(b) {
     boot_ids <- sample(ids, n, replace = TRUE)
@@ -393,18 +396,19 @@
 
       # Fit treatment model
       b_obj <- fit_treatment(b_obj, regime = regime,
-                             covariates = obj$fits$treatment$covariates,
-                             learners = obj$fits$treatment$learners,
-                             bounds = obj$fits$treatment$bounds,
-                             sl_fn = obj$fits$treatment$sl_fn,
+                             covariates = obj$fits$treatment[[regime]]$covariates,
+                             learners = obj$fits$treatment[[regime]]$learners,
+                             bounds = obj$fits$treatment[[regime]]$bounds,
+                             sl_fn = obj$fits$treatment[[regime]]$sl_fn,
                              verbose = FALSE)
 
       # Fit censoring model
-      if (length(obj$fits$censoring) > 0) {
-        cov_c <- obj$fits$censoring[[1]]$covariates
-        lrn_c <- obj$fits$censoring[[1]]$learners
-        bnd_c <- obj$fits$censoring[[1]]$bounds
-        slfn_c <- obj$fits$censoring[[1]]$sl_fn
+      cens_fits_tmle <- obj$fits$censoring[[regime]]
+      if (length(cens_fits_tmle) > 0) {
+        cov_c <- cens_fits_tmle[[1]]$covariates
+        lrn_c <- cens_fits_tmle[[1]]$learners
+        bnd_c <- cens_fits_tmle[[1]]$bounds
+        slfn_c <- cens_fits_tmle[[1]]$sl_fn
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
                                bounds = bnd_c, sl_fn = slfn_c,
@@ -459,10 +463,10 @@
 
 #' Hajek point estimate at a single time
 #' @noRd
-.hajek_estimate <- function(obj, tt) {
+.hajek_estimate <- function(obj, regime, tt) {
   nodes <- obj$nodes
   id_col <- nodes$id
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[[regime]]$weights_dt
   w_t <- w_dt[w_dt$.time == tt, ]
   dt_t <- obj$data[obj$data[[nodes$time]] == tt, ]
   merged <- merge(w_t, dt_t[, c(id_col, nodes$outcome), with = FALSE],

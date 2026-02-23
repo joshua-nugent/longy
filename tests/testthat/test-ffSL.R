@@ -69,7 +69,7 @@ test_that("sl_fn parameter stored in fit objects", {
   obj <- fit_treatment(obj, regime = "always", verbose = FALSE,
                        sl_fn = "SuperLearner")
 
-  expect_equal(obj$fits$treatment$sl_fn, "SuperLearner")
+  expect_equal(obj$fits$treatment[["always"]]$sl_fn, "SuperLearner")
 })
 
 test_that("longy() accepts sl_fn parameter", {

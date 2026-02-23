@@ -11,8 +11,8 @@ test_that("compute_weights produces valid weights", {
 
   obj <- compute_weights(obj, regime = "always")
 
-  expect_false(is.null(obj$weights))
-  w_dt <- obj$weights$weights_dt
+  expect_false(is.null(obj$weights[["always"]]))
+  w_dt <- obj$weights[["always"]]$weights_dt
   expect_true(all(w_dt$.final_weight > 0))
   expect_true(all(is.finite(w_dt$.final_weight)))
 })
@@ -29,7 +29,7 @@ test_that("stabilized weights have mean approximately 1 among followers", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always", stabilized = TRUE)
 
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[["always"]]$weights_dt
   # For no-confounding, treatment weights should be close to 1
   for (tt in unique(w_dt$.time)) {
     w_t <- w_dt[w_dt$.time == tt, ]
@@ -51,7 +51,7 @@ test_that("truncation works", {
 
   obj <- compute_weights(obj, regime = "always", truncation = 5)
 
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[["always"]]$weights_dt
   expect_true(all(w_dt$.final_weight <= 5))
 })
 
@@ -71,7 +71,7 @@ test_that("no-confounding data yields weights near 1", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[["always"]]$weights_dt
   # With no confounding and no censoring, weights should be near 1
   mean_w <- mean(w_dt$.final_weight)
   expect_true(mean_w > 0.5 && mean_w < 2.0,
@@ -90,7 +90,7 @@ test_that("observation weight is NOT cumulated", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[["always"]]$weights_dt
   # sw_r should be point-in-time: check that it's not growing over time
   # (it should be roughly stable, unlike csw_ac which grows)
   mean_sw_r_by_time <- tapply(w_dt$.sw_r, w_dt$.time, mean)
@@ -130,8 +130,8 @@ test_that("sampling weights multiply into final weight", {
   obj_nosw <- compute_weights(obj_nosw, regime = "always")
 
   # Final weights with sw should equal final weights without sw * sampling weight
-  w_sw <- obj_sw$weights$weights_dt
-  w_nosw <- obj_nosw$weights$weights_dt
+  w_sw <- obj_sw$weights[["always"]]$weights_dt
+  w_nosw <- obj_nosw$weights[["always"]]$weights_dt
   merged_w <- merge(w_sw[, c("id", ".time", ".final_weight"), with = FALSE],
                     w_nosw[, c("id", ".time", ".final_weight"), with = FALSE],
                     by = c("id", ".time"), suffixes = c("_sw", "_nosw"))
@@ -241,7 +241,7 @@ test_that("zero sampling weights exclude subjects", {
   obj <- compute_weights(obj, regime = "always")
 
   # Subjects with sw=0 should have final_weight=0
-  w_dt <- obj$weights$weights_dt
+  w_dt <- obj$weights[["always"]]$weights_dt
   zero_ids <- sw_map$id[sw_map$sw == 0]
   zero_weights <- w_dt[w_dt$id %in% zero_ids, ]$.final_weight
   if (length(zero_weights) > 0) {

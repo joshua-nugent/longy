@@ -27,7 +27,7 @@
 #'
 #' @return Modified `longy_data` object with treatment fits stored.
 #' @export
-fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
+fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                           sl_control = list(), adaptive_cv = TRUE,
                           min_obs = 50L, min_events = 20L,
                           bounds = c(0.005, 0.995),
@@ -35,22 +35,21 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
                           verbose = TRUE) {
   stopifnot(inherits(obj, "longy_data"))
   learners <- .resolve_learners(learners, "treatment")
+  regime <- .resolve_regimes(obj, regime)
+
+  for (rname in regime) {
 
   if (isTRUE(obj$crossfit$enabled)) {
-    return(.cf_fit_treatment(obj, regime, covariates = covariates,
+    obj <- .cf_fit_treatment(obj, rname, covariates = covariates,
                               learners = learners, sl_control = sl_control,
                               adaptive_cv = adaptive_cv, min_obs = min_obs,
                               min_events = min_events,
                               bounds = bounds, times = times, sl_fn = sl_fn,
-                              verbose = verbose))
+                              verbose = verbose)
+    next
   }
 
-  if (!regime %in% names(obj$regimes)) {
-    stop(sprintf("Regime '%s' not found. Use define_regime() first.", regime),
-         call. = FALSE)
-  }
-
-  reg <- obj$regimes[[regime]]
+  reg <- obj$regimes[[rname]]
   dt <- obj$data
   nodes <- obj$nodes
   time_vals <- obj$meta$time_values
@@ -173,8 +172,8 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
 
   sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
 
-  obj$fits$treatment <- list(
-    regime = regime,
+  obj$fits$treatment[[rname]] <- list(
+    regime = rname,
     predictions = results,
     covariates = covariates,
     learners = learners,
@@ -185,6 +184,8 @@ fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
 
   # Clean up tracking columns
   .remove_tracking_columns(obj$data)
+
+  } # end for (rname in regime)
 
   obj
 }

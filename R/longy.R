@@ -200,112 +200,128 @@ longy <- function(data,
     }
   }
 
-  # Fit and estimate for each regime
+  # Fit all regimes at once, then estimate
+  regime_names <- names(regimes)
   all_results <- list()
+  cur_step <- step
 
-  for (rname in names(regimes)) {
-    if (verbose) .vmsg("\n=== Regime: %s ===", rname)
-
-    # Fresh copy for each regime since fits are regime-specific
-    r_obj <- obj
-    r_obj$fits <- list(treatment = NULL, censoring = list(), observation = NULL)
-    r_obj$weights <- NULL
-
-    cur_step <- step
-
-    # --- Shared nuisance models: g_A + g_C + g_R (IPW and/or TMLE) ---
-    if (need_g) {
-      if (verbose) .vmsg("Step %d/%d: Fitting treatment model (g_A)...",
-                          cur_step + 1L, n_steps)
-      r_obj <- fit_treatment(r_obj, regime = rname, covariates = covariates,
-                             learners = learners_treatment, adaptive_cv = adaptive_cv,
-                             min_obs = min_obs, min_events = min_events,
-                             bounds = bounds,
-                             times = times, sl_fn = sl_fn,
-                             verbose = verbose)
-
-      if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C)...",
-                          cur_step + 2L, n_steps)
-      r_obj <- fit_censoring(r_obj, regime = rname, covariates = covariates,
-                             learners = learners_censoring, adaptive_cv = adaptive_cv,
-                             min_obs = min_obs, min_events = min_events,
-                             bounds = bounds,
-                             times = times, sl_fn = sl_fn,
-                             verbose = verbose)
-
-      if (verbose) .vmsg("Step %d/%d: Fitting observation model (g_R)...",
-                          cur_step + 3L, n_steps)
-      r_obj <- fit_observation(r_obj, regime = rname, covariates = covariates,
-                               learners = learners_observation, adaptive_cv = adaptive_cv,
-                               min_obs = min_obs, min_events = min_events,
-                               bounds = bounds,
-                               times = times, sl_fn = sl_fn,
-                               verbose = verbose)
-      cur_step <- cur_step + 3L
-    }
-
-    # --- IPW-specific: weights + estimate ---
-    if (do_ipw) {
-      if (verbose) .vmsg("Step %d/%d: Computing weights and estimating (IPW)...",
-                          cur_step + 1L, n_steps)
-      r_obj <- compute_weights(r_obj, regime = rname,
-                               stabilized = stabilized,
-                               truncation = truncation,
-                               truncation_quantile = truncation_quantile,
-                               g_bounds = g_bounds)
-
-      ipw_result <- estimate_ipw(r_obj, regime = rname, times = times,
-                                 inference = inference, ci_level = ci_level,
-                                 n_boot = n_boot, cluster = cluster)
-
-      result_name <- if (multi) paste0(rname, "_ipw") else rname
-      all_results[[result_name]] <- ipw_result
-      cur_step <- cur_step + 1L
-    }
-
-    # --- Shared outcome model (G-comp and/or TMLE) ---
-    if (need_outcome) {
-      if (verbose) .vmsg("Step %d/%d: Fitting outcome model...",
-                          cur_step + 1L, n_steps)
-      r_obj <- fit_outcome(r_obj, regime = rname, covariates = covariates,
-                           learners = learners_outcome, adaptive_cv = adaptive_cv,
-                           min_obs = min_obs, bounds = bounds,
+  # --- Shared nuisance models: g_A + g_C + g_R (IPW and/or TMLE) ---
+  if (need_g) {
+    if (verbose) .vmsg("Step %d/%d: Fitting treatment model (g_A)...",
+                        cur_step + 1L, n_steps)
+    obj <- fit_treatment(obj, regime = regime_names, covariates = covariates,
+                           learners = learners_treatment, adaptive_cv = adaptive_cv,
+                           min_obs = min_obs, min_events = min_events,
+                           bounds = bounds,
                            times = times, sl_fn = sl_fn,
                            verbose = verbose)
-      cur_step <- cur_step + 1L
+
+    if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C)...",
+                        cur_step + 2L, n_steps)
+    obj <- fit_censoring(obj, regime = regime_names, covariates = covariates,
+                           learners = learners_censoring, adaptive_cv = adaptive_cv,
+                           min_obs = min_obs, min_events = min_events,
+                           bounds = bounds,
+                           times = times, sl_fn = sl_fn,
+                           verbose = verbose)
+
+    if (verbose) .vmsg("Step %d/%d: Fitting observation model (g_R)...",
+                        cur_step + 3L, n_steps)
+    obj <- fit_observation(obj, regime = regime_names, covariates = covariates,
+                             learners = learners_observation, adaptive_cv = adaptive_cv,
+                             min_obs = min_obs, min_events = min_events,
+                             bounds = bounds,
+                             times = times, sl_fn = sl_fn,
+                             verbose = verbose)
+    cur_step <- cur_step + 3L
+  }
+
+  # --- IPW-specific: weights + estimate ---
+  if (do_ipw) {
+    if (verbose) .vmsg("Step %d/%d: Computing weights and estimating (IPW)...",
+                        cur_step + 1L, n_steps)
+    obj <- compute_weights(obj, regime = regime_names,
+                             stabilized = stabilized,
+                             truncation = truncation,
+                             truncation_quantile = truncation_quantile,
+                             g_bounds = g_bounds)
+
+    ipw_results <- estimate_ipw(obj, regime = regime_names, times = times,
+                               inference = inference, ci_level = ci_level,
+                               n_boot = n_boot, cluster = cluster)
+
+    # Extract per-regime results
+    if (length(regime_names) == 1) {
+      rname <- regime_names[1]
+      result_name <- if (multi) paste0(rname, "_ipw") else rname
+      all_results[[result_name]] <- ipw_results
+    } else {
+      for (rname in regime_names) {
+        result_name <- if (multi) paste0(rname, "_ipw") else rname
+        all_results[[result_name]] <- ipw_results[[rname]]
+      }
     }
+    cur_step <- cur_step + 1L
+  }
 
-    # --- G-comp estimate ---
-    if (do_gcomp) {
-      if (verbose) .vmsg("Step %d/%d: Estimating (G-comp)...",
-                          cur_step + 1L, n_steps)
-      gcomp_result <- estimate_gcomp(r_obj, regime = rname, times = times,
-                                     ci_level = ci_level, n_boot = n_boot,
-                                     verbose = verbose)
+  # --- Shared outcome model (G-comp and/or TMLE) ---
+  if (need_outcome) {
+    if (verbose) .vmsg("Step %d/%d: Fitting outcome model...",
+                        cur_step + 1L, n_steps)
+    obj <- fit_outcome(obj, regime = regime_names, covariates = covariates,
+                         learners = learners_outcome, adaptive_cv = adaptive_cv,
+                         min_obs = min_obs, bounds = bounds,
+                         times = times, sl_fn = sl_fn,
+                         verbose = verbose)
+    cur_step <- cur_step + 1L
+  }
 
-      result_name <- if (multi) paste0(rname, "_gcomp") else rname
-      all_results[[result_name]] <- gcomp_result
-      cur_step <- cur_step + 1L
-    }
-
-    # --- TMLE estimate ---
-    if (do_tmle) {
-      # Determine TMLE inference
-      tmle_inf <- if (n_boot == 0L) "eif" else inference
-      if (tmle_inf %in% c("none", "ic")) tmle_inf <- "eif"
-
-      if (verbose) .vmsg("Step %d/%d: Estimating (TMLE)...",
-                          cur_step + 1L, n_steps)
-      tmle_result <- estimate_tmle(r_obj, regime = rname, times = times,
-                                   inference = tmle_inf, ci_level = ci_level,
-                                   n_boot = n_boot, g_bounds = g_bounds,
-                                   outcome_range = outcome_range,
+  # --- G-comp estimate ---
+  if (do_gcomp) {
+    if (verbose) .vmsg("Step %d/%d: Estimating (G-comp)...",
+                        cur_step + 1L, n_steps)
+    gcomp_results <- estimate_gcomp(obj, regime = regime_names, times = times,
+                                   ci_level = ci_level, n_boot = n_boot,
                                    verbose = verbose)
 
-      result_name <- if (multi) paste0(rname, "_tmle") else rname
-      all_results[[result_name]] <- tmle_result
-      cur_step <- cur_step + 1L
+    if (length(regime_names) == 1) {
+      rname <- regime_names[1]
+      result_name <- if (multi) paste0(rname, "_gcomp") else rname
+      all_results[[result_name]] <- gcomp_results
+    } else {
+      for (rname in regime_names) {
+        result_name <- if (multi) paste0(rname, "_gcomp") else rname
+        all_results[[result_name]] <- gcomp_results[[rname]]
+      }
     }
+    cur_step <- cur_step + 1L
+  }
+
+  # --- TMLE estimate ---
+  if (do_tmle) {
+    # Determine TMLE inference
+    tmle_inf <- if (n_boot == 0L) "eif" else inference
+    if (tmle_inf %in% c("none", "ic")) tmle_inf <- "eif"
+
+    if (verbose) .vmsg("Step %d/%d: Estimating (TMLE)...",
+                        cur_step + 1L, n_steps)
+    tmle_results <- estimate_tmle(obj, regime = regime_names, times = times,
+                                 inference = tmle_inf, ci_level = ci_level,
+                                 n_boot = n_boot, g_bounds = g_bounds,
+                                 outcome_range = outcome_range,
+                                 verbose = verbose)
+
+    if (length(regime_names) == 1) {
+      rname <- regime_names[1]
+      result_name <- if (multi) paste0(rname, "_tmle") else rname
+      all_results[[result_name]] <- tmle_results
+    } else {
+      for (rname in regime_names) {
+        result_name <- if (multi) paste0(rname, "_tmle") else rname
+        all_results[[result_name]] <- tmle_results[[rname]]
+      }
+    }
+    cur_step <- cur_step + 1L
   }
 
   class(all_results) <- "longy_results"

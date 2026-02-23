@@ -6,7 +6,7 @@
 \usage{
 compute_weights(
   obj,
-  regime,
+  regime = NULL,
   stabilized = TRUE,
   truncation = NULL,
   truncation_quantile = NULL,

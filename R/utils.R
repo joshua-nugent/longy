@@ -1,6 +1,27 @@
 # Internal utility functions for longy
 # None of these are exported
 
+#' Resolve regime argument for fit_*/compute_weights/estimate_* functions
+#'
+#' When \code{regime} is NULL, defaults to all defined regimes. Validates
+#' that all requested regimes exist.
+#' @param obj A \code{longy_data} object.
+#' @param regime Character vector of regime names, or NULL for all.
+#' @return Character vector of validated regime names.
+#' @noRd
+.resolve_regimes <- function(obj, regime) {
+  if (is.null(regime)) regime <- names(obj$regimes)
+  if (length(regime) == 0) {
+    stop("No regimes specified and none defined.", call. = FALSE)
+  }
+  bad <- setdiff(regime, names(obj$regimes))
+  if (length(bad) > 0) {
+    stop(sprintf("Regime(s) not found: %s", paste(bad, collapse = ", ")),
+         call. = FALSE)
+  }
+  regime
+}
+
 #' Resolve learners argument for fit_* functions
 #'
 #' When \code{learners} is a named list (the \code{longy()} per-model format),

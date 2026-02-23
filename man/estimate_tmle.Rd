@@ -6,7 +6,7 @@
 \usage{
 estimate_tmle(
   obj,
-  regime,
+  regime = NULL,
   times = NULL,
   inference = "eif",
   ci_level = 0.95,

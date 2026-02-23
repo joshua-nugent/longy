@@ -4,12 +4,15 @@
 \alias{weight_diagnostics}
 \title{Weight Diagnostics}
 \usage{
-weight_diagnostics(obj, by_time = TRUE)
+weight_diagnostics(obj, regime = NULL, by_time = TRUE)
 }
 \arguments{
 \item{obj}{A \code{longy_data}, \code{longy_result}, or \code{longy_results}
 object with weights computed. For \code{longy_results}, uses the first
 element.}
+
+\item{regime}{Character. Name of the regime. If NULL, uses the first
+available regime.}
 
 \item{by_time}{Logical. If TRUE (default), summarize by time point.}
 }

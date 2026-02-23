@@ -416,8 +416,8 @@ longy_data <- function(data,
     data = dt,
     nodes = nodes,
     regimes = list(),
-    fits = list(treatment = NULL, censoring = list(), observation = NULL),
-    weights = NULL,
+    fits = list(treatment = list(), censoring = list(), observation = list(), outcome = list()),
+    weights = list(),
     crossfit = list(enabled = FALSE, n_folds = NULL, fold_id = NULL),
     meta = meta
   )
@@ -531,8 +531,9 @@ print.longy_data <- function(x, ...) {
     cat(sprintf("  Regimes:     %s\n",
                 paste(names(x$regimes), collapse = ", ")))
   }
-  if (!is.null(x$weights)) {
-    cat("  Weights:     computed\n")
+  if (length(x$weights) > 0) {
+    cat(sprintf("  Weights:     computed (%s)\n",
+                paste(names(x$weights), collapse = ", ")))
   }
   invisible(x)
 }
