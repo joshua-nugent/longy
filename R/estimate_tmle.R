@@ -224,11 +224,15 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]
 
-        # Fit Q model (always binomial family since Y in [0,1])
+        # Per-step family: binomial at first step (actual Y) for binary/survival,
+        # gaussian for all intermediate steps (continuous pseudo-outcomes in [0,1])
+        step_family <- if (i == 1 && is_binary) stats::binomial() else stats::gaussian()
+
+        # Fit Q model
         if (n_train >= min_obs && length(unique(Y_train)) > 1) {
           ctx <- sprintf("TMLE-Q, target=%d, time=%d, n_train=%d", target_t, tt, n_train)
           fit <- .safe_sl(Y = Y_train, X = X_train,
-                          family = stats::quasibinomial(),
+                          family = step_family,
                           learners = learners, cv_folds = 10L,
                           sl_fn = sl_fn, context = ctx, verbose = FALSE)
           method <- fit$method

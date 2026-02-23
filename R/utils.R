@@ -88,15 +88,27 @@
 #' Adaptive CV fold selection based on effective sample size
 #'
 #' Ported from user's get_neff_and_V. Determines appropriate number of
-#' CV folds based on the effective sample size of a binary outcome vector.
-#' @param y Binary outcome vector
+#' CV folds based on the effective sample size of an outcome vector.
+#' For binary outcomes, effective sample size is based on minority class
+#' prevalence. For continuous outcomes, effective sample size equals n.
+#' @param y Outcome vector
+#' @param binary Logical. If TRUE (default), use minority-class logic for
+#'   effective sample size. If FALSE, use n directly (for continuous
+#'   pseudo-outcomes in backward ICE steps).
 #' @return List with n_eff, V, n, p_hat, n_rare
 #' @noRd
-.adaptive_cv_folds <- function(y) {
+.adaptive_cv_folds <- function(y, binary = TRUE) {
   n <- length(y)
-  p_hat <- mean(y)
-  n_rare <- n * min(p_hat, 1 - p_hat)
-  n_eff <- min(n, 5 * n_rare)
+
+  if (binary) {
+    p_hat <- mean(y)
+    n_rare <- n * min(p_hat, 1 - p_hat)
+    n_eff <- min(n, 5 * n_rare)
+  } else {
+    p_hat <- NA_real_
+    n_rare <- NA_real_
+    n_eff <- n
+  }
 
   V <- if (n_eff < 30) {
     as.integer(n_eff)

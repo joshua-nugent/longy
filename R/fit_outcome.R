@@ -59,13 +59,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
   a_col <- nodes$treatment
   y_col <- nodes$outcome
 
-  # Determine family based on outcome type
+  # Determine outcome type flag (family is set per-step inside backward loop)
   is_binary <- nodes$outcome_type %in% c("binary", "survival")
-  # Use quasibinomial for binary/survival: during backward ICE, pseudo-outcomes
-
-  # are continuous predictions in [0,1], not strict 0/1. quasibinomial handles
-  # this correctly and triggers the SL.xgboost regression-objective swap.
-  family <- if (is_binary) stats::quasibinomial() else stats::gaussian()
 
   # Determine target times
   if (!is.null(times)) {
@@ -176,6 +171,12 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       sl_risk <- NULL
       sl_coef <- NULL
       n_train <- 0L
+      n_clipped_lower <- 0L
+      n_clipped_upper <- 0L
+
+      # Per-step family: binomial at first step (actual Y) for binary/survival,
+      # gaussian for all intermediate steps (continuous pseudo-outcomes in [0,1])
+      step_family <- if (i == 1 && is_binary) stats::binomial() else stats::gaussian()
 
       if (n_at_risk > 0) {
         Q_at_t <- dt_t$.longy_Q[at_risk]
@@ -199,13 +200,13 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         # Fit model
         if (n_train >= min_obs && length(unique(Y_train)) > 1) {
         cv_folds <- 10L
-        if (adaptive_cv && is_binary) {
-          cv_info <- .adaptive_cv_folds(Y_train)
+        if (adaptive_cv) {
+          cv_info <- .adaptive_cv_folds(Y_train, binary = (i == 1 && is_binary))
           cv_folds <- cv_info$V
         }
         ctx <- sprintf("Q, target=%d, time=%d, n_train=%d, mean_Q=%.3f",
                        target_t, tt, n_train, mean(Y_train))
-        fit <- .safe_sl(Y = Y_train, X = X_train, family = family,
+        fit <- .safe_sl(Y = Y_train, X = X_train, family = step_family,
                         learners = learners, cv_folds = cv_folds,
                         obs_weights = ow, sl_fn = sl_fn,
                         context = ctx, verbose = verbose)
@@ -231,9 +232,14 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
           method <- "marginal"
         }
 
-        # Bound predictions for binary/survival
+        # Bound predictions for binary/survival with clip tracking
         if (is_binary) {
+          n_clipped_lower <- sum(preds < bounds[1])
+          n_clipped_upper <- sum(preds > bounds[2])
           preds <- .bound(preds, bounds[1], bounds[2])
+        } else {
+          n_clipped_lower <- 0L
+          n_clipped_upper <- 0L
         }
       } # end if (n_train > 0)
 
@@ -243,14 +249,19 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       all_preds <- c(preds, rep(1, n_primary), rep(0, n_competing))
 
       if (verbose) {
-        .vmsg("  Q target=%d time %d: n_at_risk=%d, n_train=%d, n_primary_abs=%d, n_competing_abs=%d, method=%s",
-              target_t, tt, n_at_risk, n_train, n_primary, n_competing, method)
+        .vmsg("  Q target=%d time %d: n_at_risk=%d, n_train=%d, n_primary_abs=%d, n_competing_abs=%d, method=%s, clipped=%d/%d (lo/hi)",
+              target_t, tt, n_at_risk, n_train, n_primary, n_competing, method,
+              n_clipped_lower, n_clipped_upper)
       }
 
       sl_info_target[[i]] <- list(time = tt, target_time = target_t,
                                   method = method,
+                                  family = step_family$family,
                                   sl_risk = sl_risk, sl_coef = sl_coef,
-                                  n_risk = n_at_risk, n_train = n_train)
+                                  n_risk = n_at_risk, n_train = n_train,
+                                  n_clipped_lower = n_clipped_lower,
+                                  n_clipped_upper = n_clipped_upper,
+                                  n_preds = length(preds))
 
       # Propagate pseudo-outcomes backward
       prev_times <- all_time_vals[all_time_vals < tt]
@@ -304,7 +315,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     bounds = bounds,
     sl_fn = sl_fn,
     sl_info = sl_info,
-    family = if (is_binary) "binomial" else "gaussian"
+    family = "gaussian"
   )
 
   # Clean up tracking columns

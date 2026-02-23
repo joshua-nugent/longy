@@ -343,3 +343,67 @@ test_that("G-comp bootstrap runs in parallel with future.apply", {
   expect_true("ci_lower" %in% names(res$estimates))
   expect_true("ci_upper" %in% names(res$estimates))
 })
+
+test_that("fit_outcome sl_info contains clip tracking and gaussian family", {
+  d <- simulate_test_data(n = 200, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  outcome_fit <- obj$fits$outcome[["always"]]
+  # Top-level family should be "gaussian" (LMTP-style)
+  expect_equal(outcome_fit$family, "gaussian")
+
+  # sl_info should have per-step entries with clip counts and family
+  sl_info <- outcome_fit$sl_info
+  expect_true(length(sl_info) > 0)
+
+  for (entry in sl_info) {
+    expect_true("n_clipped_lower" %in% names(entry))
+    expect_true("n_clipped_upper" %in% names(entry))
+    expect_true("n_preds" %in% names(entry))
+    expect_true("family" %in% names(entry))
+    expect_true(is.numeric(entry$n_clipped_lower))
+    expect_true(is.numeric(entry$n_clipped_upper))
+    expect_true(entry$n_clipped_lower >= 0)
+    expect_true(entry$n_clipped_upper >= 0)
+    # Family should be binomial or gaussian
+    expect_true(entry$family %in% c("binomial", "gaussian"))
+  }
+
+  # First step (at target time) for binary outcome should use binomial
+  first_steps <- Filter(function(e) e$time == e$target_time, sl_info)
+  if (length(first_steps) > 0) {
+    expect_equal(first_steps[[1]]$family, "binomial")
+  }
+
+  # Intermediate steps should use gaussian
+  intermediate_steps <- Filter(function(e) e$time != e$target_time, sl_info)
+  if (length(intermediate_steps) > 0) {
+    for (e in intermediate_steps) {
+      expect_equal(e$family, "gaussian")
+    }
+  }
+})
+
+test_that("adaptive_cv_folds handles binary and continuous correctly", {
+  # Binary: minority class should shrink n_eff
+  y_binary <- c(rep(0, 95), rep(1, 5))
+  result_binary <- longy:::.adaptive_cv_folds(y_binary, binary = TRUE)
+  expect_true(result_binary$n_eff < 100)
+  expect_true(result_binary$V >= 2)
+
+  # Continuous: n_eff should equal n
+  y_cont <- runif(100, 0, 1)
+  result_cont <- longy:::.adaptive_cv_folds(y_cont, binary = FALSE)
+  expect_equal(result_cont$n_eff, 100)
+  expect_true(result_cont$V >= 2)
+
+  # Default (binary=TRUE) should match explicit binary=TRUE
+  result_default <- longy:::.adaptive_cv_folds(y_binary)
+  expect_equal(result_default$n_eff, result_binary$n_eff)
+  expect_equal(result_default$V, result_binary$V)
+})

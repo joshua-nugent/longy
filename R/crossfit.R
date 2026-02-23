@@ -754,13 +754,17 @@ NULL
         # Counterfactual regime values for at-risk subjects
         regime_a_risk <- dt_t$.longy_regime_a[at_risk]
 
+        # Per-step family: binomial at first step (actual Y) for binary/survival,
+        # gaussian for all intermediate steps (continuous pseudo-outcomes in [0,1])
+        step_family <- if (i == 1 && is_binary) stats::binomial() else stats::gaussian()
+
         Q_bar <- .cf_fit_q_step(
           Y_train_all = Y_train_all,
           X_risk = X_risk,
           has_Q = has_Q,
           folds_risk = folds_risk,
           n_folds = n_folds,
-          family = stats::quasibinomial(),
+          family = step_family,
           learners = learners,
           cv_folds = 10L,
           sl_fn = sl_fn,
