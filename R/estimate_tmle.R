@@ -294,12 +294,50 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
               tt, n_at_risk, n_train, n_primary, n_competing, fluct_epsilon, method)
       }
 
-      # Combine at-risk Q* with hard-coded values for absorbed subjects
-      # Primary absorbed (prior Y=1) → Q*=1; Competing absorbed (prior D=1) → Q*=0
-      all_ids <- c(risk_ids, primary_absorbed_ids, competing_absorbed_ids)
-      all_Q_star <- c(Q_star, rep(1, n_primary), rep(0, n_competing))
+      # --- Predict Q* for newly-censored subjects (needed for EIF) ---
+      # Subjects who were at-risk at the previous time but dropped out now
+      # (newly censored). They need Q* predictions so the EIF can compute
+      # H_{s-1} * (Q*_s - Q*_{s-1}) correctly at the previous step.
+      # Without this, Q*_s defaults to 0 in the EIF, causing enormous SEs.
+      cens_ids <- character(0)
+      Q_star_cens <- numeric(0)
 
-      # Store Q* for EIF (includes absorbed subjects)
+      if (n_train > 0) {
+        newly_cens <- !at_risk & !absorbed_primary & !absorbed_competing &
+          (dt_t$.longy_uncens_prev == 1L | dt_t$.longy_consist_prev == 1L)
+        newly_cens[is.na(newly_cens)] <- FALSE
+        # Exclude subjects already at-risk (they have Q* already)
+        newly_cens <- newly_cens & !at_risk
+        n_newly_cens <- sum(newly_cens)
+
+        if (n_newly_cens > 0) {
+          X_cens <- as.data.frame(dt_t[newly_cens, covariates, with = FALSE])
+          X_cens_cf <- X_cens
+          if (a_col %in% covariates) {
+            X_cens_cf[[a_col]] <- dt_t$.longy_regime_a[newly_cens]
+          }
+
+          if (method != "marginal" && method != "none") {
+            Q_bar_cens <- .predict_from_fit(fit, X_cens_cf)
+          } else {
+            marg_val <- mean(Q_at_t[has_Q])
+            Q_bar_cens <- rep(marg_val, n_newly_cens)
+          }
+
+          Q_bar_cens <- .bound(Q_bar_cens, eps, 1 - eps)
+          Q_star_cens <- .expit(stats::qlogis(Q_bar_cens) + fluct_epsilon)
+          Q_star_cens <- .bound(Q_star_cens, eps, 1 - eps)
+          cens_ids <- dt_t[[id_col]][newly_cens]
+        }
+      }
+
+      # Combine at-risk Q* with hard-coded values for absorbed subjects
+      # and predictions for newly-censored subjects
+      # Primary absorbed (prior Y=1) → Q*=1; Competing absorbed (prior D=1) → Q*=0
+      all_ids <- c(risk_ids, primary_absorbed_ids, competing_absorbed_ids, cens_ids)
+      all_Q_star <- c(Q_star, rep(1, n_primary), rep(0, n_competing), Q_star_cens)
+
+      # Store Q* for EIF (includes absorbed and newly-censored subjects)
       if (length(all_ids) > 0) {
         Q_star_list[[as.character(tt)]] <- data.table::data.table(
           .tmp_id = all_ids,
@@ -309,6 +347,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       }
 
       # Propagate: set Q at prev_t = Q*_t (TARGETED, not raw)
+      # Includes newly-censored subjects so they get pseudo-outcomes at prev_t
       prev_times <- all_time_vals[all_time_vals < tt]
       if (length(prev_times) > 0 && length(all_ids) > 0) {
         prev_t <- max(prev_times)
@@ -656,7 +695,9 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
       aug_dt[is.na(.g_cum), .g_cum := 1]
       aug_dt[is.na(.g_r), .g_r := 1]
-      aug_dt[is.na(.Q_star), .Q_star := 0]
+      # Exclude subjects missing Q* from augmentation (no prediction available)
+      aug_dt[is.na(.Q_star), .indicator := FALSE]
+      aug_dt[is.na(.Q_star), .Q_star := 0]  # avoid NaN in arithmetic
 
       # Note: .Y_T may be NA for unobserved subjects. Their indicator
       # should be FALSE (uncensored doesn't mean observed). But Y_T is the
@@ -693,7 +734,11 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
       aug_dt[is.na(.g_cum), .g_cum := 1]
       aug_dt[is.na(.g_r), .g_r := 1]
-      aug_dt[is.na(.Q_star), .Q_star := 0]
+      # Exclude subjects missing Q* from augmentation — without this,
+      # NA defaults to 0 creating huge spurious H * (0 - Q*) terms
+      aug_dt[is.na(.Q_star), .indicator := FALSE]
+      aug_dt[is.na(.Q_star_next), .indicator := FALSE]
+      aug_dt[is.na(.Q_star), .Q_star := 0]          # avoid NaN in arithmetic
       aug_dt[is.na(.Q_star_next), .Q_star_next := 0]
 
       aug_dt[, .H := ifelse(.indicator, 1 / (.g_cum * .g_r), 0)]

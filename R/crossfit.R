@@ -813,10 +813,58 @@ NULL
               tt, n_at_risk, n_train, n_primary, n_competing, fluct_epsilon)
       }
 
+      # --- Predict Q* for newly-censored subjects (needed for EIF) ---
+      # Subjects who were at-risk at the previous time but dropped out now.
+      # Without Q* predictions for them, the EIF defaults missing Q*_{s+1}
+      # to 0, causing enormous spurious augmentation.
+      cens_ids <- character(0)
+      Q_star_cens <- numeric(0)
+
+      if (n_train > 0) {
+        newly_cens <- !at_risk & !absorbed_primary & !absorbed_competing &
+          (dt_t$.longy_uncens_prev == 1L | dt_t$.longy_consist_prev == 1L)
+        newly_cens[is.na(newly_cens)] <- FALSE
+        newly_cens <- newly_cens & !at_risk
+        n_newly_cens <- sum(newly_cens)
+
+        if (n_newly_cens > 0) {
+          X_cens <- as.data.frame(dt_t[newly_cens, covariates, with = FALSE])
+          X_cens_cf <- X_cens
+          if (a_col %in% covariates) {
+            X_cens_cf[[a_col]] <- dt_t$.longy_regime_a[newly_cens]
+          }
+
+          # Fit one model on all at-risk training data (non-cross-fitted)
+          # for newly-censored prediction — sufficient for EIF correction
+          all_Q_idx <- which(has_Q)
+          Y_all <- Q_at_t[has_Q]
+          X_all <- as.data.frame(dt_t[at_risk, covariates, with = FALSE])[all_Q_idx, , drop = FALSE]
+
+          if (length(Y_all) >= min_obs && length(unique(Y_all)) > 1) {
+            cens_fit <- .safe_sl(Y = Y_all, X = X_all,
+                                 family = step_family,
+                                 learners = learners,
+                                 cv_folds = min(10L, length(Y_all)),
+                                 sl_fn = sl_fn,
+                                 context = "CF newly-censored Q",
+                                 verbose = FALSE)
+            Q_bar_cens <- .predict_from_fit(cens_fit, X_cens_cf)
+          } else {
+            Q_bar_cens <- rep(mean(Y_all), n_newly_cens)
+          }
+
+          Q_bar_cens <- .bound(Q_bar_cens, eps, 1 - eps)
+          Q_star_cens <- .expit(stats::qlogis(Q_bar_cens) + fluct_epsilon)
+          Q_star_cens <- .bound(Q_star_cens, eps, 1 - eps)
+          cens_ids <- dt_t[[id_col]][newly_cens]
+        }
+      }
+
       # Combine at-risk Q* with hard-coded values for absorbed subjects
+      # and predictions for newly-censored subjects
       # Primary absorbed (prior Y=1) → Q*=1; Competing absorbed (prior D=1) → Q*=0
-      all_ids <- c(risk_ids, primary_absorbed_ids, competing_absorbed_ids)
-      all_Q_star <- c(Q_star, rep(1, n_primary), rep(0, n_competing))
+      all_ids <- c(risk_ids, primary_absorbed_ids, competing_absorbed_ids, cens_ids)
+      all_Q_star <- c(Q_star, rep(1, n_primary), rep(0, n_competing), Q_star_cens)
 
       if (length(all_ids) > 0) {
         Q_star_list[[as.character(tt)]] <- data.table::data.table(

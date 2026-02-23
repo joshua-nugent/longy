@@ -32,7 +32,9 @@ utils::globalVariables(c(
   # data.table special vars
   "nu", "nfold",
   # weights.R ESS diagnostics
-  ".ess", ".ess_pct", ".n"
+  ".ess", ".ess_pct", ".n",
+  # bootstrap data creation
+  ".boot_new"
 ))
 
 #' Simulated Longitudinal Dataset with Known Causal Effects

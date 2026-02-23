@@ -116,44 +116,49 @@
   ids <- unique(obj$data[[id_col]])
   n <- length(ids)
 
+  # Use original censoring column name (not internal binary col names)
+  cens_col <- nodes$censoring_col  # NULL if no censoring
+
   one_boot <- function(b) {
     boot_ids <- sample(ids, n, replace = TRUE)
 
-    boot_rows <- lapply(seq_len(n), function(i) {
-      rows <- obj$data[obj$data[[id_col]] == boot_ids[i], ]
-      rows <- data.table::copy(rows)
-      rows[[id_col]] <- i
-      rows
-    })
-    boot_dt <- data.table::rbindlist(boot_rows)
+    # Efficient bootstrap: single data.table join instead of n copies + rbind
+    boot_map <- data.table::data.table(
+      .boot_orig = boot_ids,
+      .boot_new = seq_len(n)
+    )
+    data.table::setnames(boot_map, ".boot_orig", id_col)
+    boot_dt <- merge(boot_map, obj$data, by = id_col, allow.cartesian = TRUE)
+    boot_dt[[id_col]] <- boot_dt$.boot_new
+    boot_dt[, .boot_new := NULL]
 
     boot_obj <- tryCatch({
       b_obj <- longy_data(
         data = boot_dt,
         id = id_col, time = nodes$time,
         outcome = nodes$outcome, treatment = nodes$treatment,
-        censoring = nodes$censoring, observation = nodes$observation,
+        censoring = cens_col, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
         sampling_weights = nodes$sampling_weights,
         outcome_type = nodes$outcome_type,
         competing = nodes$competing, verbose = FALSE
       )
       b_obj$regimes <- obj$regimes
+      # Force sequential SL inside bootstrap to prevent nested parallelism
       b_obj <- fit_treatment(b_obj, regime = regime,
                              covariates = obj$fits$treatment[[regime]]$covariates,
                              learners = obj$fits$treatment[[regime]]$learners,
                              bounds = obj$fits$treatment[[regime]]$bounds,
-                             sl_fn = obj$fits$treatment[[regime]]$sl_fn,
+                             sl_fn = "SuperLearner",
                              verbose = FALSE)
       cens_fits <- obj$fits$censoring[[regime]]
       if (length(cens_fits) > 0) {
         cov_c <- cens_fits[[1]]$covariates
         lrn_c <- cens_fits[[1]]$learners
         bnd_c <- cens_fits[[1]]$bounds
-        slfn_c <- cens_fits[[1]]$sl_fn
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, sl_fn = slfn_c,
+                               bounds = bnd_c, sl_fn = "SuperLearner",
                                verbose = FALSE)
       }
       obs_fit <- obj$fits$observation[[regime]]
@@ -162,7 +167,7 @@
                                  covariates = obs_fit$covariates,
                                  learners = obs_fit$learners,
                                  bounds = obs_fit$bounds,
-                                 sl_fn = obs_fit$sl_fn,
+                                 sl_fn = "SuperLearner",
                                  verbose = FALSE)
       }
       b_obj <- compute_weights(b_obj, regime = regime,
@@ -276,23 +281,28 @@
   n <- length(ids)
   outcome_fit <- obj$fits$outcome[[regime]]
 
+  # Use original censoring column name (not internal binary col names)
+  cens_col <- nodes$censoring_col  # NULL if no censoring
+
   one_boot <- function(b) {
     boot_ids <- sample(ids, n, replace = TRUE)
 
-    boot_rows <- lapply(seq_len(n), function(i) {
-      rows <- obj$data[obj$data[[id_col]] == boot_ids[i], ]
-      rows <- data.table::copy(rows)
-      rows[[id_col]] <- i
-      rows
-    })
-    boot_dt <- data.table::rbindlist(boot_rows)
+    # Efficient bootstrap: single data.table join instead of n copies + rbind
+    boot_map <- data.table::data.table(
+      .boot_orig = boot_ids,
+      .boot_new = seq_len(n)
+    )
+    data.table::setnames(boot_map, ".boot_orig", id_col)
+    boot_dt <- merge(boot_map, obj$data, by = id_col, allow.cartesian = TRUE)
+    boot_dt[[id_col]] <- boot_dt$.boot_new
+    boot_dt[, .boot_new := NULL]
 
     boot_obj <- tryCatch({
       b_obj <- longy_data(
         data = boot_dt,
         id = id_col, time = nodes$time,
         outcome = nodes$outcome, treatment = nodes$treatment,
-        censoring = nodes$censoring, observation = nodes$observation,
+        censoring = cens_col, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
         sampling_weights = nodes$sampling_weights,
         outcome_type = nodes$outcome_type,
@@ -300,12 +310,14 @@
       )
       b_obj$regimes <- obj$regimes
 
+      # Force sequential SL inside bootstrap to prevent nested parallelism
+      # (ffSL spawns futures inside future workers → resource explosion)
       b_obj <- fit_outcome(b_obj, regime = regime,
                            covariates = outcome_fit$covariates,
                            learners = outcome_fit$learners,
                            bounds = outcome_fit$bounds,
                            times = times,
-                           sl_fn = outcome_fit$sl_fn,
+                           sl_fn = "SuperLearner",
                            verbose = FALSE)
       b_obj
     }, error = function(e) NULL)
@@ -370,23 +382,28 @@
   n <- length(ids)
   outcome_fit <- obj$fits$outcome[[regime]]
 
+  # Use original censoring column name (not internal binary col names)
+  cens_col <- nodes$censoring_col  # NULL if no censoring
+
   one_boot <- function(b) {
     boot_ids <- sample(ids, n, replace = TRUE)
 
-    boot_rows <- lapply(seq_len(n), function(i) {
-      rows <- obj$data[obj$data[[id_col]] == boot_ids[i], ]
-      rows <- data.table::copy(rows)
-      rows[[id_col]] <- i
-      rows
-    })
-    boot_dt <- data.table::rbindlist(boot_rows)
+    # Efficient bootstrap: single data.table join instead of n copies + rbind
+    boot_map <- data.table::data.table(
+      .boot_orig = boot_ids,
+      .boot_new = seq_len(n)
+    )
+    data.table::setnames(boot_map, ".boot_orig", id_col)
+    boot_dt <- merge(boot_map, obj$data, by = id_col, allow.cartesian = TRUE)
+    boot_dt[[id_col]] <- boot_dt$.boot_new
+    boot_dt[, .boot_new := NULL]
 
     boot_est <- tryCatch({
       b_obj <- longy_data(
         data = boot_dt,
         id = id_col, time = nodes$time,
         outcome = nodes$outcome, treatment = nodes$treatment,
-        censoring = nodes$censoring, observation = nodes$observation,
+        censoring = cens_col, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
         sampling_weights = nodes$sampling_weights,
         outcome_type = nodes$outcome_type,
@@ -394,12 +411,13 @@
       )
       b_obj$regimes <- obj$regimes
 
-      # Fit treatment model
+      # Force sequential SL inside bootstrap to prevent nested parallelism
+      # (ffSL spawns futures inside future workers → resource explosion)
       b_obj <- fit_treatment(b_obj, regime = regime,
                              covariates = obj$fits$treatment[[regime]]$covariates,
                              learners = obj$fits$treatment[[regime]]$learners,
                              bounds = obj$fits$treatment[[regime]]$bounds,
-                             sl_fn = obj$fits$treatment[[regime]]$sl_fn,
+                             sl_fn = "SuperLearner",
                              verbose = FALSE)
 
       # Fit censoring model
@@ -408,10 +426,9 @@
         cov_c <- cens_fits_tmle[[1]]$covariates
         lrn_c <- cens_fits_tmle[[1]]$learners
         bnd_c <- cens_fits_tmle[[1]]$bounds
-        slfn_c <- cens_fits_tmle[[1]]$sl_fn
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, sl_fn = slfn_c,
+                               bounds = bnd_c, sl_fn = "SuperLearner",
                                verbose = FALSE)
       }
 
@@ -421,7 +438,7 @@
                            learners = outcome_fit$learners,
                            bounds = outcome_fit$bounds,
                            times = times,
-                           sl_fn = outcome_fit$sl_fn,
+                           sl_fn = "SuperLearner",
                            verbose = FALSE)
 
       # Run TMLE (point estimates only)
