@@ -9,12 +9,12 @@ test_that("longy() runs end-to-end with simulated data", {
     verbose = FALSE
   )
 
-  expect_s3_class(results, "longy_results")
-  expect_equal(length(results), 2)
-  expect_true("always" %in% names(results))
-  expect_true("never" %in% names(results))
-  expect_s3_class(results$always, "longy_result")
-  expect_s3_class(results$never, "longy_result")
+  expect_s3_class(results, "longy_data")
+  expect_equal(length(results$results), 2)
+  expect_true("always_ipw" %in% names(results$results))
+  expect_true("never_ipw" %in% names(results$results))
+  expect_s3_class(results$results$always_ipw, "longy_result")
+  expect_s3_class(results$results$never_ipw, "longy_result")
 })
 
 test_that("longy() results match manual pipeline", {
@@ -31,7 +31,8 @@ test_that("longy() results match manual pipeline", {
   obj <- fit_censoring(obj, regime = "always", learners = lrn, verbose = FALSE)
   obj <- fit_observation(obj, regime = "always", learners = lrn, verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
-  manual_result <- estimate_ipw(obj, regime = "always")
+  obj <- estimate_ipw(obj, regime = "always")
+  manual_result <- obj$results$always_ipw
 
   # Wrapper (uses same default learners)
   wrapper_results <- longy(
@@ -45,14 +46,14 @@ test_that("longy() results match manual pipeline", {
 
   # Estimates should match
   manual_est <- manual_result$estimates$estimate
-  wrapper_est <- wrapper_results$always$estimates$estimate
+  wrapper_est <- wrapper_results$results$always_ipw$estimates$estimate
 
   # Match the times that both have
   shared_times <- intersect(manual_result$estimates$time,
-                            wrapper_results$always$estimates$time)
+                            wrapper_results$results$always_ipw$estimates$time)
   for (tt in shared_times) {
     m <- manual_result$estimates$estimate[manual_result$estimates$time == tt]
-    w <- wrapper_results$always$estimates$estimate[wrapper_results$always$estimates$time == tt]
+    w <- wrapper_results$results$always_ipw$estimates$estimate[wrapper_results$results$always_ipw$estimates$time == tt]
     expect_equal(m, w, tolerance = 0.02,
                  info = sprintf("time %d mismatch", tt))
   }
@@ -69,7 +70,7 @@ test_that("longy() print works", {
     verbose = FALSE
   )
 
-  expect_output(print(results), "longy results")
+  expect_output(print(results), "longy")
 })
 
 test_that("longy() with estimator = 'gcomp'", {
@@ -85,12 +86,12 @@ test_that("longy() with estimator = 'gcomp'", {
     verbose = FALSE
   )
 
-  expect_s3_class(results, "longy_results")
-  expect_true("always" %in% names(results))
-  expect_s3_class(results$always, "longy_result")
-  expect_true(nrow(results$always$estimates) > 0)
-  expect_true(all(results$always$estimates$estimate >= 0 &
-                  results$always$estimates$estimate <= 1, na.rm = TRUE))
+  expect_s3_class(results, "longy_data")
+  expect_true("always_gcomp" %in% names(results$results))
+  expect_s3_class(results$results$always_gcomp, "longy_result")
+  expect_true(nrow(results$results$always_gcomp$estimates) > 0)
+  expect_true(all(results$results$always_gcomp$estimates$estimate >= 0 &
+                  results$results$always_gcomp$estimates$estimate <= 1, na.rm = TRUE))
 })
 
 test_that("longy() with estimator = 'tmle'", {
@@ -107,13 +108,13 @@ test_that("longy() with estimator = 'tmle'", {
     verbose = FALSE
   )
 
-  expect_s3_class(results, "longy_results")
-  expect_s3_class(results$always, "longy_result")
-  expect_equal(results$always$estimator, "tmle")
-  expect_true(nrow(results$always$estimates) > 0)
-  expect_true(all(results$always$estimates$estimate >= 0 &
-                  results$always$estimates$estimate <= 1, na.rm = TRUE))
-  expect_true("se" %in% names(results$always$estimates))
+  expect_s3_class(results, "longy_data")
+  expect_s3_class(results$results$always_tmle, "longy_result")
+  expect_equal(results$results$always_tmle$estimator, "tmle")
+  expect_true(nrow(results$results$always_tmle$estimates) > 0)
+  expect_true(all(results$results$always_tmle$estimates$estimate >= 0 &
+                  results$results$always_tmle$estimates$estimate <= 1, na.rm = TRUE))
+  expect_true("se" %in% names(results$results$always_tmle$estimates))
 
   # Continuous outcome
   d_cont <- simulate_continuous_outcome(n = 200, K = 3)
@@ -128,8 +129,8 @@ test_that("longy() with estimator = 'tmle'", {
     n_boot = 0,
     verbose = FALSE
   )
-  expect_equal(results_cont$always$estimator, "tmle")
-  expect_true(all(is.finite(results_cont$always$estimates$estimate)))
+  expect_equal(results_cont$results$always_tmle$estimator, "tmle")
+  expect_true(all(is.finite(results_cont$results$always_tmle$estimates$estimate)))
 
   # Never-treat regime
   results_never <- longy(
@@ -142,9 +143,9 @@ test_that("longy() with estimator = 'tmle'", {
     n_boot = 0,
     verbose = FALSE
   )
-  expect_true("never" %in% names(results_never))
-  expect_equal(results_never$never$estimator, "tmle")
-  expect_true(nrow(results_never$never$estimates) > 0)
+  expect_true("never_tmle" %in% names(results_never$results))
+  expect_equal(results_never$results$never_tmle$estimator, "tmle")
+  expect_true(nrow(results_never$results$never_tmle$estimates) > 0)
 })
 
 test_that("longy() with estimator = 'all'", {
@@ -160,17 +161,17 @@ test_that("longy() with estimator = 'all'", {
     verbose = FALSE
   )
 
-  expect_s3_class(results, "longy_results")
-  expect_equal(length(results), 6)  # 2 regimes x 3 estimators
+  expect_s3_class(results, "longy_data")
+  expect_equal(length(results$results), 6)  # 2 regimes x 3 estimators
   expect_true(all(c("always_ipw", "always_gcomp", "always_tmle",
                      "never_ipw", "never_gcomp", "never_tmle") %in%
-                  names(results)))
-  expect_s3_class(results$always_ipw, "longy_result")
-  expect_s3_class(results$always_gcomp, "longy_result")
-  expect_s3_class(results$always_tmle, "longy_result")
-  expect_equal(results$always_tmle$estimator, "tmle")
-  expect_equal(results$always_gcomp$estimator, "gcomp")
-  expect_true("se" %in% names(results$always_tmle$estimates))
+                  names(results$results)))
+  expect_s3_class(results$results$always_ipw, "longy_result")
+  expect_s3_class(results$results$always_gcomp, "longy_result")
+  expect_s3_class(results$results$always_tmle, "longy_result")
+  expect_equal(results$results$always_tmle$estimator, "tmle")
+  expect_equal(results$results$always_gcomp$estimator, "gcomp")
+  expect_true("se" %in% names(results$results$always_tmle$estimates))
 })
 
 test_that("print methods work for all estimator types", {
@@ -186,7 +187,7 @@ test_that("print methods work for all estimator types", {
     verbose = FALSE
   )
 
-  expect_output(print(results$always_ipw), "IPW")
-  expect_output(print(results$always_gcomp), "G-comp")
-  expect_output(print(results$always_tmle), "TMLE")
+  expect_output(print(results$results$always_ipw), "IPW")
+  expect_output(print(results$results$always_gcomp), "G-comp")
+  expect_output(print(results$results$always_tmle), "TMLE")
 })

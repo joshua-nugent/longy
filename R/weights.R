@@ -121,14 +121,24 @@
 #'   Applied after `truncation` if both specified.
 #' @param g_bounds Numeric vector of length 2. Bounds for cumulative g
 #'   (denominator). Default \code{c(0.01, 1)}. Stored for use by TMLE.
+#' @param recompute Logical. If FALSE (default), errors when weights are already
+#'   computed for the requested regime(s). Set to TRUE to re-compute.
 #'
 #' @return Modified `longy_data` object with weights stored.
 #' @export
 compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
                             truncation = NULL, truncation_quantile = NULL,
-                            g_bounds = c(0.01, 1)) {
-  stopifnot(inherits(obj, "longy_data"))
+                            g_bounds = c(0.01, 1), recompute = FALSE) {
+  obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
+
+  if (!recompute) {
+    computed <- Filter(function(r) !is.null(obj$weights[[r]]) &&
+                         length(obj$weights[[r]]) > 0, regime)
+    if (length(computed) > 0)
+      stop(sprintf("Weights already computed for: %s. Use recompute=TRUE to override.",
+                   paste(computed, collapse = ", ")), call. = FALSE)
+  }
 
   for (rname in regime) {
 

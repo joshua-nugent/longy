@@ -10,7 +10,8 @@ compute_weights(
   stabilized = TRUE,
   truncation = NULL,
   truncation_quantile = NULL,
-  g_bounds = c(0.01, 1)
+  g_bounds = c(0.01, 1),
+  recompute = FALSE
 )
 }
 \arguments{
@@ -28,6 +29,9 @@ Applied after \code{truncation} if both specified.}
 
 \item{g_bounds}{Numeric vector of length 2. Bounds for cumulative g
 (denominator). Default \code{c(0.01, 1)}. Stored for use by TMLE.}
+
+\item{recompute}{Logical. If FALSE (default), errors when weights are already
+computed for the requested regime(s). Set to TRUE to re-compute.}
 }
 \value{
 Modified \code{longy_data} object with weights stored.

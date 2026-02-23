@@ -8,11 +8,12 @@ estimators with IC/EIF/bootstrap/sandwich inference, plus cross-fitting (CV-TMLE
 
 ## Architecture
 
-- **S3 classes** for user-facing objects (`longy_data`, `longy_result`)
+- **S3 classes**: `longy_data` (single accumulating pipeline object), `longy_result` (lightweight result)
 - **Plain functions** internally (no R6)
 - **data.table** internally for performance; accept data.frame at boundary
 - **SuperLearner** for ML with glm fallback (SuperLearner is in Suggests, not Imports)
 - **Long format only**: one row per person-time
+- **Unified pipeline**: all `fit_*` and `estimate_*` accept/return `longy_data`; results accumulate in `obj$results`
 
 ## Two-level API
 
@@ -56,12 +57,25 @@ list(
                     observation, sampling_weights,
                     baseline, timevarying, outcome_type, competing),
   regimes    = list(),
-  fits       = list(treatment = NULL, censoring = list(), observation = NULL),
-  weights    = NULL,
+  fits       = list(treatment = list(), censoring = list(), observation = list(), outcome = list()),
+  weights    = list(),
+  results    = list(),   # {regime}_{estimator} -> longy_result (e.g. always_ipw, always_tmle)
   crossfit   = list(enabled = FALSE, n_folds = NULL, fold_id = NULL),
   meta       = list(n_subjects, n_obs, n_times, time_values, max_time, min_time)
 )
 ```
+
+### Refit protection
+
+- `fit_*(refit=FALSE)`: errors if already fitted for requested regime. Use `refit=TRUE` to override.
+- `compute_weights(recompute=FALSE)`: same pattern.
+- `estimate_*`: no protection — silently overwrites (re-estimation is cheap).
+
+### Result keys
+
+Results stored as `obj$results$<regime>_<estimator>`:
+- `always_ipw`, `always_gcomp`, `always_tmle`, `never_ipw`, etc.
+- Access via `results(obj, regime="always", estimator="tmle")`
 
 ## File map
 
@@ -80,9 +94,9 @@ list(
 | R/inference.R | IC-based + bootstrap inference (IPW, G-comp, TMLE) |
 | R/diagnostics.R | Weight & positivity diagnostics |
 | R/crossfit.R | Cross-fitting: `.cf_fit_treatment/censoring/observation()`, `.cf_estimate_tmle()` |
-| R/longy.R | High-level `longy()` wrapper + `plot.longy_results()` |
+| R/longy.R | High-level `longy()` wrapper + `results()` accessor + `plot.longy_data` |
 | R/ffSL.R | Future-factorial SuperLearner (parallel CV via `future.apply`) |
-| R/utils.R | Internal helpers: `.safe_sl()`, `.bound()`, `.predict_from_fit()`, `.vmsg()` |
+| R/utils.R | Internal helpers: `.as_longy_data()`, `.safe_sl()`, `.bound()`, `.predict_from_fit()`, `.vmsg()` |
 | R/longy-package.R | Package-level docs, `@import data.table`, `globalVariables()`, `sim_longy` docs |
 | R/zzz.R | `.onLoad()` hook |
 

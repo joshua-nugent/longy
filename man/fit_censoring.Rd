@@ -16,7 +16,8 @@ fit_censoring(
   bounds = c(0.005, 0.995),
   times = NULL,
   sl_fn = "SuperLearner",
-  verbose = TRUE
+  verbose = TRUE,
+  refit = FALSE
 )
 }
 \arguments{
@@ -47,6 +48,9 @@ is below 0.01, marginal fallback is used. Default 20.}
 (default) or \code{"ffSL"} (future-factorial parallel).}
 
 \item{verbose}{Logical. Progress messages.}
+
+\item{refit}{Logical. If FALSE (default), errors when censoring is already
+fitted for the requested regime(s). Set to TRUE to re-fit.}
 }
 \value{
 Modified \code{longy_data} object with censoring fits stored in

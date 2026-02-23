@@ -11,8 +11,9 @@ test_that("TMLE produces valid estimates for binary outcome", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_tmle(obj, regime = "always", inference = "none",
-                          verbose = FALSE)
+  obj <- estimate_tmle(obj, regime = "always", inference = "none",
+                       verbose = FALSE)
+  result <- obj$results$always_tmle
 
   expect_s3_class(result, "longy_result")
   expect_equal(result$estimator, "tmle")
@@ -32,8 +33,9 @@ test_that("TMLE works with continuous outcomes", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_tmle(obj, regime = "always", inference = "none",
-                          verbose = FALSE)
+  obj <- estimate_tmle(obj, regime = "always", inference = "none",
+                       verbose = FALSE)
+  result <- obj$results$always_tmle
 
   expect_s3_class(result, "longy_result")
   expect_equal(result$estimator, "tmle")
@@ -53,8 +55,9 @@ test_that("TMLE works without censoring", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_tmle(obj, regime = "always", inference = "none",
-                          verbose = FALSE)
+  obj <- estimate_tmle(obj, regime = "always", inference = "none",
+                       verbose = FALSE)
+  result <- obj$results$always_tmle
 
   expect_s3_class(result, "longy_result")
   expect_true(nrow(result$estimates) > 0)
@@ -72,8 +75,9 @@ test_that("TMLE with survival outcomes produces monotone estimates", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_tmle(obj, regime = "always", inference = "none",
-                          verbose = FALSE)
+  obj <- estimate_tmle(obj, regime = "always", inference = "none",
+                       verbose = FALSE)
+  result <- obj$results$always_tmle
 
   est <- result$estimates
   expect_true(nrow(est) > 0)
@@ -94,8 +98,9 @@ test_that("TMLE EIF inference produces valid SEs and CIs", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_tmle(obj, regime = "always", inference = "eif",
-                          verbose = FALSE)
+  obj <- estimate_tmle(obj, regime = "always", inference = "eif",
+                       verbose = FALSE)
+  result <- obj$results$always_tmle
 
   expect_true("se" %in% names(result$estimates))
   expect_true(all(result$estimates$se > 0, na.rm = TRUE))
@@ -115,8 +120,9 @@ test_that("TMLE is close to G-comp under well-specified models", {
                       verbose = FALSE)
   obj_g <- define_regime(obj_g, "always", static = 1L)
   obj_g <- fit_outcome(obj_g, regime = "always", verbose = FALSE)
-  gcomp_result <- estimate_gcomp(obj_g, regime = "always", n_boot = 0,
-                                  verbose = FALSE)
+  obj_g <- estimate_gcomp(obj_g, regime = "always", n_boot = 0,
+                           verbose = FALSE)
+  gcomp_result <- obj_g$results$always_gcomp
 
   # TMLE
   obj_t <- longy_data(d, id = "id", time = "time", outcome = "Y",
@@ -127,8 +133,9 @@ test_that("TMLE is close to G-comp under well-specified models", {
   obj_t <- fit_treatment(obj_t, regime = "always", verbose = FALSE)
   obj_t <- fit_censoring(obj_t, regime = "always", verbose = FALSE)
   obj_t <- fit_outcome(obj_t, regime = "always", verbose = FALSE)
-  tmle_result <- estimate_tmle(obj_t, regime = "always", inference = "none",
-                                verbose = FALSE)
+  obj_t <- estimate_tmle(obj_t, regime = "always", inference = "none",
+                          verbose = FALSE)
+  tmle_result <- obj_t$results$always_tmle
 
   # TMLE should be reasonably close to G-comp (both valid)
   shared_times <- intersect(gcomp_result$estimates$time,
@@ -154,8 +161,9 @@ test_that("TMLE no-confounding recovery", {
   obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
-  result <- estimate_tmle(obj, regime = "always", inference = "none",
-                          verbose = FALSE)
+  obj <- estimate_tmle(obj, regime = "always", inference = "none",
+                       verbose = FALSE)
+  result <- obj$results$always_tmle
 
   # Crude mean among treated at earliest time (no confounding)
   t0 <- min(result$estimates$time)
@@ -232,8 +240,9 @@ test_that("TMLE EIF SEs for continuous outcomes", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_tmle(obj, regime = "always", inference = "eif",
-                          verbose = FALSE)
+  obj <- estimate_tmle(obj, regime = "always", inference = "eif",
+                       verbose = FALSE)
+  result <- obj$results$always_tmle
 
   expect_true("se" %in% names(result$estimates))
   expect_true(all(result$estimates$se > 0, na.rm = TRUE))

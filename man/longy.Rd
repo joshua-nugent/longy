@@ -152,10 +152,10 @@ assignment. NULL for no seed.}
 \item{verbose}{Logical. Print progress.}
 }
 \value{
-An S3 object of class \code{"longy_results"} (a named list of
-\code{longy_result} objects, one per regime). When multiple estimators are
-requested, each regime produces entries with \code{_ipw}, \code{_gcomp},
-and/or \code{_tmle} suffixes.
+An S3 object of class \code{"longy_data"} with estimation results
+accumulated in \code{obj$results} (a named list of \code{longy_result}
+objects keyed as \code{{regime}_{estimator}}). Use \code{results(obj)} to
+access results, or \code{obj$results$always_ipw$estimates} directly.
 }
 \description{
 Runs the entire longy pipeline in one call: data setup, regime definition,
@@ -163,13 +163,15 @@ nuisance model fitting, and estimation via IPW, G-computation, or both.
 }
 \examples{
 \dontrun{
-results <- longy(
+obj <- longy(
   data = sim_longy,
   id = "id", time = "time", outcome = "Y",
   treatment = "A", censoring = "C", observation = "R",
   baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
   regimes = list(always = 1L, never = 0L)
 )
+obj$results$always_ipw$estimates
+results(obj, estimator = "ipw")
 }
 
 }

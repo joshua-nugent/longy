@@ -25,10 +25,8 @@
 estimate_gcomp <- function(obj, regime = NULL, times = NULL,
                            ci_level = 0.95, n_boot = 200L,
                            verbose = TRUE) {
-  stopifnot(inherits(obj, "longy_data"))
+  obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
-
-  all_regime_results <- list()
 
   for (rname in regime) {
 
@@ -97,15 +95,12 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
     regime = rname,
     estimator = "gcomp",
     inference = "bootstrap",
-    ci_level = ci_level,
-    obj = obj
+    ci_level = ci_level
   )
   class(result) <- "longy_result"
-  all_regime_results[[rname]] <- result
+  obj$results[[paste0(rname, "_gcomp")]] <- result
 
   } # end for (rname in regime)
 
-  if (length(all_regime_results) == 1) return(all_regime_results[[1]])
-  class(all_regime_results) <- "longy_results"
-  all_regime_results
+  obj
 }

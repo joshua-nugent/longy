@@ -87,9 +87,9 @@ test_that("longy() accepts sl_fn parameter", {
     verbose = FALSE
   )
 
-  expect_s3_class(results, "longy_results")
-  expect_s3_class(results$always, "longy_result")
-  expect_true(all(is.finite(results$always$estimates$estimate)))
+  expect_s3_class(results, "longy_data")
+  expect_s3_class(results$results$always_ipw, "longy_result")
+  expect_true(all(is.finite(results$results$always_ipw$estimates$estimate)))
 })
 
 test_that("longy() rejects invalid sl_fn", {

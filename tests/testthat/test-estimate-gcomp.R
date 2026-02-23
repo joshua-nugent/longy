@@ -9,13 +9,15 @@ test_that("G-comp produces valid estimates for binary outcome", {
   obj <- define_regime(obj, "always", static = 1L)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  res <- obj$results$always_gcomp
 
-  expect_s3_class(result, "longy_result")
-  expect_true(nrow(result$estimates) > 0)
-  expect_true(all(result$estimates$estimate >= 0 & result$estimates$estimate <= 1,
+  expect_s3_class(obj, "longy_data")
+  expect_s3_class(res, "longy_result")
+  expect_true(nrow(res$estimates) > 0)
+  expect_true(all(res$estimates$estimate >= 0 & res$estimates$estimate <= 1,
                   na.rm = TRUE))
-  expect_equal(result$estimator, "gcomp")
+  expect_equal(res$estimator, "gcomp")
 })
 
 test_that("G-comp works with continuous outcomes", {
@@ -27,10 +29,12 @@ test_that("G-comp works with continuous outcomes", {
   obj <- define_regime(obj, "always", static = 1L)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  res <- obj$results$always_gcomp
 
-  expect_s3_class(result, "longy_result")
-  expect_true(all(is.finite(result$estimates$estimate)))
+  expect_s3_class(obj, "longy_data")
+  expect_s3_class(res, "longy_result")
+  expect_true(all(is.finite(res$estimates$estimate)))
 })
 
 test_that("G-comp with survival outcomes produces monotone estimates", {
@@ -42,9 +46,10 @@ test_that("G-comp with survival outcomes produces monotone estimates", {
   obj <- define_regime(obj, "always", static = 1L)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  res <- obj$results$always_gcomp
 
-  est <- result$estimates
+  est <- res$estimates
   expect_true(nrow(est) > 0)
   # Isotonic smoothing should enforce monotone non-decreasing
   if (nrow(est) > 1) {
@@ -64,11 +69,13 @@ test_that("G-comp works without censoring or observation", {
   obj <- define_regime(obj, "always", static = 1L)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  res <- obj$results$always_gcomp
 
-  expect_s3_class(result, "longy_result")
-  expect_true(nrow(result$estimates) > 0)
-  expect_true(all(is.finite(result$estimates$estimate)))
+  expect_s3_class(obj, "longy_data")
+  expect_s3_class(res, "longy_result")
+  expect_true(nrow(res$estimates) > 0)
+  expect_true(all(is.finite(res$estimates$estimate)))
 })
 
 test_that("G-comp handles intermittent observation (R=0)", {
@@ -83,10 +90,12 @@ test_that("G-comp handles intermittent observation (R=0)", {
   obj <- define_regime(obj, "always", static = 1L)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  res <- obj$results$always_gcomp
 
-  expect_s3_class(result, "longy_result")
-  expect_true(all(is.finite(result$estimates$estimate)))
+  expect_s3_class(obj, "longy_data")
+  expect_s3_class(res, "longy_result")
+  expect_true(all(is.finite(res$estimates$estimate)))
 })
 
 test_that("G-comp bootstrap SEs are positive", {
@@ -98,12 +107,13 @@ test_that("G-comp bootstrap SEs are positive", {
   obj <- define_regime(obj, "always", static = 1L)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 30, verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 30, verbose = FALSE)
+  res <- obj$results$always_gcomp
 
-  expect_true("se" %in% names(result$estimates))
-  expect_true(all(result$estimates$se > 0, na.rm = TRUE))
-  expect_true("ci_lower" %in% names(result$estimates))
-  expect_true("ci_upper" %in% names(result$estimates))
+  expect_true("se" %in% names(res$estimates))
+  expect_true(all(res$estimates$se > 0, na.rm = TRUE))
+  expect_true("ci_lower" %in% names(res$estimates))
+  expect_true("ci_upper" %in% names(res$estimates))
 })
 
 test_that("G-comp and IPW give different estimates with confounding", {
@@ -114,8 +124,9 @@ test_that("G-comp and IPW give different estimates with confounding", {
                       verbose = FALSE)
   obj_g <- define_regime(obj_g, "always", static = 1L)
   obj_g <- fit_outcome(obj_g, regime = "always", verbose = FALSE)
-  gcomp_result <- estimate_gcomp(obj_g, regime = "always", n_boot = 0,
+  obj_g <- estimate_gcomp(obj_g, regime = "always", n_boot = 0,
                                   verbose = FALSE)
+  gcomp_res <- obj_g$results$always_gcomp
 
   obj_i <- longy_data(d, id = "id", time = "time", outcome = "Y",
                       treatment = "A", censoring = "C", observation = "R",
@@ -126,12 +137,13 @@ test_that("G-comp and IPW give different estimates with confounding", {
   obj_i <- fit_censoring(obj_i, regime = "always", verbose = FALSE)
   obj_i <- fit_observation(obj_i, regime = "always", verbose = FALSE)
   obj_i <- compute_weights(obj_i, regime = "always")
-  ipw_result <- estimate_ipw(obj_i, regime = "always")
+  obj_i <- estimate_ipw(obj_i, regime = "always")
+  ipw_res <- obj_i$results$always_ipw
 
   # Both should produce valid estimates; they'll likely differ because they
   # rely on different modeling assumptions
-  expect_true(all(is.finite(gcomp_result$estimates$estimate)))
-  expect_true(all(is.finite(ipw_result$estimates$estimate)))
+  expect_true(all(is.finite(gcomp_res$estimates$estimate)))
+  expect_true(all(is.finite(ipw_res$estimates$estimate)))
 })
 
 test_that("G-comp no-confounding recovery", {
@@ -144,12 +156,13 @@ test_that("G-comp no-confounding recovery", {
                     verbose = FALSE)
   obj <- define_regime(obj, "always", static = 1L)
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+  res <- obj$results$always_gcomp
 
   # Crude mean among treated at earliest time (no confounding, so should be close)
-  t0 <- min(result$estimates$time)
+  t0 <- min(res$estimates$time)
   crude <- mean(d$Y[d$A == 1 & d$time == t0], na.rm = TRUE)
-  gcomp_est <- result$estimates$estimate[result$estimates$time == t0]
+  gcomp_est <- res$estimates$estimate[res$estimates$time == t0]
   # Allow generous tolerance since this is a simulation
   expect_equal(gcomp_est, crude, tolerance = 0.15)
 })
@@ -182,7 +195,8 @@ test_that("G-comp continuous outcome recovers known truth at each time", {
                      outcome_type = "continuous", verbose = FALSE)
   obj1 <- define_regime(obj1, "always", static = 1L)
   obj1 <- fit_outcome(obj1, regime = "always", verbose = FALSE)
-  res1 <- estimate_gcomp(obj1, regime = "always", n_boot = 0, verbose = FALSE)
+  obj1 <- estimate_gcomp(obj1, regime = "always", n_boot = 0, verbose = FALSE)
+  res1 <- obj1$results$always_gcomp
 
   obj0 <- longy_data(d, id = "id", time = "time", outcome = "Y",
                      treatment = "A", censoring = NULL, observation = "R",
@@ -190,7 +204,8 @@ test_that("G-comp continuous outcome recovers known truth at each time", {
                      outcome_type = "continuous", verbose = FALSE)
   obj0 <- define_regime(obj0, "never", static = 0L)
   obj0 <- fit_outcome(obj0, regime = "never", verbose = FALSE)
-  res0 <- estimate_gcomp(obj0, regime = "never", n_boot = 0, verbose = FALSE)
+  obj0 <- estimate_gcomp(obj0, regime = "never", n_boot = 0, verbose = FALSE)
+  res0 <- obj0$results$never_gcomp
 
   # Check at each time point (absolute tolerance)
   for (r in seq_len(nrow(res1$estimates))) {
@@ -253,7 +268,8 @@ test_that("G-comp ICE recovers carryover truth (past A affects future L)", {
                      outcome_type = "continuous", verbose = FALSE)
   obj1 <- define_regime(obj1, "always", static = 1L)
   obj1 <- fit_outcome(obj1, regime = "always", verbose = FALSE)
-  res1 <- estimate_gcomp(obj1, regime = "always", n_boot = 0, verbose = FALSE)
+  obj1 <- estimate_gcomp(obj1, regime = "always", n_boot = 0, verbose = FALSE)
+  res1 <- obj1$results$always_gcomp
 
   obj0 <- longy_data(d, id = "id", time = "time", outcome = "Y",
                      treatment = "A", censoring = NULL, observation = "R",
@@ -261,7 +277,8 @@ test_that("G-comp ICE recovers carryover truth (past A affects future L)", {
                      outcome_type = "continuous", verbose = FALSE)
   obj0 <- define_regime(obj0, "never", static = 0L)
   obj0 <- fit_outcome(obj0, regime = "never", verbose = FALSE)
-  res0 <- estimate_gcomp(obj0, regime = "never", n_boot = 0, verbose = FALSE)
+  obj0 <- estimate_gcomp(obj0, regime = "never", n_boot = 0, verbose = FALSE)
+  res0 <- obj0$results$never_gcomp
 
   for (r in seq_len(nrow(res1$estimates))) {
     tt <- res1$estimates$time[r]
@@ -316,12 +333,13 @@ test_that("G-comp bootstrap runs in parallel with future.apply", {
   on.exit(future::plan(old_plan), add = TRUE)
   future::plan(future::multisession, workers = 2)
 
-  result <- estimate_gcomp(obj, regime = "always", n_boot = 20, verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 20, verbose = FALSE)
+  res <- obj$results$always_gcomp
 
-  expect_s3_class(result, "longy_result")
-  expect_true("se" %in% names(result$estimates))
-  expect_true(all(result$estimates$se > 0, na.rm = TRUE))
-  expect_true("ci_lower" %in% names(result$estimates))
-  expect_true("ci_upper" %in% names(result$estimates))
+  expect_s3_class(obj, "longy_data")
+  expect_s3_class(res, "longy_result")
+  expect_true("se" %in% names(res$estimates))
+  expect_true(all(res$estimates$se > 0, na.rm = TRUE))
+  expect_true("ci_lower" %in% names(res$estimates))
+  expect_true("ci_upper" %in% names(res$estimates))
 })
-

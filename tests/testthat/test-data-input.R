@@ -165,9 +165,9 @@ test_that("longy() end-to-end without explicit observation column", {
     verbose = FALSE
   )
 
-  expect_s3_class(results, "longy_results")
-  expect_true(nrow(results$always$estimates) > 0)
-  expect_true(all(is.finite(results$always$estimates$estimate)))
+  expect_s3_class(results, "longy_data")
+  expect_true(nrow(results$results$always_ipw$estimates) > 0)
+  expect_true(all(is.finite(results$results$always_ipw$estimates$estimate)))
 })
 
 test_that("set_crossfit assigns folds at subject level", {

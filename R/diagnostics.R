@@ -1,13 +1,3 @@
-# Extract longy_data from any longy object type
-# Accepts longy_data, longy_result, or longy_results (takes first element)
-.extract_longy_data <- function(obj) {
-  if (inherits(obj, "longy_data")) return(obj)
-  if (inherits(obj, "longy_result")) return(obj$obj)
-  if (inherits(obj, "longy_results")) return(obj[[1]]$obj)
-  stop("Expected a longy_data, longy_result, or longy_results object.",
-       call. = FALSE)
-}
-
 #' Weight Diagnostics
 #'
 #' Summarizes weight distributions by time point, including mean, median,
@@ -23,7 +13,7 @@
 #' @return A data.table with weight summary statistics.
 #' @export
 weight_diagnostics <- function(obj, regime = NULL, by_time = TRUE) {
-  obj <- .extract_longy_data(obj)
+  obj <- .as_longy_data(obj)
   if (length(obj$weights) == 0) {
     stop("Weights not computed. Run compute_weights() first.", call. = FALSE)
   }
@@ -89,7 +79,7 @@ weight_diagnostics <- function(obj, regime = NULL, by_time = TRUE) {
 #' @return A data.table with flagged observations and their propensity scores.
 #' @export
 positivity_diagnostics <- function(obj, regime = NULL, threshold = 0.025) {
-  obj <- .extract_longy_data(obj)
+  obj <- .as_longy_data(obj)
   if (length(obj$fits$treatment) == 0) {
     stop("Treatment model not fit. Run fit_treatment() first.", call. = FALSE)
   }
@@ -146,7 +136,7 @@ positivity_diagnostics <- function(obj, regime = NULL, threshold = 0.025) {
 #'   or NULL).
 #' @export
 sl_diagnostics <- function(obj, regime = NULL, model = "all") {
-  obj <- .extract_longy_data(obj)
+  obj <- .as_longy_data(obj)
 
   model <- match.arg(model, c("all", "treatment", "censoring",
                                "observation", "outcome"))

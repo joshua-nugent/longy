@@ -15,7 +15,8 @@ fit_outcome(
   bounds = c(0.005, 0.995),
   times = NULL,
   sl_fn = "SuperLearner",
-  verbose = TRUE
+  verbose = TRUE,
+  refit = FALSE
 )
 }
 \arguments{
@@ -48,6 +49,9 @@ time points.}
 (default) or \code{"ffSL"} (future-factorial parallel).}
 
 \item{verbose}{Logical. Print progress.}
+
+\item{refit}{Logical. If FALSE (default), errors when outcome is already
+fitted for the requested regime(s). Set to TRUE to re-fit.}
 }
 \value{
 Modified \code{longy_data} object with outcome fits stored in

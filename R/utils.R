@@ -1,6 +1,26 @@
 # Internal utility functions for longy
 # None of these are exported
 
+#' Extract or validate a longy_data object from any longy type
+#'
+#' Accepts \code{longy_data} (pass-through), \code{longy_result} (extracts
+#' \code{$obj}), or legacy \code{longy_results} (extracts first element's
+#' \code{$obj}). This replaces the older \code{.extract_longy_data()} helper
+#' and all \code{stopifnot(inherits(obj, "longy_data"))} call sites.
+#'
+#' @param obj A \code{longy_data}, \code{longy_result}, or \code{longy_results}
+#'   object.
+#' @return A \code{longy_data} object.
+#' @noRd
+.as_longy_data <- function(obj) {
+  if (inherits(obj, "longy_data")) return(obj)
+  if (inherits(obj, "longy_result") && !is.null(obj$obj)) return(obj$obj)
+  if (inherits(obj, "longy_results") && length(obj) > 0 &&
+      !is.null(obj[[1]]$obj)) return(obj[[1]]$obj)
+  stop("Expected a longy_data, longy_result, or longy_results object.",
+       call. = FALSE)
+}
+
 #' Resolve regime argument for fit_*/compute_weights/estimate_* functions
 #'
 #' When \code{regime} is NULL, defaults to all defined regimes. Validates

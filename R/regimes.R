@@ -24,7 +24,7 @@
 #' @export
 define_regime <- function(obj, name, static = NULL, dynamic = NULL,
                           stochastic = NULL, description = NULL) {
-  stopifnot(inherits(obj, "longy_data"))
+  obj <- .as_longy_data(obj)
 
   if (!is.character(name) || length(name) != 1 || nchar(name) == 0) {
     stop("'name' must be a non-empty character string.", call. = FALSE)

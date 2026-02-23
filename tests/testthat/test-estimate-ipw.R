@@ -10,12 +10,14 @@ test_that("estimate_ipw produces valid estimates", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  result <- estimate_ipw(obj, regime = "always")
+  obj <- estimate_ipw(obj, regime = "always")
+  res <- obj$results$always_ipw
 
-  expect_s3_class(result, "longy_result")
-  expect_true(nrow(result$estimates) > 0)
+  expect_s3_class(obj, "longy_data")
+  expect_s3_class(res, "longy_result")
+  expect_true(nrow(res$estimates) > 0)
   # Estimates should be in [0, 1] for binary outcome
-  expect_true(all(result$estimates$estimate >= 0 & result$estimates$estimate <= 1,
+  expect_true(all(res$estimates$estimate >= 0 & res$estimates$estimate <= 1,
                   na.rm = TRUE))
 })
 
@@ -31,17 +33,18 @@ test_that("IC inference produces non-negative SEs", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  result <- estimate_ipw(obj, regime = "always", inference = "ic")
+  obj <- estimate_ipw(obj, regime = "always", inference = "ic")
+  res <- obj$results$always_ipw
 
   # SEs should be non-negative (can be 0 if all outcomes are same value)
-  expect_true(all(result$estimates$se >= 0, na.rm = TRUE))
+  expect_true(all(res$estimates$se >= 0, na.rm = TRUE))
   # At least some SEs should be positive (non-degenerate time points)
-  expect_true(any(result$estimates$se > 0, na.rm = TRUE))
+  expect_true(any(res$estimates$se > 0, na.rm = TRUE))
   # CIs should be valid where SE > 0
-  pos_se <- result$estimates$se > 0 & !is.na(result$estimates$se)
+  pos_se <- res$estimates$se > 0 & !is.na(res$estimates$se)
   if (any(pos_se)) {
     expect_true(all(
-      result$estimates$ci_lower[pos_se] < result$estimates$ci_upper[pos_se]
+      res$estimates$ci_lower[pos_se] < res$estimates$ci_upper[pos_se]
     ))
   }
 })
@@ -57,10 +60,11 @@ test_that("print and summary work for longy_result", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
-  result <- estimate_ipw(obj, regime = "always")
+  obj <- estimate_ipw(obj, regime = "always")
+  res <- obj$results$always_ipw
 
-  expect_output(print(result), "longy IPW result")
-  expect_output(summary(result), "longy IPW Result Summary")
+  expect_output(print(res), "longy IPW result")
+  expect_output(summary(res), "longy IPW Result Summary")
 })
 
 test_that("estimate_ipw handles specific time points", {
@@ -75,10 +79,11 @@ test_that("estimate_ipw handles specific time points", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  result <- estimate_ipw(obj, regime = "always", times = c(0, 2))
+  obj <- estimate_ipw(obj, regime = "always", times = c(0, 2))
+  res <- obj$results$always_ipw
 
-  expect_equal(nrow(result$estimates), 2)
-  expect_equal(result$estimates$time, c(0, 2))
+  expect_equal(nrow(res$estimates), 2)
+  expect_equal(res$estimates$time, c(0, 2))
 })
 
 test_that("sandwich inference produces valid SEs", {
@@ -94,13 +99,14 @@ test_that("sandwich inference produces valid SEs", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  result <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+  obj <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+  res <- obj$results$always_ipw
 
-  expect_true(all(result$estimates$se >= 0, na.rm = TRUE))
-  expect_true(any(result$estimates$se > 0, na.rm = TRUE))
+  expect_true(all(res$estimates$se >= 0, na.rm = TRUE))
+  expect_true(any(res$estimates$se > 0, na.rm = TRUE))
   expect_true(all(
-    result$estimates$ci_lower <= result$estimates$estimate &
-    result$estimates$estimate <= result$estimates$ci_upper,
+    res$estimates$ci_lower <= res$estimates$estimate &
+    res$estimates$estimate <= res$estimates$ci_upper,
     na.rm = TRUE
   ))
 })
@@ -118,15 +124,18 @@ test_that("sandwich and IC inference give similar SEs", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  ic_result <- estimate_ipw(obj, regime = "always", inference = "ic")
-  sw_result <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+  obj <- estimate_ipw(obj, regime = "always", inference = "ic")
+  ic_res <- obj$results$always_ipw
+
+  obj <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+  sw_res <- obj$results$always_ipw
 
   # Point estimates must be identical (same Hajek estimator)
-  expect_equal(ic_result$estimates$estimate, sw_result$estimates$estimate)
+  expect_equal(ic_res$estimates$estimate, sw_res$estimates$estimate)
 
   # SEs should be in the same ballpark (within factor of 3)
-  ic_se <- ic_result$estimates$se
-  sw_se <- sw_result$estimates$se
+  ic_se <- ic_res$estimates$se
+  sw_se <- sw_res$estimates$se
   valid <- ic_se > 0 & sw_se > 0 & !is.na(ic_se) & !is.na(sw_se)
   if (any(valid)) {
     ratio <- ic_se[valid] / sw_se[valid]
@@ -152,11 +161,12 @@ test_that("no-confounding recovery: IPW close to truth", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  result <- estimate_ipw(obj, regime = "always")
+  obj <- estimate_ipw(obj, regime = "always")
+  res <- obj$results$always_ipw
 
   # With no confounding, IPW estimate should be close to crude mean among treated
   crude_mean_t0 <- mean(d$Y[d$time == 0 & d$A == 1], na.rm = TRUE)
-  ipw_t0 <- result$estimates$estimate[result$estimates$time == 0]
+  ipw_t0 <- res$estimates$estimate[res$estimates$time == 0]
 
   # Should be within 0.15 (Monte Carlo noise with n=500)
   expect_true(abs(ipw_t0 - crude_mean_t0) < 0.15,
@@ -175,14 +185,16 @@ test_that("IPW works with continuous outcomes", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  result <- estimate_ipw(obj, regime = "always", inference = "ic")
+  obj <- estimate_ipw(obj, regime = "always", inference = "ic")
+  res <- obj$results$always_ipw
 
-  expect_s3_class(result, "longy_result")
-  expect_true(nrow(result$estimates) > 0)
+  expect_s3_class(obj, "longy_data")
+  expect_s3_class(res, "longy_result")
+  expect_true(nrow(res$estimates) > 0)
   # Estimates should be finite
-  expect_true(all(is.finite(result$estimates$estimate)))
+  expect_true(all(is.finite(res$estimates$estimate)))
   # SEs should be positive
-  expect_true(all(result$estimates$se > 0, na.rm = TRUE))
+  expect_true(all(res$estimates$se > 0, na.rm = TRUE))
 })
 
 test_that("IC and sandwich SEs agree for continuous outcomes", {
@@ -198,15 +210,18 @@ test_that("IC and sandwich SEs agree for continuous outcomes", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  ic_result <- estimate_ipw(obj, regime = "always", inference = "ic")
-  sw_result <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+  obj <- estimate_ipw(obj, regime = "always", inference = "ic")
+  ic_res <- obj$results$always_ipw
+
+  obj <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+  sw_res <- obj$results$always_ipw
 
   # Point estimates must be identical
-  expect_equal(ic_result$estimates$estimate, sw_result$estimates$estimate)
+  expect_equal(ic_res$estimates$estimate, sw_res$estimates$estimate)
 
   # SEs should be in the same ballpark (within factor of 3)
-  ic_se <- ic_result$estimates$se
-  sw_se <- sw_result$estimates$se
+  ic_se <- ic_res$estimates$se
+  sw_se <- sw_res$estimates$se
   valid <- ic_se > 0 & sw_se > 0 & !is.na(ic_se) & !is.na(sw_se)
   if (any(valid)) {
     ratio <- ic_se[valid] / sw_se[valid]
@@ -228,15 +243,17 @@ test_that("IPW works with survival outcomes and isotonic smoothing", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  result <- estimate_ipw(obj, regime = "always", inference = "ic")
+  obj <- estimate_ipw(obj, regime = "always", inference = "ic")
+  res <- obj$results$always_ipw
 
-  expect_s3_class(result, "longy_result")
-  expect_true(nrow(result$estimates) > 0)
+  expect_s3_class(obj, "longy_data")
+  expect_s3_class(res, "longy_result")
+  expect_true(nrow(res$estimates) > 0)
   # Estimates should be in [0, 1]
-  expect_true(all(result$estimates$estimate >= 0 &
-                  result$estimates$estimate <= 1, na.rm = TRUE))
+  expect_true(all(res$estimates$estimate >= 0 &
+                  res$estimates$estimate <= 1, na.rm = TRUE))
   # Estimates should be monotonically non-decreasing (isotonic smoothing)
-  est <- result$estimates$estimate
+  est <- res$estimates$estimate
   if (length(est) > 1) {
     expect_true(all(diff(est) >= -1e-10),
                 info = sprintf("Non-monotone estimates: %s",

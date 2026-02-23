@@ -74,9 +74,9 @@ test_that("weight_diagnostics errors without weights", {
   expect_error(weight_diagnostics(obj), "not computed")
 })
 
-# --- Tests for longy_result / longy_results dispatch ---
+# --- Tests for longy_data dispatch (estimate_* returns longy_data) ---
 
-test_that("weight_diagnostics works with longy_result from estimate_ipw", {
+test_that("weight_diagnostics works with longy_data from estimate_ipw", {
   d <- simulate_test_data(n = 80, K = 4)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -87,18 +87,18 @@ test_that("weight_diagnostics works with longy_result from estimate_ipw", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
-  result <- estimate_ipw(obj, regime = "always", times = c(2, 3),
-                         inference = "none")
+  obj <- estimate_ipw(obj, regime = "always", times = c(2, 3),
+                      inference = "none")
 
-  # longy_result should work
-  diag <- weight_diagnostics(result)
+  # longy_data with weights should work
+  diag <- weight_diagnostics(obj)
   expect_true(data.table::is.data.table(diag))
   expect_true("ess" %in% names(diag))
 })
 
-test_that("weight_diagnostics works with longy_results from longy()", {
+test_that("weight_diagnostics works with longy_data from longy()", {
   d <- simulate_test_data(n = 80, K = 4)
-  results <- suppressWarnings(longy(
+  obj <- suppressWarnings(longy(
     d, id = "id", time = "time", outcome = "Y",
     treatment = "A", censoring = "C", observation = "R",
     baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
@@ -106,13 +106,13 @@ test_that("weight_diagnostics works with longy_results from longy()", {
     estimator = "ipw", inference = "none", verbose = FALSE
   ))
 
-  # longy_results should work (takes first element)
-  diag <- weight_diagnostics(results)
+  # longy_data from longy() should work
+  diag <- weight_diagnostics(obj)
   expect_true(data.table::is.data.table(diag))
   expect_true("ess" %in% names(diag))
 })
 
-test_that("positivity_diagnostics works with longy_result", {
+test_that("positivity_diagnostics works with longy_data from estimate_ipw", {
   d <- simulate_test_data(n = 80, K = 4)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -123,19 +123,19 @@ test_that("positivity_diagnostics works with longy_result", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
-  result <- estimate_ipw(obj, regime = "always", times = c(2, 3),
-                         inference = "none")
+  obj <- estimate_ipw(obj, regime = "always", times = c(2, 3),
+                      inference = "none")
 
   expect_message(
-    diag <- positivity_diagnostics(result, threshold = 0.5),
+    diag <- positivity_diagnostics(obj, threshold = 0.5),
     "flagged"
   )
 })
 
 test_that("diagnostics error on invalid input", {
-  expect_error(.extract_longy_data("not an object"),
+  expect_error(longy:::.as_longy_data("not an object"),
                "Expected a longy_data")
-  expect_error(.extract_longy_data(list(a = 1)),
+  expect_error(longy:::.as_longy_data(list(a = 1)),
                "Expected a longy_data")
 })
 
@@ -192,7 +192,7 @@ test_that("sl_diagnostics shows censoring submodel names", {
   expect_true(all(diag$submodel == ".cens_censored"))
 })
 
-test_that("sl_diagnostics works with longy_result", {
+test_that("sl_diagnostics works with longy_data from estimate_ipw", {
   d <- simulate_test_data(n = 80, K = 4)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -203,17 +203,17 @@ test_that("sl_diagnostics works with longy_result", {
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
-  result <- estimate_ipw(obj, regime = "always", times = c(2, 3),
-                         inference = "none")
+  obj <- estimate_ipw(obj, regime = "always", times = c(2, 3),
+                      inference = "none")
 
-  diag <- sl_diagnostics(result)
+  diag <- sl_diagnostics(obj)
   expect_true(data.table::is.data.table(diag))
   expect_true(nrow(diag) > 0)
 })
 
-test_that("sl_diagnostics works with longy_results from longy()", {
+test_that("sl_diagnostics works with longy_data from longy()", {
   d <- simulate_test_data(n = 80, K = 4)
-  results <- suppressWarnings(longy(
+  obj <- suppressWarnings(longy(
     d, id = "id", time = "time", outcome = "Y",
     treatment = "A", censoring = "C", observation = "R",
     baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
@@ -221,7 +221,7 @@ test_that("sl_diagnostics works with longy_results from longy()", {
     estimator = "ipw", inference = "none", verbose = FALSE
   ))
 
-  diag <- sl_diagnostics(results)
+  diag <- sl_diagnostics(obj)
   expect_true(data.table::is.data.table(diag))
   expect_true(nrow(diag) > 0)
 })

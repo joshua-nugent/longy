@@ -418,6 +418,7 @@ longy_data <- function(data,
     regimes = list(),
     fits = list(treatment = list(), censoring = list(), observation = list(), outcome = list()),
     weights = list(),
+    results = list(),
     crossfit = list(enabled = FALSE, n_folds = NULL, fold_id = NULL),
     meta = meta
   )
@@ -460,7 +461,7 @@ longy_data <- function(data,
 #' @return Modified `longy_data` object with crossfit information.
 #' @export
 set_crossfit <- function(obj, n_folds = 5L, fold_column = NULL, seed = NULL) {
-  stopifnot(inherits(obj, "longy_data"))
+  obj <- .as_longy_data(obj)
 
   id_col <- obj$nodes$id
 
@@ -535,6 +536,24 @@ print.longy_data <- function(x, ...) {
     cat(sprintf("  Weights:     computed (%s)\n",
                 paste(names(x$weights), collapse = ", ")))
   }
+  # Show fitted models
+  fitted_parts <- character(0)
+  for (mtype in c("treatment", "censoring", "observation", "outcome")) {
+    rnames <- names(x$fits[[mtype]])
+    rnames <- rnames[vapply(x$fits[[mtype]], function(f) length(f) > 0, logical(1))]
+    if (length(rnames) > 0) {
+      fitted_parts <- c(fitted_parts,
+                        sprintf("%s (%s)", mtype, paste(rnames, collapse = ", ")))
+    }
+  }
+  if (length(fitted_parts) > 0) {
+    cat(sprintf("  Fits:        %s\n", paste(fitted_parts, collapse = "; ")))
+  }
+  # Show results
+  if (length(x$results) > 0) {
+    cat(sprintf("  Results:     %s\n",
+                paste(names(x$results), collapse = ", ")))
+  }
   invisible(x)
 }
 
@@ -589,6 +608,17 @@ summary.longy_data <- function(object, ...) {
   if (object$crossfit$enabled) {
     cat(sprintf("\nCross-fitting: %d folds (column: %s)\n",
                 object$crossfit$n_folds, object$crossfit$fold_id))
+  }
+
+  # Results
+  if (length(object$results) > 0) {
+    cat("\n--- Estimation Results ---\n")
+    for (rname in names(object$results)) {
+      res <- object$results[[rname]]
+      est_label <- if (!is.null(res$estimator)) toupper(res$estimator) else "IPW"
+      cat(sprintf("\n%s (%s, regime: %s):\n", rname, est_label, res$regime))
+      print(res$estimates)
+    }
   }
 
   invisible(object)

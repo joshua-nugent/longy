@@ -38,21 +38,18 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
                           ci_level = 0.95, n_boot = 200L,
                           g_bounds = c(0.01, 1), outcome_range = NULL,
                           verbose = TRUE) {
-  stopifnot(inherits(obj, "longy_data"))
+  obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
   inference <- match.arg(inference, c("eif", "bootstrap", "none"))
-
-  all_regime_results <- list()
 
   for (rname in regime) {
 
   if (isTRUE(obj$crossfit$enabled)) {
-    cf_result <- .cf_estimate_tmle(obj, regime = rname, times = times,
+    obj <- .cf_estimate_tmle(obj, regime = rname, times = times,
                               inference = inference, ci_level = ci_level,
                               n_boot = n_boot, g_bounds = g_bounds,
                               outcome_range = outcome_range,
                               verbose = verbose)
-    all_regime_results[[rname]] <- cf_result
     next
   }
 
@@ -427,17 +424,14 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     regime = rname,
     estimator = "tmle",
     inference = inference,
-    ci_level = ci_level,
-    obj = obj
+    ci_level = ci_level
   )
   class(result) <- "longy_result"
-  all_regime_results[[rname]] <- result
+  obj$results[[paste0(rname, "_tmle")]] <- result
 
   } # end for (rname in regime)
 
-  if (length(all_regime_results) == 1) return(all_regime_results[[1]])
-  class(all_regime_results) <- "longy_results"
-  all_regime_results
+  obj
 }
 
 #' TMLE Fluctuation Step

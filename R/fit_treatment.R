@@ -24,6 +24,8 @@
 #' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
 #'   (default) or \code{"ffSL"} (future-factorial parallel).
 #' @param verbose Logical. Print progress.
+#' @param refit Logical. If FALSE (default), errors when treatment is already
+#'   fitted for the requested regime(s). Set to TRUE to re-fit.
 #'
 #' @return Modified `longy_data` object with treatment fits stored.
 #' @export
@@ -32,10 +34,18 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                           min_obs = 50L, min_events = 20L,
                           bounds = c(0.005, 0.995),
                           times = NULL, sl_fn = "SuperLearner",
-                          verbose = TRUE) {
-  stopifnot(inherits(obj, "longy_data"))
+                          verbose = TRUE, refit = FALSE) {
+  obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "treatment")
   regime <- .resolve_regimes(obj, regime)
+
+  if (!refit) {
+    fitted <- Filter(function(r) !is.null(obj$fits$treatment[[r]]) &&
+                       length(obj$fits$treatment[[r]]) > 0, regime)
+    if (length(fitted) > 0)
+      stop(sprintf("Treatment already fitted for: %s. Use refit=TRUE to override.",
+                   paste(fitted, collapse = ", ")), call. = FALSE)
+  }
 
   for (rname in regime) {
 

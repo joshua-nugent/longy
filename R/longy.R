@@ -79,20 +79,22 @@
 #'   \code{future.apply}).
 #' @param verbose Logical. Print progress.
 #'
-#' @return An S3 object of class \code{"longy_results"} (a named list of
-#'   \code{longy_result} objects, one per regime). When multiple estimators are
-#'   requested, each regime produces entries with \code{_ipw}, \code{_gcomp},
-#'   and/or \code{_tmle} suffixes.
+#' @return An S3 object of class \code{"longy_data"} with estimation results
+#'   accumulated in \code{obj$results} (a named list of \code{longy_result}
+#'   objects keyed as \code{{regime}_{estimator}}). Use \code{results(obj)} to
+#'   access results, or \code{obj$results$always_ipw$estimates} directly.
 #'
 #' @examples
 #' \dontrun{
-#' results <- longy(
+#' obj <- longy(
 #'   data = sim_longy,
 #'   id = "id", time = "time", outcome = "Y",
 #'   treatment = "A", censoring = "C", observation = "R",
 #'   baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
 #'   regimes = list(always = 1L, never = 0L)
 #' )
+#' obj$results$always_ipw$estimates
+#' results(obj, estimator = "ipw")
 #' }
 #'
 #' @export
@@ -202,7 +204,6 @@ longy <- function(data,
 
   # Fit all regimes at once, then estimate
   regime_names <- names(regimes)
-  all_results <- list()
   cur_step <- step
 
   # --- Shared nuisance models: g_A + g_C + g_R (IPW and/or TMLE) ---
@@ -246,21 +247,9 @@ longy <- function(data,
                              truncation_quantile = truncation_quantile,
                              g_bounds = g_bounds)
 
-    ipw_results <- estimate_ipw(obj, regime = regime_names, times = times,
-                               inference = inference, ci_level = ci_level,
-                               n_boot = n_boot, cluster = cluster)
-
-    # Extract per-regime results
-    if (length(regime_names) == 1) {
-      rname <- regime_names[1]
-      result_name <- if (multi) paste0(rname, "_ipw") else rname
-      all_results[[result_name]] <- ipw_results
-    } else {
-      for (rname in regime_names) {
-        result_name <- if (multi) paste0(rname, "_ipw") else rname
-        all_results[[result_name]] <- ipw_results[[rname]]
-      }
-    }
+    obj <- estimate_ipw(obj, regime = regime_names, times = times,
+                        inference = inference, ci_level = ci_level,
+                        n_boot = n_boot, cluster = cluster)
     cur_step <- cur_step + 1L
   }
 
@@ -280,20 +269,9 @@ longy <- function(data,
   if (do_gcomp) {
     if (verbose) .vmsg("Step %d/%d: Estimating (G-comp)...",
                         cur_step + 1L, n_steps)
-    gcomp_results <- estimate_gcomp(obj, regime = regime_names, times = times,
-                                   ci_level = ci_level, n_boot = n_boot,
-                                   verbose = verbose)
-
-    if (length(regime_names) == 1) {
-      rname <- regime_names[1]
-      result_name <- if (multi) paste0(rname, "_gcomp") else rname
-      all_results[[result_name]] <- gcomp_results
-    } else {
-      for (rname in regime_names) {
-        result_name <- if (multi) paste0(rname, "_gcomp") else rname
-        all_results[[result_name]] <- gcomp_results[[rname]]
-      }
-    }
+    obj <- estimate_gcomp(obj, regime = regime_names, times = times,
+                          ci_level = ci_level, n_boot = n_boot,
+                          verbose = verbose)
     cur_step <- cur_step + 1L
   }
 
@@ -305,55 +283,69 @@ longy <- function(data,
 
     if (verbose) .vmsg("Step %d/%d: Estimating (TMLE)...",
                         cur_step + 1L, n_steps)
-    tmle_results <- estimate_tmle(obj, regime = regime_names, times = times,
-                                 inference = tmle_inf, ci_level = ci_level,
-                                 n_boot = n_boot, g_bounds = g_bounds,
-                                 outcome_range = outcome_range,
-                                 verbose = verbose)
-
-    if (length(regime_names) == 1) {
-      rname <- regime_names[1]
-      result_name <- if (multi) paste0(rname, "_tmle") else rname
-      all_results[[result_name]] <- tmle_results
-    } else {
-      for (rname in regime_names) {
-        result_name <- if (multi) paste0(rname, "_tmle") else rname
-        all_results[[result_name]] <- tmle_results[[rname]]
-      }
-    }
+    obj <- estimate_tmle(obj, regime = regime_names, times = times,
+                         inference = tmle_inf, ci_level = ci_level,
+                         n_boot = n_boot, g_bounds = g_bounds,
+                         outcome_range = outcome_range,
+                         verbose = verbose)
     cur_step <- cur_step + 1L
   }
 
-  class(all_results) <- "longy_results"
-  all_results
+  obj
 }
 
+#' Extract Results from a longy_data Object
+#'
+#' Convenience accessor to filter accumulated results by regime and/or
+#' estimator.
+#'
+#' @param obj A \code{longy_data} object with results.
+#' @param regime Character vector. Filter to these regime(s). NULL = all.
+#' @param estimator Character vector. Filter to these estimator(s)
+#'   (e.g. \code{"ipw"}, \code{"gcomp"}, \code{"tmle"}). NULL = all.
+#'
+#' @return A named list of \code{longy_result} objects matching the filters.
+#'   If no results match, returns an empty list.
+#'
 #' @export
-print.longy_results <- function(x, ...) {
-  cat(sprintf("longy results: %d regime(s)\n\n", length(x)))
-  for (rname in names(x)) {
-    cat(sprintf("--- %s ---\n", rname))
-    print(x[[rname]])
-    cat("\n")
+results <- function(obj, regime = NULL, estimator = NULL) {
+  obj <- .as_longy_data(obj)
+  res <- obj$results
+  if (length(res) == 0) return(res)
+
+  if (!is.null(regime)) {
+    res <- Filter(function(r) r$regime %in% regime, res)
   }
-  invisible(x)
+  if (!is.null(estimator)) {
+    res <- Filter(function(r) {
+      est <- if (!is.null(r$estimator)) r$estimator else "ipw"
+      est %in% estimator
+    }, res)
+  }
+  res
 }
 
-#' Plot longy Results Across Regimes and Estimators
+#' Plot longy_data Results Across Regimes and Estimators
 #'
-#' Creates a plot comparing estimates over time. When multiple estimators
-#' are present (e.g., from \code{estimator = "all"}), results are faceted
-#' by estimator with regimes shown as colored lines within each panel.
+#' When results are present, creates a plot comparing estimates over time.
+#' When multiple estimators are present (e.g., from \code{estimator = "all"}),
+#' results are faceted by estimator with regimes shown as colored lines
+#' within each panel.
 #'
-#' @param x A \code{longy_results} object (list of \code{longy_result} objects).
+#' @param x A \code{longy_data} object with results.
 #' @param ... Additional arguments (unused).
 #'
 #' @return A ggplot2 object if ggplot2 is available, otherwise NULL (base plot).
 #' @export
-plot.longy_results <- function(x, ...) {
+plot.longy_data <- function(x, ...) {
+  if (length(x$results) == 0) {
+    message("No results to plot. Run an estimator first.")
+    return(invisible(NULL))
+  }
+
   # Combine estimates, extracting regime and estimator from each result
-  all_est <- lapply(names(x), function(rname) {
-    res <- x[[rname]]
+  all_est <- lapply(names(x$results), function(rname) {
+    res <- x$results[[rname]]
     est <- as.data.frame(res$estimates)
 
     # Derive estimator label
@@ -361,11 +353,8 @@ plot.longy_results <- function(x, ...) {
     est_label <- switch(est_type,
                         gcomp = "G-comp", tmle = "TMLE", "IPW")
 
-    # Derive regime name: strip _ipw/_gcomp/_tmle suffix if present
-    regime_name <- sub("_(ipw|gcomp|tmle)$", "", rname)
-
     est$estimator_label <- est_label
-    est$regime <- regime_name
+    est$regime <- res$regime
     est
   })
   combined <- do.call(rbind, all_est)

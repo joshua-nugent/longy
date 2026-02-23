@@ -48,7 +48,7 @@ test_that("default regime = NULL fits all defined regimes", {
   expect_equal(sort(names(obj$fits$treatment)), c("always", "never"))
 })
 
-test_that("multi-regime estimate returns longy_results", {
+test_that("multi-regime estimate returns longy_data with results", {
   d <- simulate_test_data(n = 100, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -62,15 +62,15 @@ test_that("multi-regime estimate returns longy_results", {
   obj <- fit_observation(obj, verbose = FALSE)
   obj <- compute_weights(obj)
 
-  results <- estimate_ipw(obj)
+  obj <- estimate_ipw(obj)
 
-  expect_s3_class(results, "longy_results")
-  expect_equal(length(results), 2)
-  expect_s3_class(results$always, "longy_result")
-  expect_s3_class(results$never, "longy_result")
+  expect_s3_class(obj, "longy_data")
+  expect_equal(length(obj$results), 2)
+  expect_s3_class(obj$results$always_ipw, "longy_result")
+  expect_s3_class(obj$results$never_ipw, "longy_result")
 })
 
-test_that("single-regime estimate returns longy_result", {
+test_that("single-regime estimate returns longy_data with result", {
   d <- simulate_test_data(n = 80, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -83,8 +83,10 @@ test_that("single-regime estimate returns longy_result", {
   obj <- fit_observation(obj, verbose = FALSE)
   obj <- compute_weights(obj)
 
-  result <- estimate_ipw(obj, regime = "always")
+  obj <- estimate_ipw(obj, regime = "always")
 
+  expect_s3_class(obj, "longy_data")
+  result <- obj$results$always_ipw
   expect_s3_class(result, "longy_result")
 })
 
@@ -110,12 +112,12 @@ test_that("multi-regime G-comp pipeline works", {
   obj <- define_regime(obj, "never", static = 0L)
 
   obj <- fit_outcome(obj, verbose = FALSE)
-  results <- estimate_gcomp(obj, n_boot = 0, verbose = FALSE)
+  obj <- estimate_gcomp(obj, n_boot = 0, verbose = FALSE)
 
-  expect_s3_class(results, "longy_results")
-  expect_equal(length(results), 2)
-  expect_true(all(is.finite(results$always$estimates$estimate)))
-  expect_true(all(is.finite(results$never$estimates$estimate)))
+  expect_s3_class(obj, "longy_data")
+  expect_equal(length(obj$results), 2)
+  expect_true(all(is.finite(obj$results$always_gcomp$estimates$estimate)))
+  expect_true(all(is.finite(obj$results$never_gcomp$estimates$estimate)))
 })
 
 test_that("multi-regime TMLE pipeline works", {
@@ -131,12 +133,12 @@ test_that("multi-regime TMLE pipeline works", {
   obj <- fit_censoring(obj, verbose = FALSE)
   obj <- fit_outcome(obj, verbose = FALSE)
 
-  results <- estimate_tmle(obj, inference = "none", verbose = FALSE)
+  obj <- estimate_tmle(obj, inference = "none", verbose = FALSE)
 
-  expect_s3_class(results, "longy_results")
-  expect_equal(length(results), 2)
-  expect_equal(results$always$estimator, "tmle")
-  expect_equal(results$never$estimator, "tmle")
+  expect_s3_class(obj, "longy_data")
+  expect_equal(length(obj$results), 2)
+  expect_equal(obj$results$always_tmle$estimator, "tmle")
+  expect_equal(obj$results$never_tmle$estimator, "tmle")
 })
 
 test_that(".resolve_regimes works correctly", {
@@ -158,7 +160,7 @@ test_that(".resolve_regimes works correctly", {
   expect_error(longy:::.resolve_regimes(obj, c("always", "bogus")), "not found")
 })
 
-test_that("re-fitting same regime overwrites previous fit", {
+test_that("re-fitting same regime requires refit=TRUE", {
   d <- simulate_test_data(n = 80, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -169,8 +171,12 @@ test_that("re-fitting same regime overwrites previous fit", {
   obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
   preds1 <- obj$fits$treatment[["always"]]$predictions
 
-  # Re-fit (same regime) should overwrite
-  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  # Re-fit without refit=TRUE should error
+  expect_error(fit_treatment(obj, regime = "always", verbose = FALSE),
+               "already fitted")
+
+  # Re-fit with refit=TRUE should overwrite
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE, refit = TRUE)
   preds2 <- obj$fits$treatment[["always"]]$predictions
 
   # Should have the same structure (regime fit overwritten)

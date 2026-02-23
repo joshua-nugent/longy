@@ -185,8 +185,8 @@ test_that("sampling weights affect IPW estimates", {
                     regimes = list(always = 1L), verbose = FALSE)
 
   # Estimates should differ
-  est_sw <- res_sw$always$estimates$estimate
-  est_nosw <- res_nosw$always$estimates$estimate
+  est_sw <- res_sw$results$always_ipw$estimates$estimate
+  est_nosw <- res_nosw$results$always_ipw$estimates$estimate
   expect_false(all(abs(est_sw - est_nosw) < 1e-10))
 })
 
@@ -208,12 +208,12 @@ test_that("sampling weights enter IC variance correctly", {
   obj <- fit_observation(obj, regime = "always", verbose = FALSE)
   obj <- compute_weights(obj, regime = "always")
 
-  ic_result <- estimate_ipw(obj, regime = "always", inference = "ic")
-  sw_result <- estimate_ipw(obj, regime = "always", inference = "sandwich")
+  obj_ic <- estimate_ipw(obj, regime = "always", inference = "ic")
+  obj_sw <- estimate_ipw(obj, regime = "always", inference = "sandwich")
 
   # IC and sandwich should agree (within factor of 3)
-  ic_se <- ic_result$estimates$se
-  sw_se <- sw_result$estimates$se
+  ic_se <- obj_ic$results$always_ipw$estimates$se
+  sw_se <- obj_sw$results$always_ipw$estimates$se
   valid <- ic_se > 0 & sw_se > 0 & !is.na(ic_se) & !is.na(sw_se)
   if (any(valid)) {
     ratio <- ic_se[valid] / sw_se[valid]

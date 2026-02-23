@@ -103,7 +103,7 @@ test_that("TMLE produces estimates in [0,1] with competing risks", {
     estimator = "tmle", learners = NULL,
     inference = "eif", verbose = FALSE
   )
-  est <- result$always$estimates
+  est <- result$results$always_tmle$estimates
   expect_true(all(est$estimate >= 0 & est$estimate <= 1, na.rm = TRUE))
   # CIF should be monotone non-decreasing
   diffs <- diff(est$estimate)
@@ -121,7 +121,7 @@ test_that("G-comp works with competing risks", {
     estimator = "gcomp", learners = NULL,
     n_boot = 0L, verbose = FALSE
   )
-  est <- result$always$estimates
+  est <- result$results$always_gcomp$estimates
   expect_true(all(est$estimate >= 0 & est$estimate <= 1, na.rm = TRUE))
 })
 
@@ -153,8 +153,8 @@ test_that("all-zeros competing column matches standard survival", {
   )
 
   # Estimates should be identical
-  expect_equal(res_comp$always$estimates$estimate,
-               res_std$always$estimates$estimate, tolerance = 1e-10)
+  expect_equal(res_comp$results$always_gcomp$estimates$estimate,
+               res_std$results$always_gcomp$estimates$estimate, tolerance = 1e-10)
 })
 
 test_that("print.longy_data shows competing column", {

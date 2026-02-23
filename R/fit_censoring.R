@@ -27,6 +27,8 @@
 #' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
 #'   (default) or \code{"ffSL"} (future-factorial parallel).
 #' @param verbose Logical. Progress messages.
+#' @param refit Logical. If FALSE (default), errors when censoring is already
+#'   fitted for the requested regime(s). Set to TRUE to re-fit.
 #'
 #' @return Modified \code{longy_data} object with censoring fits stored in
 #'   \code{obj$fits$censoring}, a named list keyed by internal column name
@@ -37,10 +39,18 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                           min_obs = 50L, min_events = 20L,
                           bounds = c(0.005, 0.995),
                           times = NULL, sl_fn = "SuperLearner",
-                          verbose = TRUE) {
-  stopifnot(inherits(obj, "longy_data"))
+                          verbose = TRUE, refit = FALSE) {
+  obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "censoring")
   regime <- .resolve_regimes(obj, regime)
+
+  if (!refit) {
+    fitted <- Filter(function(r) !is.null(obj$fits$censoring[[r]]) &&
+                       length(obj$fits$censoring[[r]]) > 0, regime)
+    if (length(fitted) > 0)
+      stop(sprintf("Censoring already fitted for: %s. Use refit=TRUE to override.",
+                   paste(fitted, collapse = ", ")), call. = FALSE)
+  }
 
   nodes <- obj$nodes
 

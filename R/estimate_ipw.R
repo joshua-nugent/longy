@@ -24,11 +24,9 @@
 #' @export
 estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
                          ci_level = 0.95, n_boot = 200L, cluster = NULL) {
-  stopifnot(inherits(obj, "longy_data"))
+  obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
   inference <- match.arg(inference, c("ic", "bootstrap", "sandwich", "none"))
-
-  all_regime_results <- list()
 
   for (rname in regime) {
 
@@ -110,18 +108,16 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
   result <- list(
     estimates = estimates,
     regime = rname,
+    estimator = "ipw",
     inference = inference,
-    ci_level = ci_level,
-    obj = obj
+    ci_level = ci_level
   )
   class(result) <- "longy_result"
-  all_regime_results[[rname]] <- result
+  obj$results[[paste0(rname, "_ipw")]] <- result
 
   } # end for (rname in regime)
 
-  if (length(all_regime_results) == 1) return(all_regime_results[[1]])
-  class(all_regime_results) <- "longy_results"
-  all_regime_results
+  obj
 }
 
 #' @export
@@ -154,15 +150,8 @@ summary.longy_result <- function(object, ...) {
   cat(sprintf("=== longy %s Result Summary ===\n\n", est_label))
   print(object)
 
-  regime_name <- object$regime
-  w_obj <- object$obj$weights[[regime_name]]
-  if (!is.null(w_obj)) {
-    cat("\nWeight summary:\n")
-    w_dt <- w_obj$weights_dt
-    cat(sprintf("  Mean final weight:   %.3f\n", mean(w_dt$.final_weight)))
-    cat(sprintf("  Median final weight: %.3f\n", stats::median(w_dt$.final_weight)))
-    cat(sprintf("  Max final weight:    %.3f\n", max(w_dt$.final_weight)))
-    cat(sprintf("  Min ESS:             %.1f\n",
+  if ("n_effective" %in% names(object$estimates)) {
+    cat(sprintf("\n  Min ESS:             %.1f\n",
                 min(object$estimates$n_effective, na.rm = TRUE)))
   }
 

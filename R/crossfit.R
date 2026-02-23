@@ -941,9 +941,9 @@ NULL
     regime = regime,
     estimator = "tmle",
     inference = inference,
-    ci_level = ci_level,
-    obj = obj
+    ci_level = ci_level
   )
   class(result) <- "longy_result"
-  result
+  obj$results[[paste0(regime, "_tmle")]] <- result
+  obj
 }
