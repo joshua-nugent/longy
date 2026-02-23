@@ -794,7 +794,10 @@ NULL
         g_cum_vals[is.na(g_cum_vals)] <- 1
         g_r_vals[is.na(g_r_vals)] <- 1
 
-        g_denom <- g_cum_vals * g_r_vals
+        # g_r only enters at target time (i==1) where actual Y is observed.
+        # At intermediate times, pseudo-outcomes are model predictions, not
+        # observed data, so the observation mechanism doesn't apply.
+        g_denom <- if (i == 1) g_cum_vals * g_r_vals else g_cum_vals
 
         pseudo_out <- dt_t$.longy_Q[at_risk]
 

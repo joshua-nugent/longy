@@ -275,7 +275,10 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         g_cum_vals[is.na(g_cum_vals)] <- 1
         g_r_vals[is.na(g_r_vals)] <- 1
 
-        g_denom <- g_cum_vals * g_r_vals
+        # g_r only enters at target time (i==1) where actual Y is observed.
+        # At intermediate times, pseudo-outcomes are model predictions, not
+        # observed data, so the observation mechanism doesn't apply.
+        g_denom <- if (i == 1) g_cum_vals * g_r_vals else g_cum_vals
 
         # Pseudo-outcome: Q values for at-risk subjects
         pseudo_out <- dt_t$.longy_Q[at_risk]
@@ -402,9 +405,15 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         y_range_width = y_range_width
       )
 
+      # Preserve decomposition before back-transform (multiplication drops attrs)
+      init_raw <- attr(D_i, "initial")
+      aug_raw <- attr(D_i, "augmentation")
+
       # Back-transform EIF if continuous
       if (!is_binary) {
         D_i <- D_i * y_range_width
+        if (!is.null(init_raw)) init_raw <- init_raw * y_range_width
+        if (!is.null(aug_raw)) aug_raw <- aug_raw * y_range_width
       }
 
       n_i <- length(D_i)
@@ -413,6 +422,18 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       } else {
         se <- NA_real_
       }
+
+      # EIF variance decomposition diagnostics
+      if (verbose) {
+        if (!is.null(init_raw) && !is.null(aug_raw)) {
+          se_init <- sqrt(stats::var(init_raw) / n_i)
+          se_aug <- sqrt(stats::var(aug_raw) / n_i)
+          n_aug_nonzero <- sum(abs(aug_raw) > 1e-10)
+          .vmsg("  EIF diagnostics: SE(D)=%.4f, SE(Q*0-psi)=%.4f, SE(aug)=%.4f, n_aug_nonzero=%d/%d",
+                se, se_init, se_aug, n_aug_nonzero, n_i)
+        }
+      }
+
       z <- stats::qnorm(1 - (1 - ci_level) / 2)
       est_row[, se := se]
       est_row[, ci_lower := if (is.na(se)) NA_real_ else psi_hat - z * se]
@@ -741,7 +762,9 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       aug_dt[is.na(.Q_star), .Q_star := 0]          # avoid NaN in arithmetic
       aug_dt[is.na(.Q_star_next), .Q_star_next := 0]
 
-      aug_dt[, .H := ifelse(.indicator, 1 / (.g_cum * .g_r), 0)]
+      # At intermediate times (s < target_t), g_r does NOT enter the EIF.
+      # Pseudo-outcomes are model predictions, not observed data.
+      aug_dt[, .H := ifelse(.indicator, 1 / .g_cum, 0)]
       aug_dt[, .aug := .H * (.Q_star_next - .Q_star)]
 
       match_idx <- match(aug_dt[[id_col]], all_ids)
@@ -753,9 +776,14 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
   # D_i = (Q*_0 - psi) + augmentation
   Q_star_0_vals <- subj_dt$.Q_star_0
-  D_i <- (Q_star_0_vals - psi_hat) + augmentation
+  initial_term <- Q_star_0_vals - psi_hat
+  D_i <- initial_term + augmentation
 
   .remove_tracking_columns(dt_track)
+
+  # Attach decomposition as attributes for diagnostics
+  attr(D_i, "initial") <- initial_term
+  attr(D_i, "augmentation") <- augmentation
 
   D_i
 }
