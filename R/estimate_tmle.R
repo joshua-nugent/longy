@@ -224,9 +224,12 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]
 
-        # Per-step family: binomial at first step (actual Y) for binary/survival,
-        # gaussian for all intermediate steps (continuous pseudo-outcomes in [0,1])
-        step_family <- if (i == 1 && is_binary) stats::binomial() else stats::gaussian()
+        # TMLE Q-models always use quasibinomial: predictions feed into
+        # qlogis(Q_bar) for fluctuation, so they MUST be in (0,1).
+        # gaussian can produce predictions outside [0,1] that clip to
+        # bounds, creating extreme logit values and huge epsilon.
+        # .safe_sl() handles quasibinomial→binomial swap for SL compatibility.
+        step_family <- stats::quasibinomial()
 
         # Fit Q model
         if (n_train >= min_obs && length(unique(Y_train)) > 1) {

@@ -754,9 +754,12 @@ NULL
         # Counterfactual regime values for at-risk subjects
         regime_a_risk <- dt_t$.longy_regime_a[at_risk]
 
-        # Per-step family: binomial at first step (actual Y) for binary/survival,
-        # gaussian for all intermediate steps (continuous pseudo-outcomes in [0,1])
-        step_family <- if (i == 1 && is_binary) stats::binomial() else stats::gaussian()
+        # TMLE Q-models always use quasibinomial: predictions feed into
+        # qlogis(Q_bar) for fluctuation, so they MUST be in (0,1).
+        # gaussian can produce predictions outside [0,1] that clip to
+        # bounds, creating extreme logit values and huge epsilon.
+        # .safe_sl() handles quasibinomial→binomial swap for SL compatibility.
+        step_family <- stats::quasibinomial()
 
         Q_bar <- .cf_fit_q_step(
           Y_train_all = Y_train_all,

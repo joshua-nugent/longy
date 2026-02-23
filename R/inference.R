@@ -18,6 +18,11 @@
           n_boot, if (use_future) "parallel" else "sequential")
   }
   if (use_future) {
+    # Bootstrap closures capture the full longy_data object + fitted models.
+    # Temporarily raise future's global size limit so serialization doesn't fail.
+    old_maxSize <- getOption("future.globals.maxSize")
+    options(future.globals.maxSize = +Inf)
+    on.exit(options(future.globals.maxSize = old_maxSize), add = TRUE)
     future.apply::future_lapply(seq_len(n_boot), one_boot_fn,
                                 future.seed = TRUE)
   } else {
