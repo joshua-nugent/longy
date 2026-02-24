@@ -203,63 +203,11 @@
       }
 
       if ("SL.glmnet" %in% learners) {
-        if (requireNamespace("h2o", quietly = TRUE)) {
-          # h2o.glm natively supports quasibinomial with elastic-net penalties
-          h2o_glm_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
-            h2o::h2o.no_progress()
-            # Ensure h2o is running
-            tryCatch(h2o::h2o.getConnection(), error = function(e) {
-              h2o::h2o.init(nthreads = -1, max_mem_size = "2g")
-            })
-            train <- as.data.frame(X)
-            train$.Y <- Y
-            h_train <- h2o::as.h2o(train)
-            x_names <- names(X)
-            fit <- h2o::h2o.glm(
-              x = x_names, y = ".Y",
-              training_frame = h_train,
-              family = "quasibinomial",
-              alpha = 0.5, lambda_search = TRUE,
-              weights_column = if (!is.null(obsWeights)) {
-                train$.W <- obsWeights
-                h_train <- h2o::as.h2o(train)
-                ".W"
-              } else NULL
-            )
-            # Predictions on training data
-            pred_train <- as.numeric(as.data.frame(
-              h2o::h2o.predict(fit, h_train)
-            )$p1)
-            pred_train <- pmin(pmax(pred_train, q_lo), q_hi)
-            # Predictions on new data
-            h_new <- h2o::as.h2o(as.data.frame(newX))
-            pred_new <- as.numeric(as.data.frame(
-              h2o::h2o.predict(fit, h_new)
-            )$p1)
-            pred_new <- pmin(pmax(pred_new, q_lo), q_hi)
-            # Clean up h2o objects
-            h2o::h2o.rm(h_train)
-            h2o::h2o.rm(h_new)
-            list(pred = pred_new, fit = list(object = fit, x_names = x_names))
-          }
-          predict_h2o_glm_fn <- function(object, newdata, ...) {
-            h2o::h2o.no_progress()
-            h_new <- h2o::as.h2o(as.data.frame(newdata))
-            pred <- as.numeric(as.data.frame(
-              h2o::h2o.predict(object$object, h_new)
-            )$p1)
-            h2o::h2o.rm(h_new)
-            pmin(pmax(pred, 0.005), 0.995)
-          }
-          assign("SL.h2o.glm", h2o_glm_fn, envir = sl_env)
-          assign("predict.SL.h2o.glm", predict_h2o_glm_fn, envir = sl_env)
-          learners[learners == "SL.glmnet"] <- "SL.h2o.glm"
-        } else {
-          warning("SL.glmnet requested with quasibinomial but h2o not available. ",
-                  "Dropping SL.glmnet from library. Install h2o for penalized ",
-                  "regression on continuous [0,1] pseudo-outcomes.", call. = FALSE)
-          learners <- learners[learners != "SL.glmnet"]
-        }
+        # glmnet does not support quasibinomial or continuous [0,1] Y with
+        # binomial family. Drop it and warn.
+        warning("SL.glmnet does not support continuous [0,1] pseudo-outcomes ",
+                "(quasibinomial). Dropping from learner library.", call. = FALSE)
+        learners <- learners[learners != "SL.glmnet"]
       }
     }
 

@@ -2,7 +2,6 @@
 % Please edit documentation in R/learner-adaptations.R
 \name{learner_adaptations}
 \alias{learner_adaptations}
-\alias{SL.h2o.glm}
 \alias{SL.xgboost.reg}
 \title{Automatic Learner Adaptations for Continuous Pseudo-Outcomes}
 \description{
@@ -23,34 +22,24 @@ still used for the TMLE fluctuation step (which uses \code{glm.fit}
 directly).
 }
 
-\section{SL.glmnet adaptation (h2o.glm)}{
+\section{SL.glmnet (dropped for quasibinomial)}{
 
-\code{glmnet} does not support \code{quasibinomial} family. Fitting with
-\code{gaussian} family produces predictions outside \eqn{[0,1]} that, when
-clipped and logit-transformed in the TMLE fluctuation step, create extreme
-values and inflated standard errors. Alternative workarounds (logit-transform
-Y, fit gaussian, back-transform) also proved unstable in practice.
-
-When \code{SL.glmnet} is requested and the outcome is quasibinomial, longy
-replaces it with an internal \code{SL.h2o.glm} wrapper that uses
-\code{h2o::h2o.glm} with \code{family = "quasibinomial"}. Unlike
-\code{glmnet}, \code{h2o.glm} natively supports quasibinomial with
-elastic-net penalties (\code{alpha}, \code{lambda}), so predictions are
-naturally bounded in \eqn{(0,1)} without transformation hacks.
-
-The wrapper:
-\enumerate{
-\item Initializes h2o if not already running (\code{nthreads = -1, max_mem = "2g"})
-\item Converts data to h2o frames
-\item Fits \code{h2o.glm} with \code{family = "quasibinomial"},
-\code{alpha = 0.5}, and \code{lambda_search = TRUE}
-\item Extracts predicted probabilities (the \code{p1} column)
-\item Clips predictions to \eqn{[0.005, 0.995]}
-\item Cleans up temporary h2o frames
+\code{glmnet} does not support \code{quasibinomial} family, and its
+\code{binomial} family rejects continuous \eqn{[0,1]} Y outright (requires
+discrete 0/1 classes). Workarounds that were tested and rejected:
+\itemize{
+\item \strong{Gaussian with clipping}: predictions outside \eqn{[0,1]}
+clip to bounds, producing extreme logit values in the TMLE fluctuation
+step and inflated standard errors.
+\item \strong{Logit-transform + gaussian + expit}: logit-transform Y
+before fitting, fit gaussian glmnet, then expit back-transform. Also
+produced unstable TMLE SEs in practice.
 }
 
-If the \pkg{h2o} package is not installed, \code{SL.glmnet} is dropped from
-the learner library with a warning.
+When \code{SL.glmnet} is requested and the outcome is quasibinomial, longy
+drops it from the learner library with a warning. Use other learners
+(e.g., \code{SL.glm}, \code{SL.xgboost}, \code{SL.earth}, \code{SL.gam})
+for the outcome model in TMLE/G-comp contexts.
 }
 
 \section{SL.xgboost adaptation}{
