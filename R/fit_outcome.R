@@ -185,8 +185,11 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       }
 
       if (n_train > 0) {
-        # Covariates for at-risk subjects
-        X_risk <- as.data.frame(dt_t[at_risk, covariates, with = FALSE])
+        # Covariates for at-risk subjects (augmented with lag columns)
+        time_index <- match(tt, all_time_vals)
+        lag_covs <- .get_lag_covariates(nodes, time_index)
+        all_covs <- c(covariates, lag_covs)
+        X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]
 

@@ -1,6 +1,31 @@
 # Internal utility functions for longy
 # None of these are exported
 
+#' Get lag covariate column names for a given time index
+#'
+#' Returns the \code{.longy_lag_*} column names to append to the covariate
+#' set at each time point. At \code{time_index = 1} (first time), returns
+#' nothing. At \code{time_index = 4} with \code{k = Inf}, returns all
+#' \code{_lag1}, \code{_lag2}, \code{_lag3} columns.
+#'
+#' @param nodes List of node names (must contain \code{lag_vars} and
+#'   \code{lag_k}).
+#' @param time_index Integer. 1-based index of the current time point in the
+#'   time loop.
+#' @return Character vector of lag column names.
+#' @noRd
+.get_lag_covariates <- function(nodes, time_index) {
+  k <- nodes$lag_k
+  if (is.null(k) || k == 0) return(character(0))
+  lag_vars <- nodes$lag_vars
+  if (is.null(lag_vars) || length(lag_vars) == 0) return(character(0))
+  max_lag <- min(k, time_index - 1)
+  if (max_lag <= 0) return(character(0))
+  unlist(lapply(lag_vars, function(col) {
+    paste0(".longy_lag_", col, "_", seq_len(max_lag))
+  }))
+}
+
 #' Extract or validate a longy_data object from any longy type
 #'
 #' Accepts \code{longy_data} (pass-through), \code{longy_result} (extracts

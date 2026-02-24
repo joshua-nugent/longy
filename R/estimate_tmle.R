@@ -220,7 +220,10 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       }
 
       if (n_train > 0) {
-        X_risk <- as.data.frame(dt_t[at_risk, covariates, with = FALSE])
+        time_index <- match(tt, all_time_vals)
+        lag_covs <- .get_lag_covariates(nodes, time_index)
+        all_covs <- c(covariates, lag_covs)
+        X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]
 
@@ -317,7 +320,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         n_newly_cens <- sum(newly_cens)
 
         if (n_newly_cens > 0) {
-          X_cens <- as.data.frame(dt_t[newly_cens, covariates, with = FALSE])
+          # all_covs already computed above (covariates + lag columns)
+          X_cens <- as.data.frame(dt_t[newly_cens, all_covs, with = FALSE])
           X_cens_cf <- X_cens
           if (a_col %in% covariates) {
             X_cens_cf[[a_col]] <- dt_t$.longy_regime_a[newly_cens]

@@ -17,6 +17,7 @@ longy_data(
   sampling_weights = NULL,
   outcome_type = "binary",
   competing = NULL,
+  k = Inf,
   verbose = TRUE
 )
 }
@@ -75,6 +76,13 @@ Used with \code{outcome_type = "survival"} to estimate cause-specific
 cumulative incidence. Subjects who experience the competing event are
 excluded from the risk set with Q hard-coded to 0. NULL if no competing
 risks.}
+
+\item{k}{Integer or \code{Inf}. Number of lagged time steps of covariate
+history to include as additional predictors in nuisance models. At each
+time index \code{i}, up to \code{min(k, i - 1)} lags are added for the
+treatment, outcome, and time-varying columns. \code{k = Inf} (default)
+uses all available history (matching ltmle's wide-format conditioning
+set). \code{k = 0} disables lag columns entirely.}
 
 \item{verbose}{Logical. Print progress messages.}
 }

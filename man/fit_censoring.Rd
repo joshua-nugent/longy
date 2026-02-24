@@ -59,9 +59,9 @@ Modified \code{longy_data} object with censoring fits stored in
 }
 \description{
 Fits models for P(C(t) = 0 | past) at each time point, separately for
-each censoring cause. The risk set additionally requires
-regime-consistency AT time t (the subject has already received A(t) before
-C(t) is determined).
+each censoring cause. The risk set is all subjects uncensored through t-1.
+Models are fit on the full uncensored sample regardless of regime consistency,
+matching ltmle/stremr.
 }
 \details{
 This function loops over the internal binary censoring columns stored in

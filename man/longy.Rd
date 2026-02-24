@@ -38,6 +38,7 @@ longy(
   cross_fit = NULL,
   cross_fit_seed = NULL,
   sl_fn = "ffSL",
+  k = Inf,
   verbose = TRUE
 )
 }
@@ -148,6 +149,10 @@ assignment. NULL for no seed.}
 \code{"SuperLearner"} (default, sequential CV) or \code{"ffSL"}
 (future-factorial, parallelizes fold x algorithm combinations via
 \code{future.apply}).}
+
+\item{k}{Integer or \code{Inf}. Number of lagged time steps of covariate
+history to include as additional predictors. See \code{\link{longy_data}}
+for details. Default \code{Inf} (all available history).}
 
 \item{verbose}{Logical. Print progress.}
 }

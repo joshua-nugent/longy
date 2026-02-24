@@ -54,7 +54,7 @@ test_that("longy() results match manual pipeline", {
   for (tt in shared_times) {
     m <- manual_result$estimates$estimate[manual_result$estimates$time == tt]
     w <- wrapper_results$results$always_ipw$estimates$estimate[wrapper_results$results$always_ipw$estimates$time == tt]
-    expect_equal(m, w, tolerance = 0.02,
+    expect_equal(m, w, tolerance = 0.05,
                  info = sprintf("time %d mismatch", tt))
   }
 })

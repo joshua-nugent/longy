@@ -46,6 +46,12 @@
 #'   cumulative incidence. Subjects who experience the competing event are
 #'   excluded from the risk set with Q hard-coded to 0. NULL if no competing
 #'   risks.
+#' @param k Integer or \code{Inf}. Number of lagged time steps of covariate
+#'   history to include as additional predictors in nuisance models. At each
+#'   time index \code{i}, up to \code{min(k, i - 1)} lags are added for the
+#'   treatment, outcome, and time-varying columns. \code{k = Inf} (default)
+#'   uses all available history (matching ltmle's wide-format conditioning
+#'   set). \code{k = 0} disables lag columns entirely.
 #' @param verbose Logical. Print progress messages.
 #'
 #' @return An S3 object of class \code{"longy_data"}, a list with components:
@@ -106,6 +112,7 @@ longy_data <- function(data,
                        sampling_weights = NULL,
                        outcome_type = "binary",
                        competing = NULL,
+                       k = Inf,
                        verbose = TRUE) {
 
   # --- Convert to data.table ---
@@ -383,6 +390,60 @@ longy_data <- function(data,
   # --- Set key ---
   data.table::setkeyv(dt, c(id, time))
 
+  # --- Add lag columns for covariate history ---
+  # Columns to lag: time-varying covariates, treatment, and outcome
+  lag_vars <- character(0)
+  lag_k <- 0
+  if (!is.null(k) && (is.infinite(k) || k > 0)) {
+    cols_to_lag <- unique(c(timevarying, treatment, outcome))
+    if (length(cols_to_lag) > 0) {
+      time_vals_pre <- sort(unique(dt[[time]]))
+      n_times_pre <- length(time_vals_pre)
+      max_lags <- if (is.infinite(k)) n_times_pre - 1L else min(as.integer(k), n_times_pre - 1L)
+      if (max_lags > 0) {
+        # First, create a LOCF-filled copy of each column to lag from.
+        # This ensures that unobserved values (e.g., Y=NA when R=0) are
+        # carried forward from the last observed value rather than becoming
+        # NA or 0 in the lag columns. Original columns are NOT modified.
+        locf_cols <- character(length(cols_to_lag))
+        names(locf_cols) <- cols_to_lag
+        for (col in cols_to_lag) {
+          locf_name <- paste0(".longy_locf_", col)
+          locf_cols[col] <- locf_name
+          dt[, (locf_name) := get(col)]
+          # LOCF within subject: fill NAs with last observed value
+          dt[, (locf_name) := data.table::nafill(get(locf_name), type = "locf"),
+             by = c(id)]
+          # Any remaining NAs (no prior value at all) become 0
+          data.table::setnafill(dt, fill = 0, cols = locf_name)
+        }
+
+        # Now create lag columns from the LOCF-filled copies
+        for (col in cols_to_lag) {
+          locf_name <- locf_cols[col]
+          for (j in seq_len(max_lags)) {
+            lag_name <- paste0(".longy_lag_", col, "_", j)
+            dt[, (lag_name) := data.table::shift(get(locf_name), n = j,
+                                                  type = "lag"),
+               by = c(id)]
+            # Structural NAs from shift (first j time points) become 0
+            data.table::setnafill(dt, fill = 0, cols = lag_name)
+          }
+        }
+
+        # Remove temporary LOCF columns
+        locf_to_remove <- unname(locf_cols)
+        dt[, (locf_to_remove) := NULL]
+        lag_vars <- cols_to_lag
+        lag_k <- if (is.infinite(k)) Inf else as.integer(k)
+        if (verbose) {
+          .vmsg("Added lag columns: %d variable(s) x %d max lag(s) = %d columns",
+                length(cols_to_lag), max_lags, length(cols_to_lag) * max_lags)
+        }
+      }
+    }
+  }
+
   # --- Compute metadata ---
   time_vals <- sort(unique(dt[[time]]))
   ids <- unique(dt[[id]])
@@ -400,7 +461,9 @@ longy_data <- function(data,
     baseline = baseline,
     timevarying = timevarying,
     outcome_type = outcome_type,
-    competing = competing
+    competing = competing,
+    lag_vars = lag_vars,
+    lag_k = lag_k
   )
 
   meta <- list(

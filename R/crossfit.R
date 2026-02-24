@@ -52,11 +52,11 @@ NULL
     tt <- time_vals[i]
     dt_t <- dt[dt[[nodes$time]] == tt, ]
 
-    # Risk set: regime-consistent through t-1 AND uncensored through t-1
+    # Risk set: uncensored through t-1 (full sample, not regime-concordant)
     if (i == 1) {
       still_in <- rep(TRUE, nrow(dt_t))
     } else {
-      still_in <- dt_t$.longy_consist_prev == 1L & dt_t$.longy_uncens_prev == 1L
+      still_in <- dt_t$.longy_uncens_prev == 1L
       still_in[is.na(still_in)] <- FALSE
     }
 
@@ -67,7 +67,9 @@ NULL
     }
 
     ids_risk <- dt_t[[id_col]][still_in]
-    X_risk <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
+    lag_covs <- .get_lag_covariates(nodes, i)
+    all_covs <- c(covariates, lag_covs)
+    X_risk <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     Y_risk <- dt_t[[nodes$treatment]][still_in]
     folds_risk <- dt_t[[fold_col]][still_in]
 
@@ -218,10 +220,9 @@ NULL
       if (i == 1) {
         still_in <- rep(TRUE, nrow(dt_t))
       } else {
-        still_in <- dt_t$.longy_consist_prev == 1L & dt_t$.longy_uncens_prev == 1L
+        still_in <- dt_t$.longy_uncens_prev == 1L
         still_in[is.na(still_in)] <- FALSE
       }
-      still_in <- still_in & dt_t$.longy_regime_consist == 1L
 
       n_risk <- sum(still_in)
       if (n_risk == 0) {
@@ -230,7 +231,9 @@ NULL
       }
 
       ids_risk <- dt_t[[id_col]][still_in]
-      X_risk <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
+      lag_covs <- .get_lag_covariates(nodes, i)
+      all_covs <- c(covariates, lag_covs)
+      X_risk <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
       Y_risk <- 1L - dt_t[[cvar]][still_in]  # P(uncensored)
       folds_risk <- dt_t[[fold_col]][still_in]
 
@@ -372,11 +375,11 @@ NULL
     if (i == 1) {
       still_in <- rep(TRUE, nrow(dt_t))
     } else {
-      still_in <- dt_t$.longy_consist_prev == 1L & dt_t$.longy_uncens_prev == 1L
+      still_in <- dt_t$.longy_uncens_prev == 1L
       still_in[is.na(still_in)] <- FALSE
     }
 
-    still_in <- still_in & dt_t$.longy_regime_consist == 1L
+    # Must be uncensored at t (observation requires being present)
     still_in <- still_in & dt_t$.longy_uncens == 1L
 
     n_risk <- sum(still_in)
@@ -386,7 +389,9 @@ NULL
     }
 
     ids_risk <- dt_t[[id_col]][still_in]
-    X_risk <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
+    lag_covs <- .get_lag_covariates(nodes, i)
+    all_covs <- c(covariates, lag_covs)
+    X_risk <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     Y_risk <- dt_t[[nodes$observation]][still_in]
     folds_risk <- dt_t[[fold_col]][still_in]
 
@@ -745,7 +750,10 @@ NULL
       Q_star <- numeric(0)
 
       if (n_train > 0) {
-        X_risk <- as.data.frame(dt_t[at_risk, covariates, with = FALSE])
+        time_index <- match(tt, all_time_vals)
+        lag_covs <- .get_lag_covariates(nodes, time_index)
+        all_covs <- c(covariates, lag_covs)
+        X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])
         folds_risk <- dt_t[[fold_col]][at_risk]
 
         # Cross-fitted Q_bar
@@ -834,7 +842,8 @@ NULL
         n_newly_cens <- sum(newly_cens)
 
         if (n_newly_cens > 0) {
-          X_cens <- as.data.frame(dt_t[newly_cens, covariates, with = FALSE])
+          # all_covs already computed above (covariates + lag columns)
+          X_cens <- as.data.frame(dt_t[newly_cens, all_covs, with = FALSE])
           X_cens_cf <- X_cens
           if (a_col %in% covariates) {
             X_cens_cf[[a_col]] <- dt_t$.longy_regime_a[newly_cens]
@@ -844,7 +853,7 @@ NULL
           # for newly-censored prediction — sufficient for EIF correction
           all_Q_idx <- which(has_Q)
           Y_all <- Q_at_t[has_Q]
-          X_all <- as.data.frame(dt_t[at_risk, covariates, with = FALSE])[all_Q_idx, , drop = FALSE]
+          X_all <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])[all_Q_idx, , drop = FALSE]
 
           if (length(Y_all) >= min_obs && length(unique(Y_all)) > 1) {
             cens_fit <- .safe_sl(Y = Y_all, X = X_all,

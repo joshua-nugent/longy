@@ -77,6 +77,9 @@
 #'   \code{"SuperLearner"} (default, sequential CV) or \code{"ffSL"}
 #'   (future-factorial, parallelizes fold x algorithm combinations via
 #'   \code{future.apply}).
+#' @param k Integer or \code{Inf}. Number of lagged time steps of covariate
+#'   history to include as additional predictors. See \code{\link{longy_data}}
+#'   for details. Default \code{Inf} (all available history).
 #' @param verbose Logical. Print progress.
 #'
 #' @return An S3 object of class \code{"longy_data"} with estimation results
@@ -126,6 +129,7 @@ longy <- function(data,
                   cross_fit = NULL,
                   cross_fit_seed = NULL,
                   sl_fn = "ffSL",
+                  k = Inf,
                   verbose = TRUE) {
 
   sl_fn <- match.arg(sl_fn, c("SuperLearner", "ffSL"))
@@ -177,7 +181,7 @@ longy <- function(data,
     baseline = baseline, timevarying = timevarying,
     sampling_weights = sampling_weights,
     outcome_type = outcome_type, competing = competing,
-    verbose = verbose
+    k = k, verbose = verbose
   )
 
   # Set up cross-fitting if requested

@@ -13,7 +13,7 @@ test_that("fit_censoring runs on data with censoring", {
   expect_true(nrow(obj$fits$censoring[["always"]][[".cens_censored"]]$predictions) > 0)
 })
 
-test_that("fit_censoring risk set conditions on A(t)", {
+test_that("fit_censoring risk set uses full uncensored sample", {
   d <- simulate_test_data(n = 100, K = 4)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -25,9 +25,9 @@ test_that("fit_censoring risk set conditions on A(t)", {
 
   preds <- obj$fits$censoring[["always"]][[".cens_censored"]]$predictions
   t0 <- preds[preds$.time == 0, ]
-  # At time 0, risk set should only include those with A=1 (for "always" regime)
-  n_treated_t0 <- sum(d$A[d$time == 0] == 1)
-  expect_equal(t0$.n_risk[1], n_treated_t0)
+  # At time 0, risk set is ALL subjects (everyone uncensored at baseline)
+  n_subjects <- length(unique(d$id))
+  expect_equal(t0$.n_risk[1], n_subjects)
 })
 
 test_that("fit_censoring handles no-censoring data gracefully", {

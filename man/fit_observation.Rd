@@ -55,11 +55,11 @@ fitted for the requested regime(s). Set to TRUE to re-fit.}
 Modified \code{longy_data} object with observation fits stored.
 }
 \description{
-Models P(R(t) = 1 | past) — the probability that the outcome is measured at
+Models P(R(t) = 1 | past) -- the probability that the outcome is measured at
 time t. This handles intermittent missingness, which is distinct from
 absorbing censoring.
 }
 \details{
-The risk set is the most restrictive: regime-consistent through t,
-uncensored through t, and treatment at t consistent with regime.
+The risk set is all subjects uncensored through t (not regime-concordant).
+Models are fit on the full uncensored sample, matching ltmle/stremr.
 }

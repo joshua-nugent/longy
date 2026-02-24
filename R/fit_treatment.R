@@ -1,7 +1,8 @@
 #' Fit Treatment Models (g_A)
 #'
 #' Fits propensity score models P(A(t) = 1 | past) at each time point for
-#' subjects in the risk set (regime-consistent and uncensored through t-1).
+#' subjects in the risk set (uncensored through t-1). Models are fit on the
+#' full uncensored sample regardless of regime consistency, matching ltmle/stremr.
 #'
 #' @param obj A `longy_data` object with at least one regime defined.
 #' @param regime Character. Name of the regime to fit for.
@@ -82,11 +83,11 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     tt <- time_vals[i]
     dt_t <- dt[dt[[nodes$time]] == tt, ]
 
-    # Risk set: regime-consistent through t-1 AND uncensored through t-1
+    # Risk set: uncensored through t-1 (full sample, not regime-concordant)
     if (i == 1) {
       still_in <- rep(TRUE, nrow(dt_t))
     } else {
-      still_in <- dt_t$.longy_consist_prev == 1L & dt_t$.longy_uncens_prev == 1L
+      still_in <- dt_t$.longy_uncens_prev == 1L
       still_in[is.na(still_in)] <- FALSE
     }
 
@@ -96,7 +97,9 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       next
     }
 
-    X <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
+    lag_covs <- .get_lag_covariates(nodes, i)
+    all_covs <- c(covariates, lag_covs)
+    X <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     Y <- dt_t[[nodes$treatment]][still_in]
 
     # Extract sampling weights for at-risk subjects (NULL if none)
@@ -261,11 +264,13 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
 #' Remove tracking columns added by .add_tracking_columns
 #'
-#' Preserves \code{.longy_fold} (cross-fitting fold assignment).
+#' Preserves \code{.longy_fold} (cross-fitting fold assignment) and
+#' \code{.longy_lag_*} (covariate history lag columns).
 #' @noRd
 .remove_tracking_columns <- function(dt) {
   track_cols <- grep("^\\.longy_", names(dt), value = TRUE)
   track_cols <- setdiff(track_cols, ".longy_fold")
+  track_cols <- track_cols[!grepl("^\\.longy_lag_", track_cols)]
   if (length(track_cols) > 0) {
     dt[, (track_cols) := NULL]
   }

@@ -1,11 +1,11 @@
 #' Fit Observation Models (g_R)
 #'
-#' Models P(R(t) = 1 | past) — the probability that the outcome is measured at
+#' Models P(R(t) = 1 | past) -- the probability that the outcome is measured at
 #' time t. This handles intermittent missingness, which is distinct from
 #' absorbing censoring.
 #'
-#' The risk set is the most restrictive: regime-consistent through t,
-#' uncensored through t, and treatment at t consistent with regime.
+#' The risk set is all subjects uncensored through t (not regime-concordant).
+#' Models are fit on the full uncensored sample, matching ltmle/stremr.
 #'
 #' @param obj A `longy_data` object.
 #' @param regime Character. Name of the regime.
@@ -86,16 +86,15 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     tt <- time_vals[i]
     dt_t <- dt[dt[[nodes$time]] == tt, ]
 
-    # Risk set: consistent through t-1, uncensored through t-1
+    # Risk set: uncensored through t-1 (full sample, not regime-concordant)
     if (i == 1) {
       still_in <- rep(TRUE, nrow(dt_t))
     } else {
-      still_in <- dt_t$.longy_consist_prev == 1L & dt_t$.longy_uncens_prev == 1L
+      still_in <- dt_t$.longy_uncens_prev == 1L
       still_in[is.na(still_in)] <- FALSE
     }
 
-    # Regime-consistent at t AND uncensored at t
-    still_in <- still_in & dt_t$.longy_regime_consist == 1L
+    # Must be uncensored at t (observation requires being present)
     still_in <- still_in & dt_t$.longy_uncens == 1L
 
     n_risk <- sum(still_in)
@@ -104,7 +103,9 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       next
     }
 
-    X <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
+    lag_covs <- .get_lag_covariates(nodes, i)
+    all_covs <- c(covariates, lag_covs)
+    X <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     Y <- dt_t[[nodes$observation]][still_in]
 
     # Extract sampling weights for at-risk subjects (NULL if none)

@@ -1,9 +1,9 @@
 #' Fit Censoring Models (g_C)
 #'
 #' Fits models for P(C(t) = 0 | past) at each time point, separately for
-#' each censoring cause. The risk set additionally requires
-#' regime-consistency AT time t (the subject has already received A(t) before
-#' C(t) is determined).
+#' each censoring cause. The risk set is all subjects uncensored through t-1.
+#' Models are fit on the full uncensored sample regardless of regime consistency,
+#' matching ltmle/stremr.
 #'
 #' This function loops over the internal binary censoring columns stored in
 #' \code{obj$nodes$censoring} (e.g. \code{".cens_censored"}, \code{".cens_death"}).
@@ -100,17 +100,13 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       tt <- time_vals[i]
       dt_t <- dt[dt[[nodes$time]] == tt, ]
 
-      # Risk set: consistent through t-1, uncensored through t-1,
-      # AND treatment at t consistent with regime
+      # Risk set: uncensored through t-1 (full sample, not regime-concordant)
       if (i == 1) {
         still_in <- rep(TRUE, nrow(dt_t))
       } else {
-        still_in <- dt_t$.longy_consist_prev == 1L & dt_t$.longy_uncens_prev == 1L
+        still_in <- dt_t$.longy_uncens_prev == 1L
         still_in[is.na(still_in)] <- FALSE
       }
-
-      # Also require regime-consistent treatment AT time t
-      still_in <- still_in & dt_t$.longy_regime_consist == 1L
 
       n_risk <- sum(still_in)
       if (n_risk == 0) {
@@ -118,7 +114,9 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
         next
       }
 
-      X <- as.data.frame(dt_t[still_in, covariates, with = FALSE])
+      lag_covs <- .get_lag_covariates(nodes, i)
+      all_covs <- c(covariates, lag_covs)
+      X <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
       # Model P(uncensored) = P(C=0) => Y = 1 - C
       Y <- 1L - dt_t[[cvar]][still_in]
 

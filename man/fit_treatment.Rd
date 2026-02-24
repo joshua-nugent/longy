@@ -62,5 +62,6 @@ Modified \code{longy_data} object with treatment fits stored.
 }
 \description{
 Fits propensity score models P(A(t) = 1 | past) at each time point for
-subjects in the risk set (regime-consistent and uncensored through t-1).
+subjects in the risk set (uncensored through t-1). Models are fit on the
+full uncensored sample regardless of regime consistency, matching ltmle/stremr.
 }
