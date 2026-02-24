@@ -21,6 +21,7 @@ available regime.}
 \value{
 A data.table with columns: \code{model} (model type),
 \code{submodel} (censoring cause or NA), \code{time} (time point),
+\code{target_time} (target time for outcome models, or NA),
 \code{method} (fitting method used), \code{sl_risk} (CV risk of the
 SuperLearner, or NA), \code{sl_coef} (list-column of learner weights,
 or NULL).

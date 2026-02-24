@@ -131,6 +131,7 @@ positivity_diagnostics <- function(obj, regime = NULL, threshold = 0.025) {
 #'
 #' @return A data.table with columns: \code{model} (model type),
 #'   \code{submodel} (censoring cause or NA), \code{time} (time point),
+#'   \code{target_time} (target time for outcome models, or NA),
 #'   \code{method} (fitting method used), \code{sl_risk} (CV risk of the
 #'   SuperLearner, or NA), \code{sl_coef} (list-column of learner weights,
 #'   or NULL).
@@ -161,6 +162,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
     message("No model fits found.")
     return(invisible(data.table::data.table(
       model = character(), submodel = character(), time = integer(),
+      target_time = integer(),
       method = character(), sl_risk = numeric(), sl_coef = list()
     )))
   }
@@ -173,6 +175,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
         model = "treatment",
         submodel = NA_character_,
         time = entry$time,
+        target_time = NA_integer_,
         method = entry$method,
         sl_risk = entry$sl_risk %||% NA_real_,
         sl_coef = list(entry$sl_coef)
@@ -191,6 +194,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
           model = "censoring",
           submodel = cvar,
           time = entry$time,
+          target_time = NA_integer_,
           method = entry$method,
           sl_risk = entry$sl_risk %||% NA_real_,
           sl_coef = list(entry$sl_coef)
@@ -207,6 +211,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
         model = "observation",
         submodel = NA_character_,
         time = entry$time,
+        target_time = NA_integer_,
         method = entry$method,
         sl_risk = entry$sl_risk %||% NA_real_,
         sl_coef = list(entry$sl_coef)
@@ -222,6 +227,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
         model = "outcome",
         submodel = NA_character_,
         time = entry$time,
+        target_time = entry$target_time %||% NA_integer_,
         method = entry$method,
         sl_risk = entry$sl_risk %||% NA_real_,
         sl_coef = list(entry$sl_coef)
@@ -233,9 +239,260 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
     message("No model fits found.")
     return(invisible(data.table::data.table(
       model = character(), submodel = character(), time = integer(),
+      target_time = integer(),
       method = character(), sl_risk = numeric(), sl_coef = list()
     )))
   }
 
   data.table::rbindlist(rows)
+}
+
+#' Plot SuperLearner Diagnostics
+#'
+#' Visualizes SuperLearner fit information across time points and nuisance
+#' models. Requires ggplot2.
+#'
+#' @param obj A \code{longy_data} object, or a data.table from
+#'   \code{sl_diagnostics()}.
+#' @param regime Character. Regime name (passed to \code{sl_diagnostics()} if
+#'   \code{obj} is a \code{longy_data}).
+#' @param model Character. Which model(s) to include: \code{"all"} (default),
+#'   \code{"treatment"}, \code{"censoring"}, \code{"observation"}, or
+#'   \code{"outcome"}.
+#' @param type Character. Plot type:
+#'   \describe{
+#'     \item{\code{"weights"}}{Stacked bar chart of ensemble weights by time,
+#'       faceted by nuisance model. Shows which learners dominate and how the
+#'       ensemble composition changes over time.}
+#'     \item{\code{"risk"}}{Per-learner CV risk across time, faceted by nuisance
+#'       model. Highlights where model fit degrades.}
+#'     \item{\code{"heatmap"}}{Heatmap of learner weights (time x learner),
+#'       faceted by nuisance model. Scales better than stacked bars with many
+#'       learners or time points.}
+#'     \item{\code{"method"}}{Tile plot showing which fitting method
+#'       (SuperLearner, glm, marginal) was used at each time point.}
+#'   }
+#' @param drop_zero Logical. If TRUE (default), omit learners with zero weight
+#'   from weight-based plots (\code{"weights"} and \code{"heatmap"}).
+#'
+#' @return A ggplot2 object, or NULL invisibly if there is nothing to plot.
+#' @export
+plot_sl_diagnostics <- function(obj, regime = NULL, model = "all",
+                                type = c("weights", "risk", "heatmap", "method"),
+                                drop_zero = TRUE) {
+  if (!requireNamespace("ggplot2", quietly = TRUE)) {
+    stop("ggplot2 is required for plot_sl_diagnostics().", call. = FALSE)
+  }
+
+  type <- match.arg(type)
+
+  # Accept longy_data or pre-computed data.table
+  if (inherits(obj, c("longy_data", "longy_result"))) {
+    diag <- sl_diagnostics(obj, regime = regime, model = model)
+  } else if (is.data.frame(obj)) {
+    diag <- data.table::as.data.table(data.table::copy(obj))
+  } else {
+    stop("obj must be a longy_data object or sl_diagnostics() output.",
+         call. = FALSE)
+  }
+
+  if (nrow(diag) == 0) {
+    message("No SuperLearner diagnostics to plot.")
+    return(invisible(NULL))
+  }
+
+  # Create human-readable facet labels
+  diag[, facet_label := .make_sl_facet_label(model, submodel, target_time),
+       by = seq_len(nrow(diag))]
+
+  switch(type,
+    weights = .plot_sl_weights(diag, drop_zero),
+    risk    = .plot_sl_risk(diag),
+    heatmap = .plot_sl_heatmap(diag, drop_zero),
+    method  = .plot_sl_method(diag)
+  )
+}
+
+
+# -- Internal helpers for plot_sl_diagnostics --------------------------------
+
+#' Build a human-readable facet label
+#' @noRd
+.make_sl_facet_label <- function(model, submodel, target_time) {
+  label <- model
+  if (!is.na(submodel)) {
+    label <- paste0(label, ": ", sub("^\\.cens_", "", submodel))
+  }
+  if (!is.na(target_time)) {
+    label <- paste0(label, " (t=", target_time, ")")
+  }
+  label
+}
+
+#' Unnest sl_coef list-column into long format
+#' @return data.table with facet_label, time, learner, weight; or NULL
+#' @noRd
+.unnest_sl_coef <- function(diag) {
+  has_coef <- vapply(diag$sl_coef, function(x) {
+    !is.null(x) && length(x) > 0
+  }, logical(1))
+  diag_sl <- diag[has_coef, ]
+  if (nrow(diag_sl) == 0) return(NULL)
+
+  data.table::rbindlist(lapply(seq_len(nrow(diag_sl)), function(i) {
+    coefs <- diag_sl$sl_coef[[i]]
+    data.table::data.table(
+      facet_label = diag_sl$facet_label[i],
+      time = diag_sl$time[i],
+      learner = names(coefs),
+      weight = as.numeric(coefs)
+    )
+  }))
+}
+
+#' Unnest sl_risk into long format (per-learner CV risk)
+#' @return data.table with facet_label, time, learner, cv_risk; or NULL
+#' @noRd
+.unnest_sl_risk <- function(diag) {
+  # sl_risk may be a plain numeric column (all NA) or a list-column
+  if (!is.list(diag$sl_risk)) {
+    if (all(is.na(diag$sl_risk))) return(NULL)
+    diag_sl <- diag[!is.na(sl_risk)]
+    return(data.table::data.table(
+      facet_label = diag_sl$facet_label,
+      time = diag_sl$time,
+      learner = "SuperLearner",
+      cv_risk = diag_sl$sl_risk
+    ))
+  }
+
+  has_risk <- vapply(diag$sl_risk, function(x) {
+    is.numeric(x) && length(x) > 0 && !all(is.na(x))
+  }, logical(1))
+  diag_sl <- diag[has_risk, ]
+  if (nrow(diag_sl) == 0) return(NULL)
+
+  data.table::rbindlist(lapply(seq_len(nrow(diag_sl)), function(i) {
+    risks <- diag_sl$sl_risk[[i]]
+    if (is.null(names(risks))) {
+      data.table::data.table(
+        facet_label = diag_sl$facet_label[i],
+        time = diag_sl$time[i],
+        learner = "SuperLearner",
+        cv_risk = as.numeric(risks)
+      )
+    } else {
+      data.table::data.table(
+        facet_label = diag_sl$facet_label[i],
+        time = diag_sl$time[i],
+        learner = names(risks),
+        cv_risk = as.numeric(risks)
+      )
+    }
+  }))
+}
+
+#' Stacked bar chart of ensemble weights
+#' @noRd
+.plot_sl_weights <- function(diag, drop_zero) {
+  long <- .unnest_sl_coef(diag)
+  if (is.null(long) || nrow(long) == 0) {
+    message("No SuperLearner fits found (all glm/marginal).")
+    return(invisible(NULL))
+  }
+
+  if (drop_zero) long <- long[weight > 0]
+  if (nrow(long) == 0) {
+    message("All learner weights are zero.")
+    return(invisible(NULL))
+  }
+
+  ggplot2::ggplot(long,
+    ggplot2::aes(x = factor(time), y = weight, fill = learner)) +
+    ggplot2::geom_col(position = "stack", width = 0.8) +
+    ggplot2::facet_wrap(~facet_label, scales = "free_x") +
+    ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 1.02)) +
+    ggplot2::labs(x = "Time", y = "Ensemble Weight", fill = "Learner",
+                  title = "SuperLearner Ensemble Weights") +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1),
+      legend.position = "bottom"
+    )
+}
+
+#' Per-learner CV risk across time
+#' @noRd
+.plot_sl_risk <- function(diag) {
+  long <- .unnest_sl_risk(diag)
+  if (is.null(long) || nrow(long) == 0) {
+    message("No CV risk information available.")
+    return(invisible(NULL))
+  }
+
+  ggplot2::ggplot(long,
+    ggplot2::aes(x = time, y = cv_risk, colour = learner)) +
+    ggplot2::geom_line(linewidth = 0.7) +
+    ggplot2::geom_point(size = 2) +
+    ggplot2::facet_wrap(~facet_label, scales = "free") +
+    ggplot2::labs(x = "Time", y = "CV Risk", colour = "Learner",
+                  title = "Per-Learner Cross-Validated Risk") +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(legend.position = "bottom")
+}
+
+#' Heatmap of learner weights
+#' @noRd
+.plot_sl_heatmap <- function(diag, drop_zero) {
+  long <- .unnest_sl_coef(diag)
+  if (is.null(long) || nrow(long) == 0) {
+    message("No SuperLearner fits found (all glm/marginal).")
+    return(invisible(NULL))
+  }
+
+  if (drop_zero) {
+    # Keep learners that have non-zero weight at ANY time, then show all their
+    # time points (including zeros) for a complete picture
+    active <- unique(long[weight > 0, learner])
+    long <- long[learner %in% active]
+  }
+  if (nrow(long) == 0) {
+    message("All learner weights are zero.")
+    return(invisible(NULL))
+  }
+
+  ggplot2::ggplot(long,
+    ggplot2::aes(x = factor(time), y = learner, fill = weight)) +
+    ggplot2::geom_tile(colour = "white", linewidth = 0.5) +
+    ggplot2::facet_wrap(~facet_label, scales = "free") +
+    ggplot2::scale_fill_gradient(low = "grey95", high = "#2166AC",
+                                 limits = c(0, 1)) +
+    ggplot2::labs(x = "Time", y = "Learner", fill = "Weight",
+                  title = "SuperLearner Weight Heatmap") +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1)
+    )
+}
+
+#' Tile plot of fitting method by model and time
+#' @noRd
+.plot_sl_method <- function(diag) {
+  method_colours <- c(
+    "SuperLearner" = "#2166AC",
+    "glm"          = "#F4A582",
+    "marginal"     = "#D6604D"
+  )
+
+  ggplot2::ggplot(diag,
+    ggplot2::aes(x = factor(time), y = facet_label, fill = method)) +
+    ggplot2::geom_tile(colour = "white", linewidth = 0.8) +
+    ggplot2::scale_fill_manual(values = method_colours, drop = FALSE) +
+    ggplot2::labs(x = "Time", y = "", fill = "Method",
+                  title = "Fitting Method by Model and Time") +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(
+      axis.text.x = ggplot2::element_text(angle = 45, hjust = 1),
+      panel.grid = ggplot2::element_blank()
+    )
 }

@@ -29,6 +29,9 @@ utils::globalVariables(c(
   ".tmp_order",
   # ggplot2 aes variables
   "time", "estimate", "ci_lower", "ci_upper", "regime", "estimator_label",
+  # plot_sl_diagnostics variables
+  "facet_label", "weight", "learner", "cv_risk", "sl_risk", "target_time",
+  "submodel", "method",
   # data.table special vars
   "nu", "nfold",
   # weights.R ESS diagnostics
