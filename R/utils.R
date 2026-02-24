@@ -204,9 +204,13 @@
 
       if ("SL.glmnet" %in% learners) {
         glmnet_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
-          out <- SuperLearner::SL.glmnet(Y = Y, X = X, newX = newX,
+          # Logit-transform Y from (0,1) to real line, fit gaussian, back-transform
+          Y_b <- pmin(pmax(Y, q_lo), q_hi)
+          Y_logit <- log(Y_b / (1 - Y_b))
+          out <- SuperLearner::SL.glmnet(Y = Y_logit, X = X, newX = newX,
                                           family = stats::gaussian(),
                                           obsWeights = obsWeights, id = id, ...)
+          out$pred <- 1 / (1 + exp(-out$pred))
           out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
           out
         }
