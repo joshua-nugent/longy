@@ -22,6 +22,7 @@ Imports:
     stats
 Suggests:
     SuperLearner,
+    h2o,
     testthat (>= 3.0),
     ggplot2,
     survey,
