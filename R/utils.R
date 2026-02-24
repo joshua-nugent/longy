@@ -183,17 +183,36 @@
       assign(nm, get(nm, envir = globalenv()), envir = sl_env)
     }
 
-    # When Y is continuous [0,1] (quasibinomial), xgboost's binary:logistic
-    # objective crashes. Swap SL.xgboost for a regression-objective wrapper
-    # that uses reg:squarederror, which handles continuous Y natively.
-    if (is_quasi && "SL.xgboost" %in% learners) {
-      xgb_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
-        SuperLearner::SL.xgboost(Y = Y, X = X, newX = newX,
-                                  family = stats::gaussian(),
-                                  obsWeights = obsWeights, id = id, ...)
+    # When Y is continuous [0,1] (quasibinomial), some learners crash or
+    # misbehave. Swap them for gaussian-family wrappers that truncate
+    # predictions to the bounds after fitting.
+    if (is_quasi) {
+      q_lo <- 0.005
+      q_hi <- 0.995
+
+      if ("SL.xgboost" %in% learners) {
+        xgb_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
+          out <- SuperLearner::SL.xgboost(Y = Y, X = X, newX = newX,
+                                           family = stats::gaussian(),
+                                           obsWeights = obsWeights, id = id, ...)
+          out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
+          out
+        }
+        assign("SL.xgboost.reg", xgb_reg_fn, envir = sl_env)
+        learners[learners == "SL.xgboost"] <- "SL.xgboost.reg"
       }
-      assign("SL.xgboost.reg", xgb_reg_fn, envir = sl_env)
-      learners[learners == "SL.xgboost"] <- "SL.xgboost.reg"
+
+      if ("SL.glmnet" %in% learners) {
+        glmnet_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
+          out <- SuperLearner::SL.glmnet(Y = Y, X = X, newX = newX,
+                                          family = stats::gaussian(),
+                                          obsWeights = obsWeights, id = id, ...)
+          out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
+          out
+        }
+        assign("SL.glmnet.reg", glmnet_reg_fn, envir = sl_env)
+        learners[learners == "SL.glmnet"] <- "SL.glmnet.reg"
+      }
     }
 
     fit <- tryCatch(
