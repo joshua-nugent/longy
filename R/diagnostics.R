@@ -177,7 +177,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
         time = entry$time,
         target_time = NA_integer_,
         method = entry$method,
-        sl_risk = entry$sl_risk %||% NA_real_,
+        sl_risk = list(entry$sl_risk %||% NA_real_),
         sl_coef = list(entry$sl_coef)
       )
     }
@@ -196,7 +196,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
           time = entry$time,
           target_time = NA_integer_,
           method = entry$method,
-          sl_risk = entry$sl_risk %||% NA_real_,
+          sl_risk = list(entry$sl_risk %||% NA_real_),
           sl_coef = list(entry$sl_coef)
         )
       }
@@ -213,7 +213,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
         time = entry$time,
         target_time = NA_integer_,
         method = entry$method,
-        sl_risk = entry$sl_risk %||% NA_real_,
+        sl_risk = list(entry$sl_risk %||% NA_real_),
         sl_coef = list(entry$sl_coef)
       )
     }
@@ -229,7 +229,7 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
         time = entry$time,
         target_time = entry$target_time %||% NA_integer_,
         method = entry$method,
-        sl_risk = entry$sl_risk %||% NA_real_,
+        sl_risk = list(entry$sl_risk %||% NA_real_),
         sl_coef = list(entry$sl_coef)
       )
     }
@@ -411,7 +411,8 @@ plot_sl_diagnostics <- function(obj, regime = NULL, model = "all",
     ggplot2::aes(x = factor(time), y = weight, fill = learner)) +
     ggplot2::geom_col(position = "stack", width = 0.8) +
     ggplot2::facet_wrap(~facet_label, scales = "free_x") +
-    ggplot2::scale_y_continuous(expand = c(0, 0), limits = c(0, 1.02)) +
+    ggplot2::scale_y_continuous(expand = c(0, 0)) +
+    ggplot2::coord_cartesian(ylim = c(0, 1.05)) +
     ggplot2::labs(x = "Time", y = "Ensemble Weight", fill = "Learner",
                   title = "SuperLearner Ensemble Weights") +
     ggplot2::theme_minimal(base_size = 13) +
@@ -431,7 +432,7 @@ plot_sl_diagnostics <- function(obj, regime = NULL, model = "all",
   }
 
   ggplot2::ggplot(long,
-    ggplot2::aes(x = time, y = cv_risk, colour = learner)) +
+    ggplot2::aes(x = time, y = cv_risk, colour = learner, group = learner)) +
     ggplot2::geom_line(linewidth = 0.7) +
     ggplot2::geom_point(size = 2) +
     ggplot2::facet_wrap(~facet_label, scales = "free") +
