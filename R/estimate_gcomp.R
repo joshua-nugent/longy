@@ -76,6 +76,12 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
       n_boot = n_boot, ci_level = ci_level, verbose = verbose
     )
     estimates <- cbind(estimates, inf_dt)
+
+    # Center percentile CIs on point estimates
+    boot_center <- (estimates$ci_lower + estimates$ci_upper) / 2
+    shift <- estimates$estimate - boot_center
+    estimates$ci_lower <- estimates$ci_lower + shift
+    estimates$ci_upper <- estimates$ci_upper + shift
   }
 
   # Isotonic smoothing for survival outcomes
