@@ -1,3 +1,44 @@
+#' Enforce Cumulative Regime Consistency
+#'
+#' For static regimes, a subject can only contribute at time t if they followed
+#' the regime at all prior times 0..t. After filtering a predictions table to
+#' regime-followers, some subjects may have gaps (they deviated at some time
+#' but re-matched later). This function keeps only each subject's contiguous
+#' prefix from the first study time.
+#'
+#' @param dt A data.table with at least \code{id_col} and \code{time_col}.
+#' @param id_col Character. Name of the ID column.
+#' @param time_col Character. Name of the time column. Default \code{".time"}.
+#' @param all_times Numeric vector. The full set of study time values (sorted).
+#'
+#' @return Subset of \code{dt} with inconsistent rows removed.
+#' @noRd
+.enforce_regime_consistency <- function(dt, id_col, time_col = ".time",
+                                        all_times = NULL) {
+  if (is.null(all_times)) all_times <- sort(unique(dt[[time_col]]))
+  if (length(all_times) <= 1) return(dt)
+
+  data.table::setkeyv(dt, c(id_col, time_col))
+
+  # Map each time value to its position in the full sequence
+  time_rank_map <- data.table::data.table(
+    ..tr_time = all_times,
+    ..expected_rank = seq_along(all_times)
+  )
+  data.table::setnames(time_rank_map, "..tr_time", time_col)
+
+  # Merge to get expected rank, then compute actual rank within each subject
+  dt <- merge(dt, time_rank_map, by = time_col, all.x = TRUE, sort = FALSE)
+  data.table::setkeyv(dt, c(id_col, time_col))
+  dt[, ..actual_rank := seq_len(.N), by = c(id_col)]
+
+  # Keep only rows where expected rank matches actual rank (no gaps)
+  dt <- dt[..expected_rank == ..actual_rank]
+  dt[, c("..expected_rank", "..actual_rank") := NULL]
+
+  dt
+}
+
 #' Compute Unstabilized Cumulative g
 #'
 #' Shared helper used by both \code{compute_weights()} (IPW) and
@@ -39,6 +80,12 @@
     # Dynamic/stochastic: g_a = p_a for all (consistency built in)
     g_dt <- data.table::copy(gA[, c(id_col, ".time", ".p_a"), with = FALSE])
     data.table::setnames(g_dt, ".p_a", ".g_a")
+  }
+
+  # For static regimes: enforce cumulative consistency — subjects contribute
+  # at time t only if they followed the regime at ALL times 0..t
+  if (reg$type == "static") {
+    g_dt <- .enforce_regime_consistency(g_dt, id_col, ".time", obj$meta$time_values)
   }
 
   # --- Censoring component: g_c ---
@@ -170,6 +217,12 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
 
   id_col <- nodes$id
   w <- gA_follow[, c(id_col, ".time", ".sw_a"), with = FALSE]
+
+  # For static regimes: enforce cumulative consistency — subjects contribute
+  # at time t only if they followed the regime at ALL times 0..t
+  if (reg$type == "static") {
+    w <- .enforce_regime_consistency(w, id_col, ".time", obj$meta$time_values)
+  }
 
   # --- Censoring weights ---
   cens_fits <- obj$fits$censoring[[rname]]
