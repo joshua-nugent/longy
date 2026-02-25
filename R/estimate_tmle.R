@@ -117,6 +117,16 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   regime_vals <- .evaluate_regime(reg, dt)
   dt[, .longy_regime_a := regime_vals]
 
+  # Pre-compute lagged regime values for counterfactual treatment history
+  k <- if (is.null(nodes$lag_k)) 0 else nodes$lag_k
+  max_regime_lags <- if (is.infinite(k)) length(all_time_vals) - 1 else min(k, length(all_time_vals) - 1)
+  if (max_regime_lags > 0) {
+    for (j in seq_len(max_regime_lags)) {
+      lag_regime_col <- paste0(".longy_lag_regime_", a_col, "_", j)
+      dt[, (lag_regime_col) := shift(.longy_regime_a, n = j, type = "lag"), by = c(id_col)]
+    }
+  }
+
   # For survival: precompute first event time per subject
   if (is_survival) {
     event_rows <- dt[!is.na(dt[[y_col]]) & as.numeric(dt[[y_col]]) == 1]
@@ -243,10 +253,18 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
                           sl_fn = sl_fn, context = ctx, verbose = FALSE)
           method <- fit$method
 
-          # Counterfactual prediction: set A to regime value
+          # Counterfactual prediction: set A (current + lagged) to regime values
           X_cf <- X_risk
-          if (a_col %in% covariates) {
+          if (a_col %in% all_covs) {
             X_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
+          }
+          trt_lag_prefix <- paste0(".longy_lag_", a_col, "_")
+          for (lc in all_covs[startsWith(all_covs, trt_lag_prefix)]) {
+            regime_lc <- sub(trt_lag_prefix,
+                             paste0(".longy_lag_regime_", a_col, "_"), lc, fixed = TRUE)
+            if (regime_lc %in% names(dt_t)) {
+              X_cf[[lc]] <- dt_t[[regime_lc]][at_risk]
+            }
           }
 
           Q_bar <- .predict_from_fit(fit, X_cf)
@@ -323,8 +341,16 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
           # all_covs already computed above (covariates + lag columns)
           X_cens <- as.data.frame(dt_t[newly_cens, all_covs, with = FALSE])
           X_cens_cf <- X_cens
-          if (a_col %in% covariates) {
+          if (a_col %in% all_covs) {
             X_cens_cf[[a_col]] <- dt_t$.longy_regime_a[newly_cens]
+          }
+          trt_lag_prefix <- paste0(".longy_lag_", a_col, "_")
+          for (lc in all_covs[startsWith(all_covs, trt_lag_prefix)]) {
+            regime_lc <- sub(trt_lag_prefix,
+                             paste0(".longy_lag_regime_", a_col, "_"), lc, fixed = TRUE)
+            if (regime_lc %in% names(dt_t)) {
+              X_cens_cf[[lc]] <- dt_t[[regime_lc]][newly_cens]
+            }
           }
 
           if (method != "marginal" && method != "none") {
@@ -482,6 +508,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   # Clean up
   dt[, .longy_Q := NULL]
   dt[, .longy_regime_a := NULL]
+  regime_lag_cols <- grep("^\\.longy_lag_regime_", names(dt), value = TRUE)
+  if (length(regime_lag_cols) > 0) dt[, (regime_lag_cols) := NULL]
   if (is_survival && ".longy_first_event" %in% names(dt)) {
     dt[, .longy_first_event := NULL]
   }

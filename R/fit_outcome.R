@@ -80,6 +80,20 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
   regime_vals <- .evaluate_regime(reg, dt)
   dt[, .longy_regime_a := regime_vals]
 
+  # Pre-compute lagged regime values for counterfactual treatment history
+  # At each backward step, the counterfactual X must have regime values for
+
+  # BOTH the current treatment AND lagged treatment columns (matching ltmle
+  # which sets all A nodes to regime values in the counterfactual prediction).
+  k <- if (is.null(nodes$lag_k)) 0 else nodes$lag_k
+  max_regime_lags <- if (is.infinite(k)) length(all_time_vals) - 1 else min(k, length(all_time_vals) - 1)
+  if (max_regime_lags > 0) {
+    for (j in seq_len(max_regime_lags)) {
+      lag_regime_col <- paste0(".longy_lag_regime_", a_col, "_", j)
+      dt[, (lag_regime_col) := shift(.longy_regime_a, n = j, type = "lag"), by = c(id_col)]
+    }
+  }
+
   # For survival outcomes: precompute first observed event time per subject.
   # Used to enforce the absorbing state (once Y=1, Q=1 at all future times)
   # without requiring a Y_lag covariate.
@@ -174,9 +188,11 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       n_clipped_lower <- 0L
       n_clipped_upper <- 0L
 
-      # Per-step family: binomial at first step (actual Y) for binary/survival,
-      # gaussian for all intermediate steps (continuous pseudo-outcomes in [0,1])
-      step_family <- if (i == 1 && is_binary) stats::binomial() else stats::gaussian()
+      # Per-step family: quasibinomial (logit link) at all steps for binary/survival
+      # outcomes. Pseudo-outcomes are continuous [0,1] — quasibinomial avoids
+      # warnings about non-integer Y while preserving the logit link that correctly
+      # constrains predictions to (0,1). This matches ltmle's approach.
+      step_family <- if (is_binary) stats::quasibinomial() else stats::gaussian()
 
       if (n_at_risk > 0) {
         Q_at_t <- dt_t$.longy_Q[at_risk]
@@ -189,6 +205,12 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         time_index <- match(tt, all_time_vals)
         lag_covs <- .get_lag_covariates(nodes, time_index)
         all_covs <- c(covariates, lag_covs)
+
+        if (verbose) {
+          .vmsg("  Qform target=%d time=%d: Q.kplus1 ~ %s",
+                target_t, tt, paste(all_covs, collapse = " + "))
+        }
+
         X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]
@@ -217,10 +239,18 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         sl_risk <- fit$sl_risk
         sl_coef <- fit$sl_coef
 
-        # Counterfactual prediction: set A to regime value for at-risk subjects
+        # Counterfactual prediction: set A (current + lagged) to regime values
         X_cf <- X_risk
-        if (a_col %in% covariates) {
+        if (a_col %in% all_covs) {
           X_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
+        }
+        trt_lag_prefix <- paste0(".longy_lag_", a_col, "_")
+        for (lc in all_covs[startsWith(all_covs, trt_lag_prefix)]) {
+          regime_lc <- sub(trt_lag_prefix,
+                           paste0(".longy_lag_regime_", a_col, "_"), lc, fixed = TRUE)
+          if (regime_lc %in% names(dt_t)) {
+            X_cf[[lc]] <- dt_t[[regime_lc]][at_risk]
+          }
         }
 
         preds <- .predict_from_fit(fit, X_cf)
@@ -324,6 +354,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
   # Clean up tracking columns
   dt[, .longy_Q := NULL]
   dt[, .longy_regime_a := NULL]
+  regime_lag_cols <- grep("^\\.longy_lag_regime_", names(dt), value = TRUE)
+  if (length(regime_lag_cols) > 0) dt[, (regime_lag_cols) := NULL]
   if (is_survival && ".longy_first_event" %in% names(dt)) {
     dt[, .longy_first_event := NULL]
   }

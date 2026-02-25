@@ -147,6 +147,26 @@ For each target time T:
 - CV-TMLE via `.cf_estimate_tmle()` with pooled fluctuation
 - `.remove_tracking_columns()` preserves `.longy_fold`
 
+## Open design decisions
+
+- **Continuous outcome scaling**: longy currently uses gaussian (no scaling) for
+  continuous outcomes. lmtp scales to [0,1] but still uses gaussian for Q-models
+  (binomial only for TMLE fluctuation). ltmle/stremr scale to [0,1] with
+  quasibinomial throughout. Revisit whether to adopt lmtp's hybrid approach
+  (scale + gaussian). See `notes/continuous_outcome_scaling.md` for full comparison.
+
+## TODO
+
+- **Quasibinomial learner compatibility**: Backward ICE pseudo-outcomes are
+  continuous [0,1], requiring quasibinomial family. Many learners (glmnet,
+  xgboost binary:logistic, others) crash or misbehave with non-integer Y.
+  Current workarounds are per-learner (swap xgboost to reg:squarederror, drop
+  glmnet when Y is non-binary). Need a more general solution — possibly a
+  wrapper that intercepts any binomial-family learner and substitutes a
+  gaussian-family version with truncated predictions.
+- **Continuous outcome scaling**: Decide whether to scale Y to [0,1] for
+  continuous outcomes (see Open design decisions above).
+
 ## See also
 
 - DESIGN.md for architecture decisions

@@ -373,21 +373,21 @@ test_that("fit_outcome sl_info contains clip tracking and gaussian family", {
     expect_true(is.numeric(entry$n_clipped_upper))
     expect_true(entry$n_clipped_lower >= 0)
     expect_true(entry$n_clipped_upper >= 0)
-    # Family should be binomial or gaussian
-    expect_true(entry$family %in% c("binomial", "gaussian"))
+    # Family should be quasibinomial or gaussian
+    expect_true(entry$family %in% c("binomial", "quasibinomial", "gaussian"))
   }
 
-  # First step (at target time) for binary outcome should use binomial
+  # For binary outcomes, all steps should use quasibinomial (logit link)
+  # This matches ltmle's approach of using quasibinomial at every backward step
   first_steps <- Filter(function(e) e$time == e$target_time, sl_info)
   if (length(first_steps) > 0) {
-    expect_equal(first_steps[[1]]$family, "binomial")
+    expect_equal(first_steps[[1]]$family, "quasibinomial")
   }
 
-  # Intermediate steps should use gaussian
   intermediate_steps <- Filter(function(e) e$time != e$target_time, sl_info)
   if (length(intermediate_steps) > 0) {
     for (e in intermediate_steps) {
-      expect_equal(e$family, "gaussian")
+      expect_equal(e$family, "quasibinomial")
     }
   }
 })

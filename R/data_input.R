@@ -234,6 +234,38 @@ longy_data <- function(data,
     }
   }
 
+  # --- Survival LTCF: carry forward Y=1 after first event ---
+  # For survival outcomes, NAs in Y after a Y=1 event represent absorption
+  # (subject had the event and was removed), not intermittent missingness.
+  # Carry forward Y=1 so that: (1) auto-detection of .obs doesn't fire on
+  # these rows, (2) lag columns correctly show Y=1 for absorbed subjects,
+  # (3) the data matches ltmle's expected format (LTCF).
+  if (outcome_type == "survival") {
+    data.table::setkeyv(dt, c(id, time))
+    y_vals <- dt[[outcome]]
+    # Find first event time per subject
+    event_mask <- !is.na(y_vals) & as.numeric(y_vals) == 1
+    if (any(event_mask)) {
+      time_col_name <- time  # avoid data.table scope confusion
+      event_dt <- dt[event_mask, list(.longy_first_ev = min(get(time_col_name))),
+                      by = c(id)]
+      dt[event_dt, .longy_first_ev := i..longy_first_ev, on = id]
+      # Rows after event: NA outcome -> 1
+      post_event_na <- !is.na(dt$.longy_first_ev) &
+                       dt[[time_col_name]] > dt$.longy_first_ev &
+                       is.na(dt[[outcome]])
+      n_ltcf <- sum(post_event_na)
+      if (n_ltcf > 0) {
+        data.table::set(dt, which(post_event_na), outcome, 1L)
+        if (verbose) {
+          .vmsg("Survival LTCF: set %d post-event NA outcome rows to 1 (absorbing state).",
+                n_ltcf)
+        }
+      }
+      dt[, .longy_first_ev := NULL]
+    }
+  }
+
   # --- Auto-detect observation from outcome NAs ---
   if (is.null(observation)) {
     # Check for NAs in outcome among uncensored rows

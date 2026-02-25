@@ -507,17 +507,16 @@ NULL
 #' @param cv_folds Integer. Number of CV folds within each training fold.
 #' @param sl_fn Character. SuperLearner implementation.
 #' @param min_obs Integer. Minimum observations for model fitting.
-#' @param a_col Character. Treatment column name.
-#' @param covariates Character vector. Covariate names.
-#' @param regime_a Numeric vector. Regime treatment values for risk-set subjects.
+#' @param regime_cf Named list. Column names mapping to counterfactual regime
+#'   values (vectors of length nrow(X_risk)) for treatment and lagged treatment
+#'   columns.
 #'
 #' @return Numeric vector of cross-fitted Q_bar, length = nrow(X_risk).
 #' @noRd
 .cf_fit_q_step <- function(Y_train_all, X_risk, has_Q, folds_risk, n_folds,
                             family, learners, cv_folds = 10L,
                             sl_fn = "SuperLearner", min_obs = 50L,
-                            a_col = NULL, covariates = NULL,
-                            regime_a = NULL) {
+                            regime_cf = NULL) {
   n_risk <- nrow(X_risk)
   Q_bar <- rep(NA_real_, n_risk)
 
@@ -556,8 +555,12 @@ NULL
 
     # Counterfactual covariates for validation fold
     X_val_cf <- X_risk[val_idx, , drop = FALSE]
-    if (!is.null(a_col) && !is.null(regime_a) && a_col %in% covariates) {
-      X_val_cf[[a_col]] <- regime_a[val_idx]
+    if (!is.null(regime_cf)) {
+      for (cf_col in names(regime_cf)) {
+        if (cf_col %in% names(X_val_cf)) {
+          X_val_cf[[cf_col]] <- regime_cf[[cf_col]][val_idx]
+        }
+      }
     }
 
     if (length(Y_k) >= min_obs && length(unique(Y_k)) > 1) {
@@ -647,6 +650,16 @@ NULL
   dt <- .add_tracking_columns(dt, nodes, reg)
   regime_vals <- .evaluate_regime(reg, dt)
   dt[, .longy_regime_a := regime_vals]
+
+  # Pre-compute lagged regime values for counterfactual treatment history
+  k_val <- if (is.null(nodes$lag_k)) 0 else nodes$lag_k
+  max_regime_lags <- if (is.infinite(k_val)) length(all_time_vals) - 1 else min(k_val, length(all_time_vals) - 1)
+  if (max_regime_lags > 0) {
+    for (j in seq_len(max_regime_lags)) {
+      lag_regime_col <- paste0(".longy_lag_regime_", a_col, "_", j)
+      dt[, (lag_regime_col) := shift(.longy_regime_a, n = j, type = "lag"), by = c(id_col)]
+    }
+  }
 
   # For survival: precompute first event time per subject
   if (is_survival) {
@@ -759,8 +772,19 @@ NULL
         # Cross-fitted Q_bar
         Y_train_all <- Q_at_t[has_Q]
 
-        # Counterfactual regime values for at-risk subjects
-        regime_a_risk <- dt_t$.longy_regime_a[at_risk]
+        # Counterfactual regime values for at-risk subjects (current + lagged)
+        regime_cf <- list()
+        if (a_col %in% all_covs) {
+          regime_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
+        }
+        trt_lag_prefix <- paste0(".longy_lag_", a_col, "_")
+        for (lc in all_covs[startsWith(all_covs, trt_lag_prefix)]) {
+          regime_lc <- sub(trt_lag_prefix,
+                           paste0(".longy_lag_regime_", a_col, "_"), lc, fixed = TRUE)
+          if (regime_lc %in% names(dt_t)) {
+            regime_cf[[lc]] <- dt_t[[regime_lc]][at_risk]
+          }
+        }
 
         # TMLE Q-models always use quasibinomial: predictions feed into
         # qlogis(Q_bar) for fluctuation, so they MUST be in (0,1).
@@ -780,9 +804,7 @@ NULL
           cv_folds = 10L,
           sl_fn = sl_fn,
           min_obs = min_obs,
-          a_col = a_col,
-          covariates = covariates,
-          regime_a = regime_a_risk
+          regime_cf = regime_cf
         )
 
         # Bound Q_bar
@@ -845,8 +867,16 @@ NULL
           # all_covs already computed above (covariates + lag columns)
           X_cens <- as.data.frame(dt_t[newly_cens, all_covs, with = FALSE])
           X_cens_cf <- X_cens
-          if (a_col %in% covariates) {
+          if (a_col %in% all_covs) {
             X_cens_cf[[a_col]] <- dt_t$.longy_regime_a[newly_cens]
+          }
+          trt_lag_prefix_c <- paste0(".longy_lag_", a_col, "_")
+          for (lc in all_covs[startsWith(all_covs, trt_lag_prefix_c)]) {
+            regime_lc <- sub(trt_lag_prefix_c,
+                             paste0(".longy_lag_regime_", a_col, "_"), lc, fixed = TRUE)
+            if (regime_lc %in% names(dt_t)) {
+              X_cens_cf[[lc]] <- dt_t[[regime_lc]][newly_cens]
+            }
           }
 
           # Fit one model on all at-risk training data (non-cross-fitted)
@@ -995,6 +1025,8 @@ NULL
   # Clean up
   dt[, .longy_Q := NULL]
   dt[, .longy_regime_a := NULL]
+  regime_lag_cols <- grep("^\\.longy_lag_regime_", names(dt), value = TRUE)
+  if (length(regime_lag_cols) > 0) dt[, (regime_lag_cols) := NULL]
   if (is_survival && ".longy_first_event" %in% names(dt)) {
     dt[, .longy_first_event := NULL]
   }

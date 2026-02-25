@@ -228,11 +228,15 @@
       }
 
       if ("SL.glmnet" %in% learners) {
-        # glmnet does not support quasibinomial or continuous [0,1] Y with
-        # binomial family. Drop it and warn.
-        warning("SL.glmnet does not support continuous [0,1] pseudo-outcomes ",
-                "(quasibinomial). Dropping from learner library.", call. = FALSE)
-        learners <- learners[learners != "SL.glmnet"]
+        # glmnet's binomial family requires integer 0/1 Y in each CV fold.
+        # If pseudo-outcomes are truly continuous (non-integer), drop glmnet.
+        # But if Y is actual binary (e.g. first backward step), keep it.
+        y_is_binary <- all(Y %in% c(0, 1))
+        if (!y_is_binary) {
+          warning("SL.glmnet does not support continuous [0,1] pseudo-outcomes ",
+                  "(quasibinomial). Dropping from learner library.", call. = FALSE)
+          learners <- learners[learners != "SL.glmnet"]
+        }
       }
     }
 
