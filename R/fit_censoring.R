@@ -60,19 +60,20 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     return(obj)
   }
 
-  for (rname in regime) {
-
+  # g_C models are fit on observed data regardless of regime (risk set uses
+  # uncensored status only, not regime consistency). Fit once, then replicate
+  # the result for all requested regimes.
   if (isTRUE(obj$crossfit$enabled)) {
-    obj <- .cf_fit_censoring(obj, rname, covariates = covariates,
+    obj <- .cf_fit_censoring(obj, regime[1], covariates = covariates,
                               learners = learners, sl_control = sl_control,
                               adaptive_cv = adaptive_cv, min_obs = min_obs,
                               min_events = min_events,
                               bounds = bounds, times = times, sl_fn = sl_fn,
                               verbose = verbose)
-    next
-  }
+    fit_result <- obj$fits$censoring[[regime[1]]]
+  } else {
 
-  reg <- obj$regimes[[rname]]
+  reg <- obj$regimes[[regime[1]]]
   dt <- obj$data
   time_vals <- obj$meta$time_values
   if (!is.null(times)) {
@@ -85,8 +86,8 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   dt <- .add_tracking_columns(dt, nodes, reg)
 
-  # Initialize per-regime censoring list
-  obj$fits$censoring[[rname]] <- list()
+  # Initialize censoring results list
+  fit_result <- list()
 
   # Fit per censoring source
   for (cvar in nodes$censoring) {
@@ -206,7 +207,7 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
     sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
 
-    obj$fits$censoring[[rname]][[cvar]] <- list(
+    fit_result[[cvar]] <- list(
       predictions = results,
       covariates = covariates,
       learners = learners,
@@ -218,7 +219,12 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   .remove_tracking_columns(obj$data)
 
-  } # end for (rname in regime)
+  } # end if/else crossfit
+
+  # Store for all regimes (identical model)
+  for (rname in regime) {
+    obj$fits$censoring[[rname]] <- fit_result
+  }
 
   obj
 }

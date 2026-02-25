@@ -48,19 +48,20 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                    paste(fitted, collapse = ", ")), call. = FALSE)
   }
 
-  for (rname in regime) {
-
+  # g_A models are fit on observed data regardless of regime (risk set uses
+  # uncensored status only, not regime consistency). Fit once, then replicate
+  # the result for all requested regimes.
   if (isTRUE(obj$crossfit$enabled)) {
-    obj <- .cf_fit_treatment(obj, rname, covariates = covariates,
+    obj <- .cf_fit_treatment(obj, regime[1], covariates = covariates,
                               learners = learners, sl_control = sl_control,
                               adaptive_cv = adaptive_cv, min_obs = min_obs,
                               min_events = min_events,
                               bounds = bounds, times = times, sl_fn = sl_fn,
                               verbose = verbose)
-    next
-  }
+    fit_result <- obj$fits$treatment[[regime[1]]]
+  } else {
 
-  reg <- obj$regimes[[rname]]
+  reg <- obj$regimes[[regime[1]]]
   dt <- obj$data
   nodes <- obj$nodes
   time_vals <- obj$meta$time_values
@@ -185,8 +186,7 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
 
-  obj$fits$treatment[[rname]] <- list(
-    regime = rname,
+  fit_result <- list(
     predictions = results,
     covariates = covariates,
     learners = learners,
@@ -198,7 +198,13 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
   # Clean up tracking columns
   .remove_tracking_columns(obj$data)
 
-  } # end for (rname in regime)
+  } # end if/else crossfit
+
+  # Store for all regimes (identical model, only regime label differs)
+  for (rname in regime) {
+    obj$fits$treatment[[rname]] <- fit_result
+    obj$fits$treatment[[rname]]$regime <- rname
+  }
 
   obj
 }
