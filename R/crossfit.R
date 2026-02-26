@@ -27,7 +27,7 @@ NULL
                                min_obs = 50L, min_events = 20L,
                                bounds = c(0.005, 0.995),
                                times = NULL, sl_fn = "SuperLearner",
-                               verbose = TRUE) {
+                               verbose = TRUE, risk_set = "all") {
   reg <- obj$regimes[[regime]]
   dt <- obj$data
   nodes <- obj$nodes
@@ -52,12 +52,19 @@ NULL
     tt <- time_vals[i]
     dt_t <- dt[dt[[nodes$time]] == tt, ]
 
-    # Risk set: uncensored through t-1 (full sample, not regime-concordant)
+    # Risk set: uncensored through t-1
     if (i == 1) {
       still_in <- rep(TRUE, nrow(dt_t))
     } else {
       still_in <- dt_t$.longy_uncens_prev == 1L
       still_in[is.na(still_in)] <- FALSE
+    }
+
+    # Followers-only restriction: limit to regime-consistent subjects
+    if (risk_set == "followers") {
+      consist_prev <- dt_t$.longy_consist_prev == 1L
+      consist_prev[is.na(consist_prev)] <- FALSE
+      still_in <- still_in & consist_prev
     }
 
     n_risk <- sum(still_in)
@@ -139,8 +146,13 @@ NULL
     )
 
     if (verbose) {
-      .vmsg("  CF g_A time %d: n_risk=%d, marg=%.3f, K=%d",
-            tt, n_risk, marg_a, n_folds)
+      rs_label <- if (risk_set == "followers") {
+        sprintf(" (%s followers)", regime)
+      } else {
+        ""
+      }
+      .vmsg("  CF g_A time %d%s: n_risk=%d, marg=%.3f, K=%d",
+            tt, rs_label, n_risk, marg_a, n_folds)
     }
   }
 
@@ -160,7 +172,8 @@ NULL
     bounds = bounds,
     sl_fn = sl_fn,
     sl_info = list(),
-    crossfit = TRUE
+    crossfit = TRUE,
+    risk_set = risk_set
   )
 
   .remove_tracking_columns(obj$data)

@@ -27,6 +27,10 @@
 #' @param verbose Logical. Print progress.
 #' @param refit Logical. If FALSE (default), errors when treatment is already
 #'   fitted for the requested regime(s). Set to TRUE to re-fit.
+#' @param risk_set Character. Which subjects form the risk set for treatment
+#'   model fitting. \code{"all"} (default) uses all uncensored subjects
+#'   (fit once, share across regimes). \code{"followers"} restricts to
+#'   regime-followers at each time, fitting separate models per regime.
 #'
 #' @return Modified `longy_data` object with treatment fits stored.
 #' @export
@@ -35,10 +39,12 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                           min_obs = 50L, min_events = 20L,
                           bounds = c(0.005, 0.995),
                           times = NULL, sl_fn = "SuperLearner",
-                          verbose = TRUE, refit = FALSE) {
+                          verbose = TRUE, refit = FALSE,
+                          risk_set = c("all", "followers")) {
   obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "treatment")
   regime <- .resolve_regimes(obj, regime)
+  risk_set <- match.arg(risk_set)
 
   if (!refit) {
     fitted <- Filter(function(r) !is.null(obj$fits$treatment[[r]]) &&
@@ -48,20 +54,24 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                    paste(fitted, collapse = ", ")), call. = FALSE)
   }
 
-  # g_A models are fit on observed data regardless of regime (risk set uses
-  # uncensored status only, not regime consistency). Fit once, then replicate
-  # the result for all requested regimes.
+  # When risk_set = "all", fit once on regime[1] and copy to all regimes.
+  # When risk_set = "followers", fit separately per regime (each has
+  # different followers, so models differ).
+  fit_regimes <- if (risk_set == "followers") regime else regime[1]
+
+  for (fit_rname in fit_regimes) {
+
   if (isTRUE(obj$crossfit$enabled)) {
-    obj <- .cf_fit_treatment(obj, regime[1], covariates = covariates,
+    obj <- .cf_fit_treatment(obj, fit_rname, covariates = covariates,
                               learners = learners, sl_control = sl_control,
                               adaptive_cv = adaptive_cv, min_obs = min_obs,
                               min_events = min_events,
                               bounds = bounds, times = times, sl_fn = sl_fn,
-                              verbose = verbose)
-    fit_result <- obj$fits$treatment[[regime[1]]]
+                              verbose = verbose, risk_set = risk_set)
+    fit_result <- obj$fits$treatment[[fit_rname]]
   } else {
 
-  reg <- obj$regimes[[regime[1]]]
+  reg <- obj$regimes[[fit_rname]]
   dt <- obj$data
   nodes <- obj$nodes
   time_vals <- obj$meta$time_values
@@ -84,12 +94,19 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     tt <- time_vals[i]
     dt_t <- dt[dt[[nodes$time]] == tt, ]
 
-    # Risk set: uncensored through t-1 (full sample, not regime-concordant)
+    # Risk set: uncensored through t-1
     if (i == 1) {
       still_in <- rep(TRUE, nrow(dt_t))
     } else {
       still_in <- dt_t$.longy_uncens_prev == 1L
       still_in[is.na(still_in)] <- FALSE
+    }
+
+    # Followers-only restriction: limit to regime-consistent subjects
+    if (risk_set == "followers") {
+      consist_prev <- dt_t$.longy_consist_prev == 1L
+      consist_prev[is.na(consist_prev)] <- FALSE
+      still_in <- still_in & consist_prev
     }
 
     n_risk <- sum(still_in)
@@ -166,8 +183,13 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                          sl_risk = sl_risk, sl_coef = sl_coef)
 
     if (verbose) {
-      .vmsg("  g_A time %d: n_risk=%d, marg=%.3f, method=%s",
-            tt, n_risk, marg_a, method)
+      rs_label <- if (risk_set == "followers") {
+        sprintf(" (%s followers)", fit_rname)
+      } else {
+        ""
+      }
+      .vmsg("  g_A time %d%s: n_risk=%d, marg=%.3f, method=%s",
+            tt, rs_label, n_risk, marg_a, method)
     }
   }
 
@@ -192,7 +214,8 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     learners = learners,
     bounds = bounds,
     sl_fn = sl_fn,
-    sl_info = sl_info
+    sl_info = sl_info,
+    risk_set = risk_set
   )
 
   # Clean up tracking columns
@@ -200,11 +223,18 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   } # end if/else crossfit
 
-  # Store for all regimes (identical model, only regime label differs)
-  for (rname in regime) {
-    obj$fits$treatment[[rname]] <- fit_result
-    obj$fits$treatment[[rname]]$regime <- rname
+  # Store fit result
+  if (risk_set == "all") {
+    for (rname in regime) {
+      obj$fits$treatment[[rname]] <- fit_result
+      obj$fits$treatment[[rname]]$regime <- rname
+    }
+  } else {
+    obj$fits$treatment[[fit_rname]] <- fit_result
+    obj$fits$treatment[[fit_rname]]$regime <- fit_rname
   }
+
+  } # end for fit_rname
 
   obj
 }

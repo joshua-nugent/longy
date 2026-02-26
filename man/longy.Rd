@@ -33,6 +33,7 @@ longy(
   min_obs = 50L,
   min_events = 20L,
   bounds = c(0.005, 0.995),
+  risk_set = "all",
   g_bounds = c(0.01, 1),
   outcome_range = NULL,
   cross_fit = NULL,
@@ -128,6 +129,11 @@ model. When the minority class count is below this AND the minority rate
 is below 0.01, marginal fallback is used. Default 20.}
 
 \item{bounds}{Numeric(2). Prediction probability bounds.}
+
+\item{risk_set}{Character. Which subjects form the risk set for treatment
+model fitting. \code{"all"} (default) uses all uncensored subjects
+(fit once, share across regimes). \code{"followers"} restricts to
+regime-followers at each time, fitting separate models per regime.}
 
 \item{g_bounds}{Numeric(2). Bounds for cumulative g (denominator of clever
 covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.}

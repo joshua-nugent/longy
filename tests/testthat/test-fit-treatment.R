@@ -227,3 +227,151 @@ test_that("fit_treatment respects custom min_events value", {
   t0 <- obj$fits$treatment[["always"]]$predictions[obj$fits$treatment[["always"]]$predictions$.time == 0, ]
   expect_true(unique(t0$.method) != "marginal")
 })
+
+# ---------------------------------------------------------------------------
+# risk_set = "followers" tests
+# ---------------------------------------------------------------------------
+
+test_that("fit_treatment with risk_set='followers' produces valid fits", {
+  set.seed(42)
+  d <- simulate_test_data(n = 100, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- define_regime(obj, "never", static = 0L)
+
+  obj <- fit_treatment(obj, regime = c("always", "never"),
+                       risk_set = "followers", verbose = FALSE)
+
+  expect_false(is.null(obj$fits$treatment[["always"]]))
+  expect_false(is.null(obj$fits$treatment[["never"]]))
+  expect_true(nrow(obj$fits$treatment[["always"]]$predictions) > 0)
+  expect_true(nrow(obj$fits$treatment[["never"]]$predictions) > 0)
+  # risk_set stored in metadata
+  expect_equal(obj$fits$treatment[["always"]]$risk_set, "followers")
+  expect_equal(obj$fits$treatment[["never"]]$risk_set, "followers")
+})
+
+test_that("risk_set='followers' has smaller or equal risk set vs 'all' at t > 0", {
+  set.seed(42)
+  d <- simulate_test_data(n = 200, K = 4)
+
+  obj_all <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                        treatment = "A", censoring = "C", observation = "R",
+                        baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                        verbose = FALSE)
+  obj_all <- define_regime(obj_all, "always", static = 1L)
+  obj_all <- fit_treatment(obj_all, regime = "always", risk_set = "all",
+                           verbose = FALSE)
+
+  obj_fol <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                        treatment = "A", censoring = "C", observation = "R",
+                        baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                        verbose = FALSE)
+  obj_fol <- define_regime(obj_fol, "always", static = 1L)
+  obj_fol <- fit_treatment(obj_fol, regime = "always", risk_set = "followers",
+                           verbose = FALSE)
+
+  preds_all <- obj_all$fits$treatment[["always"]]$predictions
+  preds_fol <- obj_fol$fits$treatment[["always"]]$predictions
+
+  # At t=0, everyone is a follower (no prior treatment), so risk sets equal
+  n_all_t0 <- preds_all[preds_all$.time == 0, ]$.n_risk[1]
+  n_fol_t0 <- preds_fol[preds_fol$.time == 0, ]$.n_risk[1]
+  expect_equal(n_fol_t0, n_all_t0)
+
+  # At t > 0, followers risk set should be <= all risk set
+  later_times <- unique(preds_all$.time[preds_all$.time > 0])
+  for (tt in later_times) {
+    n_all_t <- preds_all[preds_all$.time == tt, ]$.n_risk[1]
+    n_fol_t <- preds_fol[preds_fol$.time == tt, ]$.n_risk[1]
+    if (!is.null(n_all_t) && !is.null(n_fol_t)) {
+      expect_true(n_fol_t <= n_all_t,
+                  info = sprintf("Followers risk set at t=%d should be <= all", tt))
+    }
+  }
+})
+
+test_that("risk_set='followers' produces different fits per regime", {
+  set.seed(123)
+  d <- simulate_test_data(n = 200, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- define_regime(obj, "never", static = 0L)
+
+  obj <- fit_treatment(obj, regime = c("always", "never"),
+                       risk_set = "followers", verbose = FALSE)
+
+  # With followers, "always" and "never" should have different risk set sizes
+  # at later times (different subsets follow each regime)
+  preds_always <- obj$fits$treatment[["always"]]$predictions
+  preds_never <- obj$fits$treatment[["never"]]$predictions
+
+  later_times <- unique(preds_always$.time[preds_always$.time > 0])
+  any_differ <- FALSE
+  for (tt in later_times) {
+    n_always <- preds_always[preds_always$.time == tt, ]$.n_risk[1]
+    n_never <- preds_never[preds_never$.time == tt, ]$.n_risk[1]
+    if (!is.null(n_always) && !is.null(n_never) && n_always != n_never) {
+      any_differ <- TRUE
+      break
+    }
+  }
+  # With random binary treatment, followers of "always" vs "never" will differ
+  expect_true(any_differ)
+})
+
+test_that("default risk_set is 'all' and stored in metadata", {
+  d <- simulate_test_data(n = 80, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", baseline = c("W1", "W2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+
+  expect_equal(obj$fits$treatment[["always"]]$risk_set, "all")
+})
+
+test_that("risk_set='followers' works in full IPW pipeline", {
+  skip_if_not_installed("SuperLearner")
+  set.seed(456)
+  d <- simulate_test_data(n = 200, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- define_regime(obj, "never", static = 0L)
+
+  obj <- fit_treatment(obj, regime = c("always", "never"),
+                       risk_set = "followers", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = c("always", "never"), verbose = FALSE)
+  obj <- fit_observation(obj, regime = c("always", "never"), verbose = FALSE)
+  obj <- compute_weights(obj, regime = c("always", "never"))
+  obj <- estimate_ipw(obj, regime = c("always", "never"))
+
+  expect_false(is.null(obj$results$always_ipw))
+  expect_false(is.null(obj$results$never_ipw))
+  expect_true(nrow(obj$results$always_ipw$estimates) > 0)
+  expect_true(nrow(obj$results$never_ipw$estimates) > 0)
+})
+
+test_that("longy() forwards risk_set parameter", {
+  skip_if_not_installed("SuperLearner")
+  set.seed(789)
+  d <- simulate_test_data(n = 150, K = 3)
+  obj <- longy(d, id = "id", time = "time", outcome = "Y",
+               treatment = "A", censoring = "C", observation = "R",
+               baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+               regimes = list(always = 1L, never = 0L),
+               risk_set = "followers", verbose = FALSE)
+
+  expect_equal(obj$fits$treatment[["always"]]$risk_set, "followers")
+  expect_equal(obj$fits$treatment[["never"]]$risk_set, "followers")
+  expect_false(is.null(obj$results$always_ipw))
+})

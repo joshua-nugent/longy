@@ -17,7 +17,8 @@ fit_treatment(
   times = NULL,
   sl_fn = "SuperLearner",
   verbose = TRUE,
-  refit = FALSE
+  refit = FALSE,
+  risk_set = c("all", "followers")
 )
 }
 \arguments{
@@ -56,6 +57,11 @@ early time points.}
 
 \item{refit}{Logical. If FALSE (default), errors when treatment is already
 fitted for the requested regime(s). Set to TRUE to re-fit.}
+
+\item{risk_set}{Character. Which subjects form the risk set for treatment
+model fitting. \code{"all"} (default) uses all uncensored subjects
+(fit once, share across regimes). \code{"followers"} restricts to
+regime-followers at each time, fitting separate models per regime.}
 }
 \value{
 Modified \code{longy_data} object with treatment fits stored.

@@ -61,6 +61,10 @@
 #'   model. When the minority class count is below this AND the minority rate
 #'   is below 0.01, marginal fallback is used. Default 20.
 #' @param bounds Numeric(2). Prediction probability bounds.
+#' @param risk_set Character. Which subjects form the risk set for treatment
+#'   model fitting. \code{"all"} (default) uses all uncensored subjects
+#'   (fit once, share across regimes). \code{"followers"} restricts to
+#'   regime-followers at each time, fitting separate models per regime.
 #' @param g_bounds Numeric(2). Bounds for cumulative g (denominator of clever
 #'   covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.
 #' @param outcome_range Numeric(2) or NULL. Range for scaling continuous
@@ -124,6 +128,7 @@ longy <- function(data,
                   min_obs = 50L,
                   min_events = 20L,
                   bounds = c(0.005, 0.995),
+                  risk_set = "all",
                   g_bounds = c(0.01, 1),
                   outcome_range = NULL,
                   cross_fit = NULL,
@@ -226,7 +231,7 @@ longy <- function(data,
                            min_obs = min_obs, min_events = min_events,
                            bounds = bounds,
                            times = times, sl_fn = sl_fn,
-                           verbose = verbose)
+                           verbose = verbose, risk_set = risk_set)
 
     if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C)...",
                         cur_step + 2L, n_steps)
