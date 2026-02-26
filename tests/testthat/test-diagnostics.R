@@ -132,6 +132,81 @@ test_that("positivity_diagnostics works with longy_data from estimate_ipw", {
   )
 })
 
+# --- Tests for prediction_diagnostics ---
+
+test_that("prediction_diagnostics returns correct structure", {
+  d <- simulate_test_data(n = 80, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+
+  diag <- prediction_diagnostics(obj)
+
+  expect_true(data.table::is.data.table(diag))
+  expect_true(all(c("model", "time", "n_risk", "marginal",
+                     "min", "p05", "median", "mean", "p95", "max") %in% names(diag)))
+  models_present <- unique(diag$model)
+  expect_true("treatment" %in% models_present)
+  expect_true("observation" %in% models_present)
+  expect_true(any(grepl("^censoring", models_present)))
+  # All probabilities should be in [0, 1]
+  expect_true(all(diag$min >= 0))
+  expect_true(all(diag$max <= 1))
+})
+
+test_that("prediction_diagnostics filters by model type", {
+  d <- simulate_test_data(n = 80, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+
+  diag_trt <- prediction_diagnostics(obj, model = "treatment")
+  expect_true(all(diag_trt$model == "treatment"))
+
+  diag_obs <- prediction_diagnostics(obj, model = "observation")
+  expect_true(all(diag_obs$model == "observation"))
+
+  diag_cens <- prediction_diagnostics(obj, model = "censoring")
+  expect_true(all(grepl("^censoring", diag_cens$model)))
+})
+
+test_that("prediction_diagnostics errors with no fits", {
+  d <- simulate_test_data(n = 20, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", verbose = FALSE)
+
+  expect_error(prediction_diagnostics(obj), "No model fits found")
+})
+
+test_that("prediction_diagnostics works after estimate_ipw", {
+  d <- simulate_test_data(n = 80, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+  obj <- estimate_ipw(obj, regime = "always", times = c(2, 3),
+                      inference = "none")
+
+  diag <- prediction_diagnostics(obj)
+  expect_true(data.table::is.data.table(diag))
+  expect_true(nrow(diag) > 0)
+})
+
 test_that("diagnostics error on invalid input", {
   expect_error(longy:::.as_longy_data("not an object"),
                "Expected a longy_data")

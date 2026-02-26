@@ -63,6 +63,117 @@ weight_diagnostics <- function(obj, regime = NULL, by_time = TRUE) {
   diag
 }
 
+#' Prediction Diagnostics
+#'
+#' Summarizes the distribution of predicted probabilities from each fitted
+#' nuisance model (treatment, censoring, observation) by time point. Useful
+#' for spotting near-positivity violations and understanding which models are
+#' driving extreme weights.
+#'
+#' @param obj A \code{longy_data} object with at least one nuisance model fit.
+#' @param regime Character. Name of the regime. If NULL, uses the first
+#'   available regime.
+#' @param model Character. Which model(s) to include: \code{"all"} (default),
+#'   \code{"treatment"}, \code{"censoring"}, or \code{"observation"}.
+#'
+#' @return A data.table with columns: \code{model}, \code{time}, \code{n_risk},
+#'   \code{marginal}, \code{min}, \code{p05}, \code{median}, \code{mean},
+#'   \code{p95}, \code{max}.
+#' @export
+prediction_diagnostics <- function(obj, regime = NULL, model = "all") {
+  obj <- .as_longy_data(obj)
+
+  model <- match.arg(model, c("all", "treatment", "censoring", "observation"))
+  include <- if (model == "all") {
+    c("treatment", "censoring", "observation")
+  } else {
+    model
+  }
+
+  # Resolve regime
+  if (is.null(regime)) {
+    available <- names(obj$fits$treatment)
+    if (length(available) == 0) available <- names(obj$fits$censoring)
+    if (length(available) == 0) available <- names(obj$fits$observation)
+    regime <- available[1]
+  }
+  if (is.na(regime) || is.null(regime)) {
+    stop("No model fits found. Run fit_treatment/fit_censoring/fit_observation first.",
+         call. = FALSE)
+  }
+
+  rows <- list()
+
+  # Treatment
+  trt_fit <- obj$fits$treatment[[regime]]
+  if ("treatment" %in% include && !is.null(trt_fit)) {
+    preds <- trt_fit$predictions
+    rows[[length(rows) + 1L]] <- preds[, list(
+      model = "treatment",
+      n_risk = .N,
+      marginal = round(.marg_a[1], 4),
+      min = round(min(.p_a), 4),
+      p05 = round(stats::quantile(.p_a, 0.05), 4),
+      median = round(stats::median(.p_a), 4),
+      mean = round(mean(.p_a), 4),
+      p95 = round(stats::quantile(.p_a, 0.95), 4),
+      max = round(max(.p_a), 4)
+    ), by = .time]
+  }
+
+  # Censoring (per cause)
+  cens_fits <- obj$fits$censoring[[regime]]
+  if ("censoring" %in% include && length(cens_fits) > 0) {
+    for (cvar in names(cens_fits)) {
+      preds <- cens_fits[[cvar]]$predictions
+      label <- paste0("censoring: ", sub("^\\.cens_", "", cvar))
+      rows[[length(rows) + 1L]] <- preds[, list(
+        model = label,
+        n_risk = .N,
+        marginal = round(.marg_c[1], 4),
+        min = round(min(.p_c), 4),
+        p05 = round(stats::quantile(.p_c, 0.05), 4),
+        median = round(stats::median(.p_c), 4),
+        mean = round(mean(.p_c), 4),
+        p95 = round(stats::quantile(.p_c, 0.95), 4),
+        max = round(max(.p_c), 4)
+      ), by = .time]
+    }
+  }
+
+  # Observation
+  obs_fit <- obj$fits$observation[[regime]]
+  if ("observation" %in% include && !is.null(obs_fit)) {
+    preds <- obs_fit$predictions
+    rows[[length(rows) + 1L]] <- preds[, list(
+      model = "observation",
+      n_risk = .N,
+      marginal = round(.marg_r[1], 4),
+      min = round(min(.p_r), 4),
+      p05 = round(stats::quantile(.p_r, 0.05), 4),
+      median = round(stats::median(.p_r), 4),
+      mean = round(mean(.p_r), 4),
+      p95 = round(stats::quantile(.p_r, 0.95), 4),
+      max = round(max(.p_r), 4)
+    ), by = .time]
+  }
+
+  if (length(rows) == 0) {
+    message("No model fits found for the requested model type(s).")
+    return(invisible(data.table::data.table(
+      model = character(), time = integer(), n_risk = integer(),
+      marginal = numeric(), min = numeric(), p05 = numeric(),
+      median = numeric(), mean = numeric(), p95 = numeric(),
+      max = numeric()
+    )))
+  }
+
+  result <- data.table::rbindlist(rows)
+  data.table::setnames(result, ".time", "time")
+  data.table::setkey(result, model, time)
+  result
+}
+
 #' Positivity Diagnostics
 #'
 #' Identifies observations with extreme propensity scores that may indicate
