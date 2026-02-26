@@ -187,21 +187,21 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       tt <- backward_times[i]
       dt_t <- dt[dt[[time_col]] == tt, ]
 
-      # Uncensored subjects through t
+      # Uncensored subjects through C(t) (Convention B: C before Y).
       still_in <- dt_t$.longy_cum_uncens == 1L
       still_in[is.na(still_in)] <- FALSE
 
       # For survival: exclude absorbed subjects (event strictly before tt)
       if (is_survival) {
         fe <- dt_t$.longy_first_event
-        absorbed_primary <- still_in & !is.na(fe) & fe < tt
+        absorbed_primary <- !is.na(fe) & fe < tt
       } else {
         absorbed_primary <- rep(FALSE, nrow(dt_t))
       }
       # For competing risks: exclude subjects with competing event before tt
       if (has_competing) {
         fc <- dt_t$.longy_first_competing
-        absorbed_competing <- still_in & !is.na(fc) & fc < tt
+        absorbed_competing <- !is.na(fc) & fc < tt
       } else {
         absorbed_competing <- rep(FALSE, nrow(dt_t))
       }
@@ -287,7 +287,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         cum_consist[is.na(cum_consist)] <- FALSE
         in_fluct <- cum_consist
 
-        # Get g_cum and g_r for at-risk subjects
+        # Get g_cum and g_r for at-risk subjects (Convention B: g_cum includes g_c(t)).
         g_at_t <- merge(
           data.table::data.table(.tmp_id = risk_ids, .tmp_order = seq_along(risk_ids)),
           g_cum_dt[g_cum_dt$.time == tt, c(id_col, ".g_cum", ".g_r"), with = FALSE],
@@ -295,8 +295,9 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         )
         data.table::setorder(g_at_t, .tmp_order)
         g_cum_vals <- g_at_t$.g_cum
-        g_r_vals <- g_at_t$.g_r
         g_cum_vals[is.na(g_cum_vals)] <- 1
+
+        g_r_vals <- g_at_t$.g_r
         g_r_vals[is.na(g_r_vals)] <- 1
 
         # g_r only enters at target time (i==1) where actual Y is observed.
@@ -326,10 +327,13 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       # (newly censored). They need Q* predictions so the EIF can compute
       # H_{s-1} * (Q*_s - Q*_{s-1}) correctly at the previous step.
       # Without this, Q*_s defaults to 0 in the EIF, causing enormous SEs.
-      cens_ids <- character(0)
+      cens_ids <- dt_t[[id_col]][integer(0)]  # empty, same type as id column
       Q_star_cens <- numeric(0)
 
       if (n_train > 0) {
+        # Detect subjects who were at-risk at t-1 but not at t
+        # (Convention B: at-risk = uncensored through C(t), so newly-censored
+        # means uncensored through C(t-1) but censored at C(t))
         newly_cens <- !at_risk & !absorbed_primary & !absorbed_competing &
           (dt_t$.longy_uncens_prev == 1L | dt_t$.longy_consist_prev == 1L)
         newly_cens[is.na(newly_cens)] <- FALSE
@@ -726,14 +730,14 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     if (s == target_t) {
       # Build the augmentation for this step
       dt_s <- dt_track[dt_track[[time_col]] == s, ]
-      # regime-consistent AND uncensored through s
+      # regime-consistent AND uncensored through C(s) (Convention B)
       cum_consist <- dt_s$.longy_cum_consist == 1L
       cum_consist[is.na(cum_consist)] <- FALSE
       cum_uncens <- dt_s$.longy_cum_uncens == 1L
       cum_uncens[is.na(cum_uncens)] <- FALSE
       indicator <- cum_consist & cum_uncens
 
-      # Merge g_cum and g_r
+      # Merge g_cum and g_r (Convention B: g_cum includes g_c(s))
       g_s <- g_cum_dt[g_cum_dt$.time == s, c(id_col, ".g_cum", ".g_r"), with = FALSE]
 
       # Scale Y_T to [0,1] for continuous (binary already 0/1)
@@ -773,10 +777,12 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       dt_s <- dt_track[dt_track[[time_col]] == s, ]
       cum_consist <- dt_s$.longy_cum_consist == 1L
       cum_consist[is.na(cum_consist)] <- FALSE
+      # Convention B: uncensored through C(s)
       cum_uncens <- dt_s$.longy_cum_uncens == 1L
       cum_uncens[is.na(cum_uncens)] <- FALSE
       indicator <- cum_consist & cum_uncens
 
+      # Convention B: g_cum includes g_c(s)
       g_s <- g_cum_dt[g_cum_dt$.time == s, c(id_col, ".g_cum", ".g_r"), with = FALSE]
 
       aug_dt <- data.table::data.table(

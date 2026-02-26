@@ -717,21 +717,21 @@ NULL
       tt <- backward_times[i]
       dt_t <- dt[dt[[time_col]] == tt, ]
 
-      # Uncensored subjects through t
+      # Uncensored subjects through C(t) (Convention B: C before Y).
       still_in <- dt_t$.longy_cum_uncens == 1L
       still_in[is.na(still_in)] <- FALSE
 
       # For survival: exclude absorbed subjects (event strictly before tt)
       if (is_survival) {
         fe <- dt_t$.longy_first_event
-        absorbed_primary <- still_in & !is.na(fe) & fe < tt
+        absorbed_primary <- !is.na(fe) & fe < tt
       } else {
         absorbed_primary <- rep(FALSE, nrow(dt_t))
       }
       # For competing risks: exclude subjects with competing event before tt
       if (has_competing) {
         fc <- dt_t$.longy_first_competing
-        absorbed_competing <- still_in & !is.na(fc) & fc < tt
+        absorbed_competing <- !is.na(fc) & fc < tt
       } else {
         absorbed_competing <- rep(FALSE, nrow(dt_t))
       }
@@ -815,7 +815,7 @@ NULL
         cum_consist[is.na(cum_consist)] <- FALSE
         in_fluct <- cum_consist
 
-        # Get cross-fitted g_cum and g_r
+        # Get cross-fitted g_cum and g_r (Convention B: g_cum includes g_c(t))
         g_at_t <- merge(
           data.table::data.table(.tmp_id = risk_ids, .tmp_order = seq_along(risk_ids)),
           g_cum_dt[g_cum_dt$.time == tt, c(id_col, ".g_cum", ".g_r"), with = FALSE],
@@ -823,8 +823,9 @@ NULL
         )
         data.table::setorder(g_at_t, .tmp_order)
         g_cum_vals <- g_at_t$.g_cum
-        g_r_vals <- g_at_t$.g_r
         g_cum_vals[is.na(g_cum_vals)] <- 1
+
+        g_r_vals <- g_at_t$.g_r
         g_r_vals[is.na(g_r_vals)] <- 1
 
         # g_r only enters at target time (i==1) where actual Y is observed.
@@ -853,10 +854,12 @@ NULL
       # Subjects who were at-risk at the previous time but dropped out now.
       # Without Q* predictions for them, the EIF defaults missing Q*_{s+1}
       # to 0, causing enormous spurious augmentation.
-      cens_ids <- character(0)
+      cens_ids <- dt_t[[id_col]][integer(0)]  # empty, same type as id column
       Q_star_cens <- numeric(0)
 
       if (n_train > 0) {
+        # Detect subjects newly censored at t (Convention B: at-risk = uncensored
+        # through C(t), so newly-censored = uncensored through C(t-1) but not C(t))
         newly_cens <- !at_risk & !absorbed_primary & !absorbed_competing &
           (dt_t$.longy_uncens_prev == 1L | dt_t$.longy_consist_prev == 1L)
         newly_cens[is.na(newly_cens)] <- FALSE
