@@ -253,7 +253,8 @@ longy <- function(data,
 
     obj <- estimate_ipw(obj, regime = regime_names, times = times,
                         inference = inference, ci_level = ci_level,
-                        n_boot = n_boot, cluster = cluster)
+                        n_boot = n_boot, cluster = cluster,
+                        g_bounds = g_bounds)
     cur_step <- cur_step + 1L
   }
 

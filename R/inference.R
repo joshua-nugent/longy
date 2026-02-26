@@ -178,7 +178,8 @@
       b_obj <- compute_weights(b_obj, regime = regime,
                                stabilized = obj$weights[[regime]]$stabilized,
                                truncation = obj$weights[[regime]]$truncation,
-                               truncation_quantile = obj$weights[[regime]]$truncation_quantile)
+                               truncation_quantile = obj$weights[[regime]]$truncation_quantile,
+                               g_bounds = obj$weights[[regime]]$g_bounds)
       b_obj
     }, error = function(e) NULL)
 

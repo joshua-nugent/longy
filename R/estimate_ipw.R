@@ -3,7 +3,10 @@
 #' Computes the Hajek (self-normalized) IPW estimator at each requested time
 #' point, with standard errors and confidence intervals.
 #'
-#' @param obj A `longy_data` object with weights already computed.
+#' @param obj A `longy_data` object with treatment (and optionally
+#'   censoring/observation) models already fit. Weights are computed
+#'   automatically if not already present, or recomputed when \code{g_bounds}
+#'   differs from the stored value.
 #' @param regime Character. Name of the regime.
 #' @param times Numeric vector. Time points at which to estimate. If NULL,
 #'   estimates at all time points with data.
@@ -12,27 +15,42 @@
 #' @param ci_level Numeric. Confidence level (default 0.95).
 #' @param n_boot Integer. Number of bootstrap replicates (only for `"bootstrap"`).
 #' @param cluster Character. Column name for clustered standard errors.
+#' @param g_bounds Numeric vector of length 2. Bounds for cumulative g
+#'   (denominator). Default \code{c(0.01, 1)}. If different from the stored
+#'   weights, weights are recomputed automatically (no model refitting needed).
 #'
-#' @return An S3 object of class `"longy_result"` with elements:
-#'   \describe{
-#'     \item{estimates}{data.table with time, estimate, se, ci_lower, ci_upper, n_eff, n_at_risk}
-#'     \item{regime}{Name of the regime}
-#'     \item{inference}{Inference method used}
-#'     \item{ci_level}{Confidence level}
-#'   }
+#' @return Modified \code{longy_data} object with IPW results stored in
+#'   \code{obj$results}.
 #'
 #' @export
 estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
-                         ci_level = 0.95, n_boot = 200L, cluster = NULL) {
+                         ci_level = 0.95, n_boot = 200L, cluster = NULL,
+                         g_bounds = c(0.01, 1)) {
   obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
   inference <- match.arg(inference, c("ic", "bootstrap", "sandwich", "none"))
 
   for (rname in regime) {
 
-  if (is.null(obj$weights[[rname]]) || length(obj$weights[[rname]]) == 0) {
-    stop(sprintf("Weights not computed for regime '%s'. Run compute_weights() first.", rname),
-         call. = FALSE)
+  # Recompute weights if g_bounds changed or weights not yet computed
+  stored_w <- obj$weights[[rname]]
+  needs_weights <- is.null(stored_w) || length(stored_w) == 0
+  if (!needs_weights && !identical(stored_w$g_bounds, g_bounds)) {
+    needs_weights <- TRUE
+  }
+  if (needs_weights) {
+    if (is.null(obj$fits$treatment[[rname]])) {
+      stop(sprintf(
+        "No treatment model fitted for regime '%s'. Run fit_treatment() first.",
+        rname), call. = FALSE)
+    }
+    # Recover weight-computation settings from stored weights, or use defaults
+    stab  <- if (!is.null(stored_w$stabilized)) stored_w$stabilized else TRUE
+    trunc <- if (!is.null(stored_w$truncation)) stored_w$truncation else NULL
+    trunc_q <- if (!is.null(stored_w$truncation_quantile)) stored_w$truncation_quantile else NULL
+    obj <- compute_weights(obj, regime = rname, stabilized = stab,
+                           truncation = trunc, truncation_quantile = trunc_q,
+                           g_bounds = g_bounds, recompute = TRUE)
   }
 
   nodes <- obj$nodes

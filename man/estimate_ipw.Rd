@@ -11,11 +11,15 @@ estimate_ipw(
   inference = "ic",
   ci_level = 0.95,
   n_boot = 200L,
-  cluster = NULL
+  cluster = NULL,
+  g_bounds = c(0.01, 1)
 )
 }
 \arguments{
-\item{obj}{A \code{longy_data} object with weights already computed.}
+\item{obj}{A \code{longy_data} object with treatment (and optionally
+censoring/observation) models already fit. Weights are computed
+automatically if not already present, or recomputed when \code{g_bounds}
+differs from the stored value.}
 
 \item{regime}{Character. Name of the regime.}
 
@@ -30,15 +34,14 @@ estimates at all time points with data.}
 \item{n_boot}{Integer. Number of bootstrap replicates (only for \code{"bootstrap"}).}
 
 \item{cluster}{Character. Column name for clustered standard errors.}
+
+\item{g_bounds}{Numeric vector of length 2. Bounds for cumulative g
+(denominator). Default \code{c(0.01, 1)}. If different from the stored
+weights, weights are recomputed automatically (no model refitting needed).}
 }
 \value{
-An S3 object of class \code{"longy_result"} with elements:
-\describe{
-\item{estimates}{data.table with time, estimate, se, ci_lower, ci_upper, n_eff, n_at_risk}
-\item{regime}{Name of the regime}
-\item{inference}{Inference method used}
-\item{ci_level}{Confidence level}
-}
+Modified \code{longy_data} object with IPW results stored in
+\code{obj$results}.
 }
 \description{
 Computes the Hajek (self-normalized) IPW estimator at each requested time
