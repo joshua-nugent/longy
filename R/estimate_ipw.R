@@ -141,7 +141,8 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
 #' @export
 print.longy_result <- function(x, ...) {
   est_label <- if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else
-    if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else "IPW"
+    if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else
+    if (!is.null(x$estimator) && x$estimator == "unadjusted") "Unadjusted" else "IPW"
   cat(sprintf("longy %s result -- regime: %s\n", est_label, x$regime))
   cat(sprintf("Inference: %s | CI level: %.0f%%\n\n",
               x$inference, x$ci_level * 100))
@@ -154,7 +155,7 @@ print.longy_result <- function(x, ...) {
     se = if ("se" %in% names(est)) round(est$se, 4) else NA,
     ci_lower = if ("ci_lower" %in% names(est)) round(est$ci_lower, 4) else NA,
     ci_upper = if ("ci_upper" %in% names(est)) round(est$ci_upper, 4) else NA,
-    n_eff = round(est$n_effective, 1),
+    n_eff = if ("n_effective" %in% names(est)) round(est$n_effective, 1) else est$n_at_risk,
     n_risk = est$n_at_risk
   )
   print(disp, row.names = FALSE)
@@ -164,7 +165,8 @@ print.longy_result <- function(x, ...) {
 #' @export
 summary.longy_result <- function(object, ...) {
   est_label <- if (!is.null(object$estimator) && object$estimator == "gcomp") "G-comp" else
-    if (!is.null(object$estimator) && object$estimator == "tmle") "TMLE" else "IPW"
+    if (!is.null(object$estimator) && object$estimator == "tmle") "TMLE" else
+    if (!is.null(object$estimator) && object$estimator == "unadjusted") "Unadjusted" else "IPW"
   cat(sprintf("=== longy %s Result Summary ===\n\n", est_label))
   print(object)
 
@@ -214,7 +216,8 @@ plot.longy_result <- function(x, ...) {
         x = "Time", y = "Estimate",
         title = sprintf("%s Estimate -- %s",
                         if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else
-                        if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else "IPW",
+                        if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else
+                        if (!is.null(x$estimator) && x$estimator == "unadjusted") "Unadjusted" else "IPW",
                         x$regime)
       ) +
       ggplot2::theme_minimal(base_size = 13)
@@ -227,7 +230,8 @@ plot.longy_result <- function(x, ...) {
        xlab = "Time", ylab = "Estimate", ylim = y_range,
        main = sprintf("%s Estimate -- %s",
                       if (!is.null(x$estimator) && x$estimator == "gcomp") "G-comp" else
-                        if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else "IPW",
+                        if (!is.null(x$estimator) && x$estimator == "tmle") "TMLE" else
+                        if (!is.null(x$estimator) && x$estimator == "unadjusted") "Unadjusted" else "IPW",
                       x$regime))
   if (has_ci) {
     graphics::arrows(est$time, est$ci_lower, est$time, est$ci_upper,

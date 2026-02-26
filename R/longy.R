@@ -160,7 +160,7 @@ longy <- function(data,
   # Determine total steps for verbose messaging
   # Shared fits: g_A + g_C fitted once if IPW or TMLE need them
   # g_R shared for IPW and TMLE; outcome fitted once if G-comp or TMLE need it
-  n_steps <- 2L  # data + regimes always
+  n_steps <- 3L  # data + regimes + unadjusted (always)
   need_g <- do_ipw || do_tmle
   need_outcome <- do_gcomp || do_tmle
   if (need_g) n_steps <- n_steps + 3L  # g_A + g_C + g_R (shared)
@@ -208,6 +208,13 @@ longy <- function(data,
 
   # Fit all regimes at once, then estimate
   regime_names <- names(regimes)
+
+  # --- Unadjusted (always runs, no models needed) ---
+  step <- step + 1L
+  if (verbose) .vmsg("Step %d/%d: Computing unadjusted estimates...", step, n_steps)
+  obj <- estimate_unadjusted(obj, regime = regime_names, times = times,
+                              ci_level = ci_level)
+
   cur_step <- step
 
   # --- Shared nuisance models: g_A + g_C + g_R (IPW and/or TMLE) ---
@@ -356,7 +363,8 @@ plot.longy_data <- function(x, ...) {
     # Derive estimator label
     est_type <- if (!is.null(res$estimator)) res$estimator else "ipw"
     est_label <- switch(est_type,
-                        gcomp = "G-comp", tmle = "TMLE", "IPW")
+                        gcomp = "G-comp", tmle = "TMLE",
+                        unadjusted = "Unadjusted", "IPW")
 
     est$estimator_label <- est_label
     est$regime <- res$regime

@@ -10,11 +10,14 @@ test_that("longy() runs end-to-end with simulated data", {
   )
 
   expect_s3_class(results, "longy_data")
-  expect_equal(length(results$results), 2)
+  expect_equal(length(results$results), 4)  # 2 regimes x (unadjusted + ipw)
   expect_true("always_ipw" %in% names(results$results))
   expect_true("never_ipw" %in% names(results$results))
+  expect_true("always_unadjusted" %in% names(results$results))
+  expect_true("never_unadjusted" %in% names(results$results))
   expect_s3_class(results$results$always_ipw, "longy_result")
   expect_s3_class(results$results$never_ipw, "longy_result")
+  expect_s3_class(results$results$always_unadjusted, "longy_result")
 })
 
 test_that("longy() results match manual pipeline", {
@@ -162,9 +165,9 @@ test_that("longy() with estimator = 'all'", {
   )
 
   expect_s3_class(results, "longy_data")
-  expect_equal(length(results$results), 6)  # 2 regimes x 3 estimators
-  expect_true(all(c("always_ipw", "always_gcomp", "always_tmle",
-                     "never_ipw", "never_gcomp", "never_tmle") %in%
+  expect_equal(length(results$results), 8)  # 2 regimes x (unadjusted + 3 estimators)
+  expect_true(all(c("always_unadjusted", "always_ipw", "always_gcomp", "always_tmle",
+                     "never_unadjusted", "never_ipw", "never_gcomp", "never_tmle") %in%
                   names(results$results)))
   expect_s3_class(results$results$always_ipw, "longy_result")
   expect_s3_class(results$results$always_gcomp, "longy_result")
