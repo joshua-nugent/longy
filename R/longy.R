@@ -370,7 +370,7 @@ plot.longy_data <- function(x, ...) {
     est$regime <- res$regime
     est
   })
-  combined <- do.call(rbind, all_est)
+  combined <- as.data.frame(data.table::rbindlist(all_est, fill = TRUE))
 
   n_estimators <- length(unique(combined$estimator_label))
   use_facets <- n_estimators > 1

@@ -80,10 +80,11 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
     est_list[[k]] <- data.table::data.table(
       time = tt,
       estimate = psi_hat,
+      n_effective = as.numeric(n),
+      n_at_risk = n,
       se = se,
       ci_lower = psi_hat - z * se,
-      ci_upper = psi_hat + z * se,
-      n_at_risk = n
+      ci_upper = psi_hat + z * se
     )
   }
   estimates <- data.table::rbindlist(est_list)

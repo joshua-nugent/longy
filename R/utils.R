@@ -220,6 +220,11 @@
           out <- SuperLearner::SL.xgboost(Y = Y, X = X, newX = newX,
                                            family = stats::gaussian(),
                                            obsWeights = obsWeights, id = id, ...)
+          n_clip <- sum(out$pred < q_lo | out$pred > q_hi)
+          if (n_clip > 0) {
+            message(sprintf("SL.xgboost.reg: %d/%d predictions clipped to [%s, %s].",
+                            n_clip, length(out$pred), q_lo, q_hi))
+          }
           out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
           out
         }
@@ -230,13 +235,15 @@
       if ("SL.glmnet" %in% learners) {
         y_is_binary <- all(Y %in% c(0, 1))
         if (!y_is_binary) {
-          message("SL.glmnet: switching to gaussian family for continuous ",
-                  "[0,1] pseudo-outcomes (binomial requires integer Y). ",
-                  "Predictions clipped to [", q_lo, ", ", q_hi, "].")
           glmnet_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
             out <- SuperLearner::SL.glmnet(Y = Y, X = X, newX = newX,
                                             family = stats::gaussian(),
                                             obsWeights = obsWeights, id = id, ...)
+            n_clip <- sum(out$pred < q_lo | out$pred > q_hi)
+            if (n_clip > 0) {
+              message(sprintf("SL.glmnet.reg: %d/%d predictions clipped to [%s, %s].",
+                              n_clip, length(out$pred), q_lo, q_hi))
+            }
             out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
             out
           }
@@ -248,16 +255,42 @@
       if ("SL.ranger" %in% learners) {
         y_is_binary <- all(Y %in% c(0, 1))
         if (!y_is_binary) {
-          message("SL.ranger: switching to gaussian family for continuous ",
-                  "[0,1] pseudo-outcomes (tree-based predictions naturally bounded).")
+          # SL.ranger with gaussian returns a regression fit, but
+          # predict.SL.ranger checks family$family == "binomial" (passed by
+          # predict.SuperLearner) and tries pred[, "1"] on a vector.
+          # Fix: call ranger directly and use a custom predict method.
           ranger_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
-            out <- SuperLearner::SL.ranger(Y = Y, X = X, newX = newX,
-                                            family = stats::gaussian(),
-                                            obsWeights = obsWeights, id = id, ...)
-            out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
-            out
+            if (!requireNamespace("ranger", quietly = TRUE))
+              stop("ranger package required", call. = FALSE)
+            if (is.matrix(X)) X <- data.frame(X)
+            if (is.matrix(newX)) newX <- data.frame(newX)
+            fit_obj <- ranger::ranger(`_Y` ~ ., data = cbind(`_Y` = Y, X),
+                                       case.weights = obsWeights,
+                                       write.forest = TRUE,
+                                       num.threads = 1, verbose = FALSE)
+            pred <- predict(fit_obj, data = newX)$predictions
+            n_clip <- sum(pred < q_lo | pred > q_hi)
+            if (n_clip > 0) {
+              message(sprintf("SL.ranger.reg: %d/%d predictions clipped to [%s, %s].",
+                              n_clip, length(pred), q_lo, q_hi))
+            }
+            pred <- pmin(pmax(pred, q_lo), q_hi)
+            fit <- list(object = fit_obj)
+            class(fit) <- "SL.ranger.reg"
+            list(pred = pred, fit = fit)
+          }
+          # predict method must be in globalenv for S3 dispatch to find it
+          ranger_reg_pred_fn <- function(object, newdata, family, ...) {
+            if (!requireNamespace("ranger", quietly = TRUE))
+              stop("ranger package required", call. = FALSE)
+            if (is.matrix(newdata)) newdata <- data.frame(newdata)
+            pred <- predict(object$object, data = newdata,
+                            num.threads = 1)$predictions
+            pmin(pmax(pred, q_lo), q_hi)
           }
           assign("SL.ranger.reg", ranger_reg_fn, envir = sl_env)
+          assign("predict.SL.ranger.reg", ranger_reg_pred_fn,
+                 envir = globalenv())
           learners[learners == "SL.ranger"] <- "SL.ranger.reg"
         }
       }
