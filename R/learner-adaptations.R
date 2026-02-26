@@ -16,23 +16,13 @@
 #' still used for the TMLE fluctuation step (which uses \code{glm.fit}
 #' directly).
 #'
-#' @section SL.glmnet (dropped for quasibinomial):
-#' \code{glmnet} does not support \code{quasibinomial} family, and its
-#' \code{binomial} family rejects continuous \eqn{[0,1]} Y outright (requires
-#' discrete 0/1 classes). Workarounds that were tested and rejected:
-#' \itemize{
-#'   \item \strong{Gaussian with clipping}: predictions outside \eqn{[0,1]}
-#'     clip to bounds, producing extreme logit values in the TMLE fluctuation
-#'     step and inflated standard errors.
-#'   \item \strong{Logit-transform + gaussian + expit}: logit-transform Y
-#'     before fitting, fit gaussian glmnet, then expit back-transform. Also
-#'     produced unstable TMLE SEs in practice.
-#' }
-#'
-#' When \code{SL.glmnet} is requested and the outcome is quasibinomial, longy
-#' drops it from the learner library with a warning. Use other learners
-#' (e.g., \code{SL.glm}, \code{SL.xgboost}, \code{SL.earth}, \code{SL.gam})
-#' for the outcome model in TMLE/G-comp contexts.
+#' @section SL.glmnet adaptation:
+#' \code{glmnet}'s \code{binomial} family rejects continuous \eqn{[0,1]} Y
+#' (requires discrete 0/1 classes). longy replaces \code{SL.glmnet} with an
+#' internal wrapper \code{SL.glmnet.reg} that fits with \code{gaussian} family
+#' (penalized least squares on \eqn{[0,1]} pseudo-outcomes) and clips
+#' predictions to \eqn{[0.005, 0.995]}. A message is printed to the console
+#' when this swap occurs.
 #'
 #' @section SL.xgboost adaptation:
 #' \code{xgboost} with \code{binary:logistic} objective crashes when Y is
@@ -42,6 +32,15 @@
 #' clips predictions to \eqn{[0.005, 0.995]}. Because tree-based methods
 #' naturally restrict predictions to the range of the training data, the
 #' transformation approach used for glmnet is not needed here.
+#'
+#' @section SL.ranger adaptation:
+#' \code{SL.ranger} with \code{binomial} family uses probability forests,
+#' which can behave unexpectedly with continuous \eqn{[0,1]} pseudo-outcomes.
+#' longy replaces \code{SL.ranger} with an internal wrapper
+#' \code{SL.ranger.reg} that fits with \code{gaussian} family (regression
+#' forest). Tree-based methods naturally restrict predictions to the range of
+#' the training data, so predictions are well-behaved; clipping to
+#' \eqn{[0.005, 0.995]} is applied as a safety measure.
 #'
 #' @section When do these adaptations apply?:
 #' These swaps only occur when the internal family is \code{quasibinomial},
@@ -60,7 +59,7 @@
 #'
 #' @section Other learners:
 #' Learners not listed above (e.g., \code{SL.glm}, \code{SL.mean},
-#' \code{SL.earth}, \code{SL.ranger}, \code{SL.gam}) are passed through
+#' \code{SL.earth}, \code{SL.gam}, \code{SL.nnet}) are passed through
 #' with the \code{binomial} family swap only. If a learner fails internally,
 #' SuperLearner's built-in error handling drops it from the ensemble and
 #' longy emits a warning reporting which learners failed.
@@ -72,5 +71,5 @@
 #' the parallel \code{ffSL} implementation.
 #'
 #' @name learner_adaptations
-#' @aliases SL.xgboost.reg
+#' @aliases SL.xgboost.reg SL.glmnet.reg SL.ranger.reg
 NULL

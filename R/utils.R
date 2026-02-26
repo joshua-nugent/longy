@@ -228,14 +228,37 @@
       }
 
       if ("SL.glmnet" %in% learners) {
-        # glmnet's binomial family requires integer 0/1 Y in each CV fold.
-        # If pseudo-outcomes are truly continuous (non-integer), drop glmnet.
-        # But if Y is actual binary (e.g. first backward step), keep it.
         y_is_binary <- all(Y %in% c(0, 1))
         if (!y_is_binary) {
-          warning("SL.glmnet does not support continuous [0,1] pseudo-outcomes ",
-                  "(quasibinomial). Dropping from learner library.", call. = FALSE)
-          learners <- learners[learners != "SL.glmnet"]
+          message("SL.glmnet: switching to gaussian family for continuous ",
+                  "[0,1] pseudo-outcomes (binomial requires integer Y). ",
+                  "Predictions clipped to [", q_lo, ", ", q_hi, "].")
+          glmnet_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
+            out <- SuperLearner::SL.glmnet(Y = Y, X = X, newX = newX,
+                                            family = stats::gaussian(),
+                                            obsWeights = obsWeights, id = id, ...)
+            out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
+            out
+          }
+          assign("SL.glmnet.reg", glmnet_reg_fn, envir = sl_env)
+          learners[learners == "SL.glmnet"] <- "SL.glmnet.reg"
+        }
+      }
+
+      if ("SL.ranger" %in% learners) {
+        y_is_binary <- all(Y %in% c(0, 1))
+        if (!y_is_binary) {
+          message("SL.ranger: switching to gaussian family for continuous ",
+                  "[0,1] pseudo-outcomes (tree-based predictions naturally bounded).")
+          ranger_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
+            out <- SuperLearner::SL.ranger(Y = Y, X = X, newX = newX,
+                                            family = stats::gaussian(),
+                                            obsWeights = obsWeights, id = id, ...)
+            out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
+            out
+          }
+          assign("SL.ranger.reg", ranger_reg_fn, envir = sl_env)
+          learners[learners == "SL.ranger"] <- "SL.ranger.reg"
         }
       }
     }

@@ -158,12 +158,11 @@ For each target time T:
 ## TODO
 
 - **Quasibinomial learner compatibility**: Backward ICE pseudo-outcomes are
-  continuous [0,1], requiring quasibinomial family. Many learners (glmnet,
-  xgboost binary:logistic, others) crash or misbehave with non-integer Y.
-  Current workarounds are per-learner (swap xgboost to reg:squarederror, drop
-  glmnet when Y is non-binary). Need a more general solution — possibly a
-  wrapper that intercepts any binomial-family learner and substitutes a
-  gaussian-family version with truncated predictions.
+  continuous [0,1], requiring quasibinomial family. Per-learner gaussian+clip
+  wrappers: xgboost -> SL.xgboost.reg, glmnet -> SL.glmnet.reg, ranger ->
+  SL.ranger.reg. Other learners (SL.glm, SL.earth, SL.gam, SL.nnet) work
+  with the binomial swap. Any remaining incompatible learner will fail
+  gracefully via tryCatch in .safe_sl().
 - **Continuous outcome scaling**: Decide whether to scale Y to [0,1] for
   continuous outcomes (see Open design decisions above).
 
