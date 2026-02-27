@@ -109,6 +109,9 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       still_in <- still_in & consist_prev
     }
 
+    # Exclude subjects with NA treatment (absorbed in survival data)
+    still_in <- still_in & !is.na(dt_t[[nodes$treatment]])
+
     n_risk <- sum(still_in)
     if (n_risk == 0) {
       if (verbose) .vmsg("  g_A time %d: 0 at risk, skipping", tt)

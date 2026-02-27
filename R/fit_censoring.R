@@ -109,6 +109,9 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
         still_in[is.na(still_in)] <- FALSE
       }
 
+      # Exclude subjects with NA censoring indicator (absorbed in survival data)
+      still_in <- still_in & !is.na(dt_t[[cvar]])
+
       n_risk <- sum(still_in)
       if (n_risk == 0) {
         if (verbose) .vmsg("    g_C(%s) time %d: 0 at risk, skipping", cvar, tt)

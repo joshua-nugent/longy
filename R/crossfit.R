@@ -67,6 +67,9 @@ NULL
       still_in <- still_in & consist_prev
     }
 
+    # Exclude subjects with NA treatment (absorbed in survival data)
+    still_in <- still_in & !is.na(dt_t[[nodes$treatment]])
+
     n_risk <- sum(still_in)
     if (n_risk == 0) {
       if (verbose) .vmsg("  CF g_A time %d: 0 at risk, skipping", tt)
@@ -238,6 +241,9 @@ NULL
         still_in[is.na(still_in)] <- FALSE
       }
 
+      # Exclude subjects with NA censoring indicator (absorbed in survival data)
+      still_in <- still_in & !is.na(dt_t[[cvar]])
+
       n_risk <- sum(still_in)
       if (n_risk == 0) {
         if (verbose) .vmsg("    CF g_C(%s) time %d: 0 at risk, skipping", cvar, tt)
@@ -397,6 +403,9 @@ NULL
 
     # Must be uncensored at t (observation requires being present)
     still_in <- still_in & dt_t$.longy_uncens == 1L
+
+    # Exclude subjects with NA observation indicator (absorbed in survival data)
+    still_in <- still_in & !is.na(dt_t[[nodes$observation]])
 
     n_risk <- sum(still_in)
     if (n_risk == 0) {

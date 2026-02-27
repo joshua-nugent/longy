@@ -98,6 +98,9 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     # Must be uncensored at t (observation requires being present)
     still_in <- still_in & dt_t$.longy_uncens == 1L
 
+    # Exclude subjects with NA observation indicator (absorbed in survival data)
+    still_in <- still_in & !is.na(dt_t[[nodes$observation]])
+
     n_risk <- sum(still_in)
     if (n_risk == 0) {
       if (verbose) .vmsg("  g_R time %d: 0 at risk, skipping", tt)
