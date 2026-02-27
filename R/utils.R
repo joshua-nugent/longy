@@ -30,20 +30,125 @@
 #'
 #' Accepts \code{longy_data} (pass-through), \code{longy_result} (extracts
 #' \code{$obj}), or legacy \code{longy_results} (extracts first element's
-#' \code{$obj}). This replaces the older \code{.extract_longy_data()} helper
-#' and all \code{stopifnot(inherits(obj, "longy_data"))} call sites.
+#' \code{$obj}). Also detects longy_data objects that lost their class
+#' attribute during serialization (e.g. \code{saveRDS}/\code{readRDS})
+#' and restores the class automatically.
 #'
 #' @param obj A \code{longy_data}, \code{longy_result}, or \code{longy_results}
 #'   object.
 #' @return A \code{longy_data} object.
 #' @noRd
 .as_longy_data <- function(obj) {
-  if (inherits(obj, "longy_data")) return(obj)
-  if (inherits(obj, "longy_result") && !is.null(obj$obj)) return(obj$obj)
+  if (inherits(obj, "longy_data")) {
+    .repair_longy_data(obj)
+    return(obj)
+  }
+  if (inherits(obj, "longy_result") && !is.null(obj$obj)) {
+    .repair_longy_data(obj$obj)
+    return(obj$obj)
+  }
   if (inherits(obj, "longy_results") && length(obj) > 0 &&
-      !is.null(obj[[1]]$obj)) return(obj[[1]]$obj)
+      !is.null(obj[[1]]$obj)) {
+    .repair_longy_data(obj[[1]]$obj)
+    return(obj[[1]]$obj)
+  }
+  # Detect longy_data by structure when class is lost (e.g. after readRDS)
+  if (is.list(obj) && .is_longy_data_structure(obj)) {
+    class(obj) <- "longy_data"
+    .repair_longy_data(obj)
+    return(obj)
+  }
   stop("Expected a longy_data, longy_result, or longy_results object.",
        call. = FALSE)
+}
+
+#' Repair a longy_data object after deserialization
+#'
+#' Fixes stale data.table internal selfref pointers that are invalidated
+#' by \code{saveRDS}/\code{readRDS}. Without this, the first \code{:=}
+#' operation on a deserialized data.table triggers a warning and copy.
+#'
+#' @param obj A longy_data object (modified by reference where possible).
+#' @return Invisible NULL.
+#' @noRd
+.repair_longy_data <- function(obj) {
+  # Repair the main data.table
+  if (data.table::is.data.table(obj$data)) {
+    data.table::setalloccol(obj$data)
+  }
+  # Repair prediction data.tables inside fits
+  for (mtype in c("treatment", "censoring", "observation", "outcome")) {
+    for (rname in names(obj$fits[[mtype]])) {
+      fit <- obj$fits[[mtype]][[rname]]
+      if (is.list(fit)) {
+        if (data.table::is.data.table(fit$predictions)) {
+          data.table::setalloccol(fit$predictions)
+        }
+        # Censoring has nested per-cause lists
+        if (mtype == "censoring" && is.list(fit)) {
+          for (cvar in names(fit)) {
+            if (is.list(fit[[cvar]]) &&
+                data.table::is.data.table(fit[[cvar]]$predictions)) {
+              data.table::setalloccol(fit[[cvar]]$predictions)
+            }
+          }
+        }
+      }
+    }
+  }
+  # Repair weight data.tables
+  for (rname in names(obj$weights)) {
+    wt <- obj$weights[[rname]]
+    if (is.list(wt) && data.table::is.data.table(wt$weights_dt)) {
+      data.table::setalloccol(wt$weights_dt)
+    }
+  }
+  invisible(NULL)
+}
+
+#' Check if a list has the structural signature of a longy_data object
+#'
+#' Used by \code{.as_longy_data()} to detect objects that lost their class
+#' attribute during serialization.
+#'
+#' @param obj A list to check.
+#' @return Logical.
+#' @noRd
+.is_longy_data_structure <- function(obj) {
+  required <- c("data", "nodes", "fits", "meta")
+  all(required %in% names(obj)) &&
+    is.list(obj$nodes) &&
+    is.list(obj$fits) &&
+    is.list(obj$meta) &&
+    !is.null(obj$nodes$id) &&
+    !is.null(obj$nodes$time)
+}
+
+#' Restore and Repair a longy_data Object
+#'
+#' Validates a longy_data object, restoring the S3 class if it was lost
+#' during serialization (e.g. \code{saveRDS}/\code{readRDS}) and repairing
+#' internal data.table pointers. Call this after loading a saved longy_data
+#' object to ensure all methods (\code{plot}, \code{print}, diagnostics)
+#' work correctly.
+#'
+#' @param obj A \code{longy_data} object, or a list with longy_data structure
+#'   that lost its class attribute during serialization.
+#'
+#' @return A repaired \code{longy_data} object with class restored.
+#'
+#' @examples
+#' \dontrun{
+#' # Save and reload a longy_data object
+#' saveRDS(obj, "my_results.rds")
+#' obj2 <- as_longy_data(readRDS("my_results.rds"))
+#' plot(obj2)
+#' weight_diagnostics(obj2)
+#' }
+#'
+#' @export
+as_longy_data <- function(obj) {
+  .as_longy_data(obj)
 }
 
 #' Resolve regime argument for fit_*/compute_weights/estimate_* functions

@@ -291,6 +291,17 @@ Decision: go with (b) for now. Revisit adding optional IPCW weights to `fit_outc
 - Marginal structural models (smoothing across time)
 - Optional IPCW-weighted G-comp (revisit from v0.3 design note)
 - ffSL-style parallel SuperLearner (port from user's `ffSL.R`)
+- **Extend `risk_set="followers"` to match ltmle `stratify=TRUE` fully:**
+  ltmle's `stratify=TRUE` does three things our `risk_set="followers"` doesn't yet:
+  (1) Restricts Q/outcome model training to regime-followers (not just g-models).
+  (2) Automatically drops prior A (treatment) columns from covariates within
+      strata, since they're constant among followers and waste learner capacity.
+  (3) Documents that IC-based variance is the only valid inference under
+      stratification (robust/TMLE variance not compatible).
+  Our current implementation covers the g-model half. Adding Q-model
+  stratification would touch `fit_outcome`, `estimate_gcomp`, and the TMLE
+  backward pass. Covariate filtering could be done in `.get_lag_covariates()`
+  or at the `all_covs` construction step.
 
 ### Code quality
 

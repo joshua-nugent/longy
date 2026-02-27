@@ -397,14 +397,16 @@ plot_sl_diagnostics <- function(obj, regime = NULL, model = "all",
 
   type <- match.arg(type)
 
-  # Accept longy_data or pre-computed data.table
-  if (inherits(obj, c("longy_data", "longy_result"))) {
-    diag <- sl_diagnostics(obj, regime = regime, model = model)
-  } else if (is.data.frame(obj)) {
+  # Accept longy_data, longy_result, or pre-computed data.table
+  if (is.data.frame(obj) && !.is_longy_data_structure(obj)) {
     diag <- data.table::as.data.table(data.table::copy(obj))
   } else {
-    stop("obj must be a longy_data object or sl_diagnostics() output.",
-         call. = FALSE)
+    obj <- tryCatch(.as_longy_data(obj), error = function(e) NULL)
+    if (is.null(obj)) {
+      stop("obj must be a longy_data object or sl_diagnostics() output.",
+           call. = FALSE)
+    }
+    diag <- sl_diagnostics(obj, regime = regime, model = model)
   }
 
   if (nrow(diag) == 0) {
