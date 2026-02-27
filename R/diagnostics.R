@@ -610,3 +610,439 @@ plot_sl_diagnostics <- function(obj, regime = NULL, model = "all",
       panel.grid = ggplot2::element_blank()
     )
 }
+
+
+# ============================================================================
+# Influence / Estimate Decomposition Diagnostics
+# ============================================================================
+
+#' Influence Diagnostics: Decompose Adjusted vs Unadjusted Estimates
+#'
+#' Creates a per-subject-time data.table that merges outcomes, IPW weights,
+#' G-comp counterfactual predictions, and propensity scores. Useful for
+#' understanding why adjusted estimates differ from unadjusted means.
+#'
+#' For each time point, subjects are grouped by weight quintile. The summary
+#' shows how the outcome distribution varies across weight groups, revealing
+#' whether high-weight subjects have systematically different outcomes.
+#'
+#' @param obj A \code{longy_data} object with at least one estimator run.
+#' @param regime Character. Regime name. If NULL, uses the first available.
+#' @param times Numeric vector. Time points to include. If NULL, all available.
+#' @param n_quantiles Integer. Number of weight groups for the summary
+#'   (default 5 = quintiles).
+#'
+#' @return A list of class \code{"longy_influence_diag"} with elements:
+#'   \describe{
+#'     \item{subject_dt}{Per-subject-time data.table with columns: id, time,
+#'       outcome, weight, Q_hat, p_a, marg_a, weight_group}
+#'     \item{summary_dt}{Summary by weight group and time: n, mean_outcome,
+#'       mean_weight, mean_p_a, weighted_contribution, mean_Q_hat}
+#'     \item{time_summary}{Per-time-point comparison of unadjusted mean,
+#'       IPW estimate, G-comp estimate, and weight-outcome correlation}
+#'     \item{regime}{Regime name}
+#'   }
+#'
+#' @export
+influence_diagnostics <- function(obj, regime = NULL, times = NULL,
+                                   n_quantiles = 5L) {
+  obj <- .as_longy_data(obj)
+
+  # Resolve regime
+  if (is.null(regime)) {
+    available <- names(obj$weights)
+    if (length(available) == 0) available <- names(obj$fits$treatment)
+    if (length(available) == 0) available <- names(obj$fits$outcome)
+    regime <- available[1]
+  }
+  if (is.null(regime) || is.na(regime)) {
+    stop("No fitted regime found. Run fit_treatment() or estimate_*() first.",
+         call. = FALSE)
+  }
+
+  nodes <- obj$nodes
+  id_col <- nodes$id
+  time_col <- nodes$time
+  y_col <- nodes$outcome
+  dt <- obj$data
+
+  # --- Determine available components ---
+  has_weights <- !is.null(obj$weights[[regime]]) &&
+    length(obj$weights[[regime]]) > 0
+  has_treatment <- !is.null(obj$fits$treatment[[regime]])
+  has_outcome <- !is.null(obj$fits$outcome[[regime]]) &&
+    !is.null(obj$fits$outcome[[regime]]$predictions)
+
+  if (!has_weights && !has_outcome) {
+    stop("Need at least weights (IPW) or outcome model (G-comp) fitted.",
+         call. = FALSE)
+  }
+
+  # --- Build per-subject-time data ---
+  # Start with the weight data (has regime followers at each time)
+  if (has_weights) {
+    w_dt <- obj$weights[[regime]]$weights_dt
+    base <- w_dt[, c(id_col, ".time", ".sw_a", ".sw_c", ".csw_ac",
+                      ".sw_r", ".final_weight"), with = FALSE]
+  } else {
+    # If no weights, build from all subjects at each time
+    all_times <- obj$meta$time_values
+    base <- dt[, c(id_col, time_col), with = FALSE]
+    data.table::setnames(base, time_col, ".time")
+    base[, .final_weight := 1]
+  }
+
+  # Resolve time points
+  available_times <- sort(unique(base$.time))
+  if (is.null(times)) {
+    times <- available_times
+  } else {
+    times <- intersect(times, available_times)
+  }
+  base <- base[base$.time %in% times, ]
+
+  # Merge outcome from raw data
+  y_dt <- dt[, c(id_col, time_col, y_col), with = FALSE]
+  data.table::setnames(y_dt, c(time_col, y_col), c(".time", ".outcome"))
+  base <- merge(base, y_dt, by = c(id_col, ".time"), all.x = TRUE)
+
+  # Merge treatment propensity
+  if (has_treatment) {
+    trt_preds <- obj$fits$treatment[[regime]]$predictions
+    p_dt <- trt_preds[, c(id_col, ".time", ".p_a", ".marg_a"), with = FALSE]
+    base <- merge(base, p_dt, by = c(id_col, ".time"), all.x = TRUE)
+  }
+
+  # Merge G-comp predictions (Q_hat from earliest backward step)
+  if (has_outcome) {
+    q_preds <- obj$fits$outcome[[regime]]$predictions
+    # Q_hat is stored per target_time; id column uses original id name
+    q_dt <- q_preds[, c(id_col, ".target_time", ".Q_hat"), with = FALSE]
+    data.table::setnames(q_dt, ".target_time", ".time")
+    base <- merge(base, q_dt, by = c(id_col, ".time"), all.x = TRUE)
+  }
+
+  # --- Compute influence metrics ---
+  # Weight quintiles (within each time point)
+  if (has_weights) {
+    base[, .weight_group := {
+      if (all(is.na(.final_weight))) {
+        rep(NA_integer_, .N)
+      } else {
+        brks <- stats::quantile(.final_weight, probs = seq(0, 1, length.out = n_quantiles + 1L),
+                                 na.rm = TRUE)
+        # Handle ties in quantile boundaries
+        brks <- unique(brks)
+        if (length(brks) < 2) {
+          rep(1L, .N)
+        } else {
+          as.integer(cut(.final_weight, breaks = brks, include.lowest = TRUE,
+                          labels = FALSE))
+        }
+      }
+    }, by = .time]
+  } else {
+    base[, .weight_group := 1L]
+  }
+
+  # --- Time-level summary ---
+  time_summary <- base[!is.na(.outcome), {
+    unadj <- mean(.outcome, na.rm = TRUE)
+    wm <- if (has_weights && any(!is.na(.final_weight))) {
+      stats::weighted.mean(.outcome, .final_weight, na.rm = TRUE)
+    } else {
+      NA_real_
+    }
+    qh <- if (has_outcome && ".Q_hat" %in% names(base) &&
+              any(!is.na(.Q_hat))) {
+      mean(.Q_hat, na.rm = TRUE)
+    } else {
+      NA_real_
+    }
+    wt_y_cor <- if (has_weights && sum(!is.na(.final_weight) & !is.na(.outcome)) > 2) {
+      tryCatch(stats::cor(.final_weight, .outcome, use = "complete.obs"),
+               error = function(e) NA_real_)
+    } else {
+      NA_real_
+    }
+    list(
+      n = .N,
+      unadjusted_mean = round(unadj, 2),
+      ipw_estimate = round(wm, 2),
+      gcomp_estimate = round(qh, 2),
+      weight_outcome_cor = round(wt_y_cor, 3),
+      mean_weight = round(mean(.final_weight, na.rm = TRUE), 3),
+      max_weight = round(max(.final_weight, na.rm = TRUE), 2),
+      ess = if (has_weights) round(.ess(.final_weight), 1) else as.numeric(.N)
+    )
+  }, by = .time]
+  data.table::setkey(time_summary, .time)
+
+  # --- Weight-group summary ---
+  group_summary <- base[!is.na(.outcome) & !is.na(.weight_group), {
+    out <- list(
+      n = .N,
+      mean_outcome = round(mean(.outcome, na.rm = TRUE), 2),
+      mean_weight = round(mean(.final_weight, na.rm = TRUE), 3)
+    )
+    if (has_treatment && ".p_a" %in% names(base)) {
+      out$mean_p_a <- round(mean(.p_a, na.rm = TRUE), 4)
+    }
+    if (has_outcome && ".Q_hat" %in% names(base)) {
+      out$mean_Q_hat <- round(mean(.Q_hat, na.rm = TRUE), 2)
+    }
+    # Contribution: what fraction of the total weighted sum comes from this group
+    total_wsum <- sum(.final_weight * .outcome, na.rm = TRUE)
+    out$weighted_sum <- round(total_wsum, 1)
+    out
+  }, by = list(.time, .weight_group)]
+  data.table::setkey(group_summary, .time, .weight_group)
+
+  # Add contribution percentage (within each time point)
+  group_summary[, contribution_pct := {
+    total <- sum(weighted_sum, na.rm = TRUE)
+    if (total != 0) round(100 * weighted_sum / total, 1) else NA_real_
+  }, by = .time]
+
+  result <- list(
+    subject_dt = base,
+    summary_dt = group_summary,
+    time_summary = time_summary,
+    regime = regime,
+    n_quantiles = n_quantiles
+  )
+  class(result) <- "longy_influence_diag"
+  result
+}
+
+
+#' @export
+print.longy_influence_diag <- function(x, ...) {
+  cat(sprintf("Influence Diagnostics -- regime: %s\n", x$regime))
+  cat(strrep("=", 55), "\n\n")
+
+  ts <- x$time_summary
+  for (i in seq_len(nrow(ts))) {
+    row <- ts[i]
+    cat(sprintf("Time %s (n=%d, ESS=%.0f):\n",
+                as.character(row$.time), row$n, row$ess))
+    cat(sprintf("  Unadjusted mean:       %8.2f\n", row$unadjusted_mean))
+    if (!is.na(row$ipw_estimate))
+      cat(sprintf("  IPW estimate:          %8.2f\n", row$ipw_estimate))
+    if (!is.na(row$gcomp_estimate))
+      cat(sprintf("  G-comp estimate:       %8.2f\n", row$gcomp_estimate))
+    if (!is.na(row$weight_outcome_cor))
+      cat(sprintf("  Weight-outcome corr:   %8.3f  %s\n",
+                  row$weight_outcome_cor,
+                  if (row$weight_outcome_cor < -0.1) "(high-weight obs have LOWER outcomes)"
+                  else if (row$weight_outcome_cor > 0.1) "(high-weight obs have HIGHER outcomes)"
+                  else "(weak association)"))
+    cat(sprintf("  Mean weight: %.3f | Max weight: %.2f\n\n",
+                row$mean_weight, row$max_weight))
+
+    # Weight group breakdown
+    gs <- x$summary_dt[.time == row$.time]
+    if (nrow(gs) > 0) {
+      cat("  By weight group:\n")
+      header <- sprintf("  %5s  %5s  %10s  %10s",
+                        "group", "n", "mean_Y", "mean_wt")
+      if ("mean_p_a" %in% names(gs)) header <- paste0(header, sprintf("  %8s", "mean_pA"))
+      if ("mean_Q_hat" %in% names(gs)) header <- paste0(header, sprintf("  %10s", "mean_Qhat"))
+      header <- paste0(header, sprintf("  %8s", "contrib%"))
+      cat(header, "\n")
+      for (j in seq_len(nrow(gs))) {
+        g <- gs[j]
+        line <- sprintf("  %5s  %5d  %10.2f  %10.3f",
+                        paste0("Q", g$.weight_group), g$n,
+                        g$mean_outcome, g$mean_weight)
+        if ("mean_p_a" %in% names(gs))
+          line <- paste0(line, sprintf("  %8.4f", g$mean_p_a))
+        if ("mean_Q_hat" %in% names(gs))
+          line <- paste0(line, sprintf("  %10.2f", g$mean_Q_hat))
+        line <- paste0(line, sprintf("  %7.1f%%", g$contribution_pct))
+        cat(line, "\n")
+      }
+      cat("\n")
+    }
+  }
+  invisible(x)
+}
+
+
+#' Plot Influence Diagnostics
+#'
+#' Multi-panel plot showing the relationship between weights, outcomes, and
+#' counterfactual predictions. Helps diagnose why adjusted estimates differ
+#' from unadjusted means.
+#'
+#' @param x A \code{longy_influence_diag} object from
+#'   \code{influence_diagnostics()}.
+#' @param type Character. Plot type:
+#'   \describe{
+#'     \item{\code{"scatter"}}{Weight vs outcome scatter with loess smooth,
+#'       faceted by time. Shows the correlation driving the difference.}
+#'     \item{\code{"quintile"}}{Bar chart of mean outcome by weight quintile.
+#'       Shows subgroup patterns driving the IPW estimate.}
+#'     \item{\code{"density"}}{Overlaid densities of observed Y vs G-comp
+#'       counterfactual predictions Q_hat. Shows distributional shift.}
+#'     \item{\code{"cumulative"}}{Cumulative contribution plot. Subjects sorted
+#'       by absolute influence; shows how concentrated the estimate is.}
+#'   }
+#' @param ... Unused.
+#'
+#' @return A ggplot2 object.
+#' @export
+plot_influence_diagnostics <- function(x, type = c("scatter", "quintile",
+                                                     "density", "cumulative"),
+                                        ...) {
+  if (!requireNamespace("ggplot2", quietly = TRUE))
+    stop("ggplot2 is required.", call. = FALSE)
+  if (!inherits(x, "longy_influence_diag"))
+    stop("x must be a longy_influence_diag object.", call. = FALSE)
+
+  type <- match.arg(type)
+
+  switch(type,
+    scatter    = .plot_infl_scatter(x),
+    quintile   = .plot_infl_quintile(x),
+    density    = .plot_infl_density(x),
+    cumulative = .plot_infl_cumulative(x)
+  )
+}
+
+
+# --- Internal plot helpers --------------------------------------------------
+
+#' Scatter: weight vs outcome
+#' @noRd
+.plot_infl_scatter <- function(x) {
+  dt <- x$subject_dt[!is.na(.outcome) & !is.na(.final_weight)]
+  if (nrow(dt) == 0) {
+    message("No data to plot.")
+    return(invisible(NULL))
+  }
+
+  dt[, time_label := paste("t =", .time)]
+
+  ggplot2::ggplot(dt, ggplot2::aes(x = .final_weight, y = .outcome)) +
+    ggplot2::geom_point(alpha = 0.15, size = 0.8, colour = "#2166AC") +
+    ggplot2::geom_smooth(method = "loess", se = TRUE, colour = "#D6604D",
+                          linewidth = 1) +
+    ggplot2::facet_wrap(~time_label, scales = "free") +
+    ggplot2::labs(
+      x = "IPW Weight", y = "Outcome",
+      title = sprintf("Weight vs Outcome -- %s", x$regime),
+      subtitle = "Negative slope = high-weight subjects have lower outcomes, pulling IPW estimate down"
+    ) +
+    ggplot2::theme_minimal(base_size = 13)
+}
+
+
+#' Bar chart: mean outcome by weight quintile
+#' @noRd
+.plot_infl_quintile <- function(x) {
+  gs <- x$summary_dt
+  if (nrow(gs) == 0) {
+    message("No summary data to plot.")
+    return(invisible(NULL))
+  }
+
+  gs[, time_label := paste("t =", .time)]
+  gs[, group_label := paste0("Q", .weight_group)]
+
+  # Two-bar comparison: mean outcome (unweighted) and contribution
+  ggplot2::ggplot(gs, ggplot2::aes(x = group_label, y = mean_outcome)) +
+    ggplot2::geom_col(fill = "#2166AC", width = 0.6) +
+    ggplot2::geom_text(ggplot2::aes(label = sprintf("w=%.1f", mean_weight)),
+                        vjust = -0.3, size = 3, colour = "#666666") +
+    ggplot2::facet_wrap(~time_label, scales = "free_y") +
+    ggplot2::labs(
+      x = "Weight Quintile (Q1=lowest, Q5=highest)",
+      y = "Mean Outcome",
+      title = sprintf("Mean Outcome by Weight Group -- %s", x$regime),
+      subtitle = "Labels show mean weight per group. Declining pattern = confounding drives IPW below unadjusted."
+    ) +
+    ggplot2::theme_minimal(base_size = 13)
+}
+
+
+#' Density: observed Y vs Q_hat
+#' @noRd
+.plot_infl_density <- function(x) {
+  dt <- x$subject_dt
+
+  if (!".Q_hat" %in% names(dt) || all(is.na(dt$.Q_hat))) {
+    message("No G-comp predictions (Q_hat) available. Run fit_outcome() first.")
+    return(invisible(NULL))
+  }
+
+  # Stack observed and predicted for overlaid density
+  obs <- dt[!is.na(.outcome), list(value = .outcome, source = "Observed Y",
+                                     .time = .time)]
+  pred <- dt[!is.na(.Q_hat), list(value = .Q_hat, source = "Counterfactual Q_hat",
+                                    .time = .time)]
+  stacked <- data.table::rbindlist(list(obs, pred))
+  stacked[, time_label := paste("t =", .time)]
+
+  ggplot2::ggplot(stacked, ggplot2::aes(x = value, fill = source, colour = source)) +
+    ggplot2::geom_density(alpha = 0.3, linewidth = 0.7) +
+    ggplot2::facet_wrap(~time_label, scales = "free") +
+    ggplot2::scale_fill_manual(values = c("Observed Y" = "#2166AC",
+                                           "Counterfactual Q_hat" = "#D6604D")) +
+    ggplot2::scale_colour_manual(values = c("Observed Y" = "#2166AC",
+                                              "Counterfactual Q_hat" = "#D6604D")) +
+    ggplot2::labs(
+      x = "Value", y = "Density",
+      fill = "", colour = "",
+      title = sprintf("Observed Outcome vs Counterfactual Prediction -- %s",
+                      x$regime),
+      subtitle = "Shift between distributions shows the confounding adjustment from the outcome model"
+    ) +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(legend.position = "bottom")
+}
+
+
+#' Cumulative contribution (Lorenz-like)
+#' @noRd
+.plot_infl_cumulative <- function(x) {
+  dt <- x$subject_dt[!is.na(.outcome) & !is.na(.final_weight)]
+  if (nrow(dt) == 0) {
+    message("No data to plot.")
+    return(invisible(NULL))
+  }
+
+  dt[, time_label := paste("t =", .time)]
+
+  # Per-subject influence: weighted contribution relative to uniform
+  cum_dt <- dt[, {
+    total_w <- sum(.final_weight)
+    contrib <- (.final_weight / total_w) * .outcome
+    # Sort by absolute deviation from uniform contribution
+    uniform <- .outcome / .N
+    influence <- abs(contrib - uniform)
+    ord <- order(influence, decreasing = TRUE)
+    cum_pct <- cumsum(rep(1 / .N, .N))
+    cum_estimate <- cumsum(contrib[ord])
+    # Normalize cumulative estimate to final value
+    final_val <- sum(contrib)
+    list(
+      pct_subjects = cum_pct * 100,
+      cum_weighted_mean = cum_estimate / final_val * 100
+    )
+  }, by = time_label]
+
+  ggplot2::ggplot(cum_dt, ggplot2::aes(x = pct_subjects,
+                                         y = cum_weighted_mean)) +
+    ggplot2::geom_line(colour = "#2166AC", linewidth = 0.8) +
+    ggplot2::geom_abline(slope = 1, intercept = 0, linetype = "dashed",
+                          colour = "grey50") +
+    ggplot2::facet_wrap(~time_label) +
+    ggplot2::labs(
+      x = "% of Subjects (sorted by influence)",
+      y = "% of IPW Estimate",
+      title = sprintf("Cumulative Influence -- %s", x$regime),
+      subtitle = "Deviation from diagonal = concentration of influence in few subjects"
+    ) +
+    ggplot2::theme_minimal(base_size = 13)
+}

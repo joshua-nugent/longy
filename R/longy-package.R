@@ -37,7 +37,12 @@ utils::globalVariables(c(
   # weights.R ESS diagnostics
   ".ess", ".ess_pct", ".n",
   # bootstrap data creation
-  ".boot_new"
+  ".boot_new",
+  # influence_diagnostics variables
+  ".outcome", ".weight_group", ".Q_hat",
+  "time_label", "group_label", "mean_weight", "mean_outcome",
+  "source", "pct_subjects", "cum_weighted_mean",
+  "weighted_sum", "contribution_pct"
 ))
 
 #' Simulated Longitudinal Dataset with Known Causal Effects
