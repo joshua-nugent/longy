@@ -654,67 +654,172 @@ print.longy_data <- function(x, ...) {
 
 #' @export
 summary.longy_data <- function(object, ...) {
-  cat("=== longy_data summary ===\n\n")
-  print(object)
+  nodes <- object$nodes
+  meta <- object$meta
 
-  cat("\nNode columns:\n")
-  cat(sprintf("  Baseline:     %s\n",
-              if (length(object$nodes$baseline) > 0)
-                paste(object$nodes$baseline, collapse = ", ")
-              else "(none)"))
-  cat(sprintf("  Time-varying: %s\n",
-              if (length(object$nodes$timevarying) > 0)
-                paste(object$nodes$timevarying, collapse = ", ")
-              else "(none)"))
+  # Always show metadata header (longy_data summary)
+  cat("longy_data summary\n")
+  cat(sprintf("  Outcome type: %s\n", nodes$outcome_type))
+  cat(sprintf("  Subjects:     %d\n", meta$n_subjects))
+  cat(sprintf("  Time points:  %d (%s)\n", meta$n_times,
+              paste(meta$time_values, collapse = ", ")))
+  cat(sprintf("  Treatment:    %s\n", nodes$treatment))
+  if (!is.null(nodes$censoring_col)) {
+    causes <- nodes$censoring_levels
+    cat(sprintf("  Censoring:    %s (causes: %s)\n",
+                nodes$censoring_col, paste(causes, collapse = ", ")))
+  }
+  if (!is.null(nodes$observation)) {
+    cat(sprintf("  Observation:  %s\n", nodes$observation))
+  }
+  if (object$crossfit$enabled) {
+    cat(sprintf("  Cross-fit:    %d folds\n", object$crossfit$n_folds))
+  }
 
-  # Treatment distribution
-  a <- object$data[[object$nodes$treatment]]
-  cat(sprintf("\nTreatment (%s): mean = %.3f\n",
-              object$nodes$treatment, mean(a, na.rm = TRUE)))
+  # Show regimes if defined
+  if (length(object$regimes) > 0) {
+    reg_names <- names(object$regimes)
+    cat(sprintf("  Regimes:      %s\n", paste(reg_names, collapse = ", ")))
+  }
 
-  # Censoring summary
-  if (!is.null(object$nodes$censoring)) {
-    if (!is.null(object$nodes$censoring_col)) {
-      c_vals <- object$data[[object$nodes$censoring_col]]
-      total_cens <- 100 * mean(c_vals != "uncensored", na.rm = TRUE)
-      cat(sprintf("Censoring (%s): %.1f%% censored overall\n",
-                  object$nodes$censoring_col, total_cens))
-      for (lvl in object$nodes$censoring_levels) {
-        lvl_pct <- 100 * mean(c_vals == lvl, na.rm = TRUE)
-        cat(sprintf("  - %s: %.1f%%\n", lvl, lvl_pct))
-      }
-    } else {
-      for (cvar in object$nodes$censoring) {
-        c_vals <- object$data[[cvar]]
-        cat(sprintf("Censoring (%s): %.1f%% censored overall\n",
-                    cvar, 100 * mean(c_vals, na.rm = TRUE)))
-      }
+  # Show fitted models
+  fitted_parts <- character(0)
+  for (mtype in c("treatment", "censoring", "observation", "outcome")) {
+    if (length(object$fits[[mtype]]) > 0) {
+      rnames <- names(object$fits[[mtype]])
+      fitted_parts <- c(fitted_parts,
+                        sprintf("%s (%s)", mtype, paste(rnames, collapse = ", ")))
     }
   }
-
-  # Observation summary
-  if (!is.null(object$nodes$observation)) {
-    r_vals <- object$data[[object$nodes$observation]]
-    cat(sprintf("Observation (%s): %.1f%% observed overall\n",
-                object$nodes$observation, 100 * mean(r_vals, na.rm = TRUE)))
+  if (length(fitted_parts) > 0) {
+    cat(sprintf("  Fits:         %s\n", paste(fitted_parts, collapse = "; ")))
   }
 
-  # Cross-fitting
-  if (object$crossfit$enabled) {
-    cat(sprintf("\nCross-fitting: %d folds (column: %s)\n",
-                object$crossfit$n_folds, object$crossfit$fold_id))
+  if (length(object$results) == 0) {
+    cat("\n  No results yet. Run an estimator to see estimates.\n")
+    return(invisible(object))
   }
 
-  # Results
-  if (length(object$results) > 0) {
-    cat("\n--- Estimation Results ---\n")
-    for (rname in names(object$results)) {
-      res <- object$results[[rname]]
-      est_label <- if (!is.null(res$estimator)) toupper(res$estimator) else "IPW"
-      cat(sprintf("\n%s (%s, regime: %s):\n", rname, est_label, res$regime))
-      print(res$estimates)
+  # Combine all results into a single table (mirrors plot.longy_data logic)
+  all_est <- lapply(names(object$results), function(rname) {
+    res <- object$results[[rname]]
+    est <- as.data.frame(res$estimates)
+    est_type <- if (!is.null(res$estimator)) res$estimator else "ipw"
+    est$estimator <- switch(est_type,
+                            gcomp = "G-comp", tmle = "TMLE",
+                            unadjusted = "Unadjusted", "IPW")
+    est$regime <- res$regime
+    est
+  })
+  combined <- data.table::rbindlist(all_est, fill = TRUE)
+
+  estimators <- unique(combined$estimator)
+  regimes <- unique(combined$regime)
+  times <- sort(unique(combined$time))
+  has_ci <- "ci_lower" %in% names(combined) && "ci_upper" %in% names(combined)
+  has_se <- "se" %in% names(combined)
+
+  cat(sprintf("\nEstimator(s): %s | Regime(s): %s\n",
+              paste(estimators, collapse = ", "),
+              paste(regimes, collapse = ", ")))
+
+  # Print one table per estimator (like plot facets)
+  for (est_lab in estimators) {
+    cat(sprintf("\n--- %s ---\n", est_lab))
+    sub <- combined[combined$estimator == est_lab, ]
+
+    if (length(regimes) == 1) {
+      # Single regime: simple table
+      rg_sub <- sub[sub$regime == regimes[1], ]
+      .print_summary_table(rg_sub, has_se, has_ci)
+    } else {
+      # Multiple regimes: wide format with regime columns side by side
+      .print_summary_table_wide(sub, regimes, times, has_se, has_ci)
     }
   }
 
   invisible(object)
+}
+
+#' Print a single-regime summary table
+#' @noRd
+.print_summary_table <- function(dt, has_se, has_ci) {
+  # Check if SE/CI actually have non-NA values for this subset
+  real_se <- has_se && any(!is.na(dt$se))
+  real_ci <- has_ci && any(!is.na(dt$ci_lower))
+
+  if (real_ci && real_se) {
+    cat(sprintf("  %5s %10s %8s   %s\n", "time", "estimate", "se", "95% CI"))
+    cat(sprintf("  %s\n", paste(rep("-", 48), collapse = "")))
+    for (i in seq_len(nrow(dt))) {
+      cat(sprintf("  %5d %10.4f %8.4f   [%7.4f, %7.4f]\n",
+                  dt$time[i], dt$estimate[i], dt$se[i],
+                  dt$ci_lower[i], dt$ci_upper[i]))
+    }
+  } else if (real_se) {
+    cat(sprintf("  %5s %10s %8s\n", "time", "estimate", "se"))
+    cat(sprintf("  %s\n", paste(rep("-", 28), collapse = "")))
+    for (i in seq_len(nrow(dt))) {
+      cat(sprintf("  %5d %10.4f %8.4f\n", dt$time[i], dt$estimate[i], dt$se[i]))
+    }
+  } else {
+    cat(sprintf("  %5s %10s\n", "time", "estimate"))
+    cat(sprintf("  %s\n", paste(rep("-", 18), collapse = "")))
+    for (i in seq_len(nrow(dt))) {
+      cat(sprintf("  %5d %10.4f\n", dt$time[i], dt$estimate[i]))
+    }
+  }
+}
+
+#' Print a multi-regime wide summary table
+#' @noRd
+.print_summary_table_wide <- function(dt, regimes, times, has_se, has_ci) {
+  # Check if SE/CI actually have non-NA values for this subset
+  real_se <- has_se && any(!is.na(dt$se))
+  real_ci <- has_ci && any(!is.na(dt$ci_lower))
+
+  # Build header: time | regime1 est (CI) | regime2 est (CI) | ...
+  if (real_ci && real_se) {
+    col_w <- 30  # width per regime column
+    hdr <- sprintf("  %5s", "time")
+    for (rg in regimes) hdr <- paste0(hdr, sprintf("  %*s", col_w, rg))
+    cat(hdr, "\n")
+    cat(sprintf("  %s\n", paste(rep("-", 5 + (col_w + 2) * length(regimes)),
+                                collapse = "")))
+    for (tt in times) {
+      line <- sprintf("  %5d", tt)
+      for (rg in regimes) {
+        row <- dt[dt$time == tt & dt$regime == rg, ]
+        if (nrow(row) == 1) {
+          cell <- sprintf("%7.4f (%6.4f) [%7.4f, %7.4f]",
+                          row$estimate, row$se, row$ci_lower, row$ci_upper)
+          # Truncate/pad to col_w
+          line <- paste0(line, sprintf("  %*s", col_w, cell))
+        } else {
+          line <- paste0(line, sprintf("  %*s", col_w, ""))
+        }
+      }
+      cat(line, "\n")
+    }
+  } else {
+    col_w <- 12
+    hdr <- sprintf("  %5s", "time")
+    for (rg in regimes) hdr <- paste0(hdr, sprintf("  %*s", col_w, rg))
+    cat(hdr, "\n")
+    cat(sprintf("  %s\n", paste(rep("-", 5 + (col_w + 2) * length(regimes)),
+                                collapse = "")))
+    for (tt in times) {
+      line <- sprintf("  %5d", tt)
+      for (rg in regimes) {
+        row <- dt[dt$time == tt & dt$regime == rg, ]
+        if (nrow(row) == 1) {
+          line <- paste0(line, sprintf("  %*s", col_w,
+                                       sprintf("%.4f", row$estimate)))
+        } else {
+          line <- paste0(line, sprintf("  %*s", col_w, ""))
+        }
+      }
+      cat(line, "\n")
+    }
+  }
 }
