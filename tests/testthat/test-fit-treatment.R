@@ -361,7 +361,7 @@ test_that("risk_set='followers' works in full IPW pipeline", {
   expect_true(nrow(obj$results$never_ipw$estimates) > 0)
 })
 
-test_that("longy() forwards risk_set parameter", {
+test_that("longy() forwards risk_set_treatment parameter", {
   skip_if_not_installed("SuperLearner")
   set.seed(789)
   d <- simulate_test_data(n = 150, K = 3)
@@ -369,7 +369,7 @@ test_that("longy() forwards risk_set parameter", {
                treatment = "A", censoring = "C", observation = "R",
                baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
                regimes = list(always = 1L, never = 0L),
-               risk_set = "followers", verbose = FALSE)
+               risk_set_treatment = "followers", verbose = FALSE)
 
   expect_equal(obj$fits$treatment[["always"]]$risk_set, "followers")
   expect_equal(obj$fits$treatment[["never"]]$risk_set, "followers")

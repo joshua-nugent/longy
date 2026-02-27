@@ -21,6 +21,10 @@
 #' @param outcome_range Numeric vector of length 2. Range for scaling
 #'   continuous outcomes to \code{[0,1]}. If NULL, uses empirical range.
 #'   Ignored for binary/survival outcomes.
+#' @param risk_set Character. Which subjects form the training set for Q
+#'   models at each backward step. \code{"all"} (default) uses all uncensored
+#'   subjects. \code{"followers"} restricts to regime-followers, matching
+#'   \code{fit_outcome(risk_set = "followers")}.
 #' @param verbose Logical. Print progress.
 #'
 #' @return An S3 object of class \code{"longy_result"} with elements:
@@ -37,6 +41,7 @@
 estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
                           ci_level = 0.95, n_boot = 200L,
                           g_bounds = c(0.01, 1), outcome_range = NULL,
+                          risk_set = "all",
                           verbose = TRUE) {
   obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
@@ -49,6 +54,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
                               inference = inference, ci_level = ci_level,
                               n_boot = n_boot, g_bounds = g_bounds,
                               outcome_range = outcome_range,
+                              risk_set = risk_set,
                               verbose = verbose)
     next
   }
@@ -190,6 +196,13 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       # Uncensored subjects through C(t) (Convention B: C before Y).
       still_in <- dt_t$.longy_cum_uncens == 1L
       still_in[is.na(still_in)] <- FALSE
+
+      # Followers-only restriction: limit training to regime-consistent subjects
+      if (risk_set == "followers") {
+        consist_prev <- dt_t$.longy_consist_prev == 1L
+        consist_prev[is.na(consist_prev)] <- FALSE
+        still_in <- still_in & consist_prev
+      }
 
       # For survival: exclude absorbed subjects (event strictly before tt)
       if (is_survival) {

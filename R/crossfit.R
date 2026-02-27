@@ -613,6 +613,7 @@ NULL
 .cf_estimate_tmle <- function(obj, regime, times = NULL, inference = "eif",
                                ci_level = 0.95, n_boot = 200L,
                                g_bounds = c(0.01, 1), outcome_range = NULL,
+                               risk_set = "all",
                                verbose = TRUE) {
   nodes <- obj$nodes
   dt <- obj$data
@@ -737,6 +738,13 @@ NULL
       # Uncensored subjects through C(t) (Convention B: C before Y).
       still_in <- dt_t$.longy_cum_uncens == 1L
       still_in[is.na(still_in)] <- FALSE
+
+      # Followers-only restriction: limit training to regime-consistent subjects
+      if (risk_set == "followers") {
+        consist_prev <- dt_t$.longy_consist_prev == 1L
+        consist_prev[is.na(consist_prev)] <- FALSE
+        still_in <- still_in & consist_prev
+      }
 
       # For survival: exclude absorbed subjects (event strictly before tt)
       if (is_survival) {

@@ -24,6 +24,12 @@
 #'   time points.
 #' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
 #'   (default) or \code{"ffSL"} (future-factorial parallel).
+#' @param risk_set Character. Which subjects form the training set for outcome
+#'   models at each backward step. \code{"all"} (default) uses all uncensored
+#'   subjects. \code{"followers"} restricts to regime-followers (subjects
+#'   consistent with the regime through the previous time), so the model learns
+#'   \code{E(Q|H)} without extrapolation to non-followers. Predictions are still made
+#'   for all subjects at the earliest time.
 #' @param verbose Logical. Print progress.
 #' @param refit Logical. If FALSE (default), errors when outcome is already
 #'   fitted for the requested regime(s). Set to TRUE to re-fit.
@@ -35,10 +41,12 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                         sl_control = list(), adaptive_cv = TRUE,
                         min_obs = 50L, bounds = c(0.005, 0.995),
                         times = NULL, sl_fn = "SuperLearner",
+                        risk_set = c("all", "followers"),
                         verbose = TRUE, refit = FALSE) {
   obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "outcome")
   regime <- .resolve_regimes(obj, regime)
+  risk_set <- match.arg(risk_set)
 
   if (!refit) {
     fitted <- Filter(function(r) !is.null(obj$fits$outcome[[r]]) &&
@@ -151,6 +159,13 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       still_in <- dt_t$.longy_cum_uncens == 1L
       still_in[is.na(still_in)] <- FALSE
 
+      # Followers-only restriction: limit training to regime-consistent subjects
+      if (risk_set == "followers") {
+        consist_prev <- dt_t$.longy_consist_prev == 1L
+        consist_prev[is.na(consist_prev)] <- FALSE
+        still_in <- still_in & consist_prev
+      }
+
       # For survival: exclude absorbed subjects (event strictly before tt)
       if (is_survival) {
         fe <- dt_t$.longy_first_event
@@ -217,8 +232,9 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
           } else {
             q_tv
           }
-          .vmsg("  Q target=%d time=%d: n_train=%d, family=%s",
-                target_t, tt, n_train, step_family$family)
+          rs_label <- if (risk_set == "followers") " (followers)" else ""
+          .vmsg("  Q target=%d time=%d%s: n_train=%d, family=%s",
+                target_t, tt, rs_label, n_train, step_family$family)
           .vmsg_covariates(q_base, tv_label, lag_covs)
         }
 
@@ -359,7 +375,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     bounds = bounds,
     sl_fn = sl_fn,
     sl_info = sl_info,
-    family = "gaussian"
+    family = "gaussian",
+    risk_set = risk_set
   )
 
   # Clean up tracking columns

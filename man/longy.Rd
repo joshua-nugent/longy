@@ -33,7 +33,8 @@ longy(
   min_obs = 50L,
   min_events = 20L,
   bounds = c(0.005, 0.995),
-  risk_set = "all",
+  risk_set_treatment = "all",
+  risk_set_outcome = "all",
   g_bounds = c(0.01, 1),
   outcome_range = NULL,
   cross_fit = NULL,
@@ -85,12 +86,11 @@ if no competing risks.}
 \item For stochastic: a function returning P(A=1)
 }}
 
-\item{estimator}{Character. Which estimator(s) to use: \code{"ipw"} (default),
-\code{"gcomp"}, \code{"tmle"}, \code{"both"} (IPW + G-comp, backward
-compatible), or \code{"all"} (IPW + G-comp + TMLE). When multiple
-estimators are run, results are returned with \code{_ipw}, \code{_gcomp},
-and/or \code{_tmle} suffixes per regime. Nuisance models are shared
-across estimators to avoid redundant fitting.}
+\item{estimator}{Character vector. Which estimator(s) to run. Any combination
+of \code{"ipw"}, \code{"gcomp"}, and \code{"tmle"} (e.g.
+\code{c("ipw", "tmle")}). Results are keyed as
+\code{{regime}_{estimator}}. Nuisance models are shared across estimators
+to avoid redundant fitting.}
 
 \item{covariates}{Character vector. Predictor columns for nuisance models.
 If NULL, uses all baseline + timevarying.}
@@ -130,10 +130,15 @@ is below 0.01, marginal fallback is used. Default 20.}
 
 \item{bounds}{Numeric(2). Prediction probability bounds.}
 
-\item{risk_set}{Character. Which subjects form the risk set for treatment
-model fitting. \code{"all"} (default) uses all uncensored subjects
-(fit once, share across regimes). \code{"followers"} restricts to
+\item{risk_set_treatment}{Character. Which subjects form the risk set for
+treatment model fitting. \code{"all"} (default) uses all uncensored
+subjects (fit once, share across regimes). \code{"followers"} restricts to
 regime-followers at each time, fitting separate models per regime.}
+
+\item{risk_set_outcome}{Character. Which subjects form the training set for
+outcome models (used by G-comp and TMLE). \code{"all"} (default) uses all
+uncensored subjects. \code{"followers"} restricts to regime-followers, so
+the model learns \code{E(Q|H)} without extrapolation to non-followers.}
 
 \item{g_bounds}{Numeric(2). Bounds for cumulative g (denominator of clever
 covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.}

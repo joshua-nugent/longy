@@ -31,12 +31,11 @@
 #'     \item For dynamic: a function returning 0/1
 #'     \item For stochastic: a function returning P(A=1)
 #'   }
-#' @param estimator Character. Which estimator(s) to use: \code{"ipw"} (default),
-#'   \code{"gcomp"}, \code{"tmle"}, \code{"both"} (IPW + G-comp, backward
-#'   compatible), or \code{"all"} (IPW + G-comp + TMLE). When multiple
-#'   estimators are run, results are returned with \code{_ipw}, \code{_gcomp},
-#'   and/or \code{_tmle} suffixes per regime. Nuisance models are shared
-#'   across estimators to avoid redundant fitting.
+#' @param estimator Character vector. Which estimator(s) to run. Any combination
+#'   of \code{"ipw"}, \code{"gcomp"}, and \code{"tmle"} (e.g.
+#'   \code{c("ipw", "tmle")}). Results are keyed as
+#'   \code{{regime}_{estimator}}. Nuisance models are shared across estimators
+#'   to avoid redundant fitting.
 #' @param covariates Character vector. Predictor columns for nuisance models.
 #'   If NULL, uses all baseline + timevarying.
 #' @param learners Character vector or named list. SuperLearner library names
@@ -61,10 +60,14 @@
 #'   model. When the minority class count is below this AND the minority rate
 #'   is below 0.01, marginal fallback is used. Default 20.
 #' @param bounds Numeric(2). Prediction probability bounds.
-#' @param risk_set Character. Which subjects form the risk set for treatment
-#'   model fitting. \code{"all"} (default) uses all uncensored subjects
-#'   (fit once, share across regimes). \code{"followers"} restricts to
+#' @param risk_set_treatment Character. Which subjects form the risk set for
+#'   treatment model fitting. \code{"all"} (default) uses all uncensored
+#'   subjects (fit once, share across regimes). \code{"followers"} restricts to
 #'   regime-followers at each time, fitting separate models per regime.
+#' @param risk_set_outcome Character. Which subjects form the training set for
+#'   outcome models (used by G-comp and TMLE). \code{"all"} (default) uses all
+#'   uncensored subjects. \code{"followers"} restricts to regime-followers, so
+#'   the model learns \code{E(Q|H)} without extrapolation to non-followers.
 #' @param g_bounds Numeric(2). Bounds for cumulative g (denominator of clever
 #'   covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.
 #' @param outcome_range Numeric(2) or NULL. Range for scaling continuous
@@ -128,7 +131,8 @@ longy <- function(data,
                   min_obs = 50L,
                   min_events = 20L,
                   bounds = c(0.005, 0.995),
-                  risk_set = "all",
+                  risk_set_treatment = "all",
+                  risk_set_outcome = "all",
                   g_bounds = c(0.01, 1),
                   outcome_range = NULL,
                   cross_fit = NULL,
@@ -151,10 +155,16 @@ longy <- function(data,
       learners_observation <- learners_outcome <- learners
   }
 
-  estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle", "both", "all"))
-  do_ipw <- estimator %in% c("ipw", "both", "all")
-  do_gcomp <- estimator %in% c("gcomp", "both", "all")
-  do_tmle <- estimator %in% c("tmle", "all")
+  # Backward compatibility: "both" -> ipw + gcomp, "all" -> ipw + gcomp + tmle
+  if (length(estimator) == 1 && estimator == "both") {
+    estimator <- c("ipw", "gcomp")
+  } else if (length(estimator) == 1 && estimator == "all") {
+    estimator <- c("ipw", "gcomp", "tmle")
+  }
+  estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle"), several.ok = TRUE)
+  do_ipw <- "ipw" %in% estimator
+  do_gcomp <- "gcomp" %in% estimator
+  do_tmle <- "tmle" %in% estimator
   multi <- sum(do_ipw, do_gcomp, do_tmle) > 1
 
   # n_boot = 0 only disables bootstrap inference; analytic methods (ic, sandwich,
@@ -231,7 +241,7 @@ longy <- function(data,
                            min_obs = min_obs, min_events = min_events,
                            bounds = bounds,
                            times = times, sl_fn = sl_fn,
-                           verbose = verbose, risk_set = risk_set)
+                           verbose = verbose, risk_set = risk_set_treatment)
 
     if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C)...",
                         cur_step + 2L, n_steps)
@@ -278,6 +288,7 @@ longy <- function(data,
                          learners = learners_outcome, adaptive_cv = adaptive_cv,
                          min_obs = min_obs, bounds = bounds,
                          times = times, sl_fn = sl_fn,
+                         risk_set = risk_set_outcome,
                          verbose = verbose)
     cur_step <- cur_step + 1L
   }
@@ -304,6 +315,7 @@ longy <- function(data,
                          inference = tmle_inf, ci_level = ci_level,
                          n_boot = n_boot, g_bounds = g_bounds,
                          outcome_range = outcome_range,
+                         risk_set = risk_set_outcome,
                          verbose = verbose)
     cur_step <- cur_step + 1L
   }

@@ -15,6 +15,7 @@ fit_outcome(
   bounds = c(0.005, 0.995),
   times = NULL,
   sl_fn = "SuperLearner",
+  risk_set = c("all", "followers"),
   verbose = TRUE,
   refit = FALSE
 )
@@ -47,6 +48,13 @@ time points.}
 
 \item{sl_fn}{Character. SuperLearner implementation: \code{"SuperLearner"}
 (default) or \code{"ffSL"} (future-factorial parallel).}
+
+\item{risk_set}{Character. Which subjects form the training set for outcome
+models at each backward step. \code{"all"} (default) uses all uncensored
+subjects. \code{"followers"} restricts to regime-followers (subjects
+consistent with the regime through the previous time), so the model learns
+\code{E(Q|H)} without extrapolation to non-followers. Predictions are still made
+for all subjects at the earliest time.}
 
 \item{verbose}{Logical. Print progress.}
 

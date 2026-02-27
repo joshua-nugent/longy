@@ -13,6 +13,7 @@ estimate_tmle(
   n_boot = 200L,
   g_bounds = c(0.01, 1),
   outcome_range = NULL,
+  risk_set = "all",
   verbose = TRUE
 )
 }
@@ -39,6 +40,11 @@ efficient influence function), \code{"bootstrap"}, or \code{"none"}.}
 \item{outcome_range}{Numeric vector of length 2. Range for scaling
 continuous outcomes to \code{[0,1]}. If NULL, uses empirical range.
 Ignored for binary/survival outcomes.}
+
+\item{risk_set}{Character. Which subjects form the training set for Q
+models at each backward step. \code{"all"} (default) uses all uncensored
+subjects. \code{"followers"} restricts to regime-followers, matching
+\code{fit_outcome(risk_set = "followers")}.}
 
 \item{verbose}{Logical. Print progress.}
 }
