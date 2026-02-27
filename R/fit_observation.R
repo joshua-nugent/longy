@@ -173,6 +173,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     if (verbose) {
       .vmsg("  g_R time %d: n_risk=%d, marg=%.3f, method=%s",
             tt, n_risk, marg_r, method)
+      .vmsg_covariates(nodes$baseline, nodes$timevarying, lag_covs)
     }
   }
 

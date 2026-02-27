@@ -373,29 +373,44 @@ as_longy_data <- function(obj) {
                                        case.weights = obsWeights,
                                        write.forest = TRUE,
                                        num.threads = 1, verbose = FALSE)
-            pred <- predict(fit_obj, data = newX)$predictions
+            pred <- stats::predict(fit_obj, data = newX)$predictions
             n_clip <- sum(pred < q_lo | pred > q_hi)
             if (n_clip > 0) {
               message(sprintf("SL.ranger.reg: %d/%d predictions clipped to [%s, %s].",
                               n_clip, length(pred), q_lo, q_hi))
             }
             pred <- pmin(pmax(pred, q_lo), q_hi)
-            fit <- list(object = fit_obj)
+            # Store bounds in fit so predict method is self-contained
+            fit <- list(object = fit_obj, bounds = c(q_lo, q_hi))
             class(fit) <- "SL.ranger.reg"
             list(pred = pred, fit = fit)
           }
-          # predict method must be in globalenv for S3 dispatch to find it
+          # Self-contained predict method (reads bounds from fit object,
+          # no closure dependencies for robust serialization/dispatch)
           ranger_reg_pred_fn <- function(object, newdata, family, ...) {
             if (!requireNamespace("ranger", quietly = TRUE))
               stop("ranger package required", call. = FALSE)
             if (is.matrix(newdata)) newdata <- data.frame(newdata)
-            pred <- predict(object$object, data = newdata,
+            pred <- stats::predict(object$object, data = newdata,
                             num.threads = 1)$predictions
-            pmin(pmax(pred, q_lo), q_hi)
+            lo <- object$bounds[1]
+            hi <- object$bounds[2]
+            pmin(pmax(pred, lo), hi)
           }
           assign("SL.ranger.reg", ranger_reg_fn, envir = sl_env)
+          # Register predict method in multiple locations for robust S3 dispatch:
+          # 1. sl_env (so ffSL workers can find it)
+          assign("predict.SL.ranger.reg", ranger_reg_pred_fn, envir = sl_env)
+          # 2. globalenv (fallback for direct R sessions)
           assign("predict.SL.ranger.reg", ranger_reg_pred_fn,
                  envir = globalenv())
+          # 3. S3 methods table (most robust for UseMethod dispatch)
+          tryCatch(
+            registerS3method("predict", "SL.ranger.reg",
+                             ranger_reg_pred_fn,
+                             envir = asNamespace("stats")),
+            error = function(e) NULL
+          )
           learners[learners == "SL.ranger"] <- "SL.ranger.reg"
         }
       }
@@ -496,6 +511,40 @@ as_longy_data <- function(obj) {
   if (verbose) {
     message(sprintf(fmt, ...))
   }
+}
+
+#' Format covariate listing for verbose output
+#'
+#' Prints baseline, time-varying, and lagged covariates as a compact message.
+#' Cleans up internal lag column names for readability.
+#' @param baseline Character vector of baseline covariate names
+#' @param timevarying Character vector of time-varying covariate names
+#' @param lag_covs Character vector of lag covariate column names
+#' @param indent Character. Indentation prefix.
+#' @noRd
+.vmsg_covariates <- function(baseline, timevarying, lag_covs,
+                              indent = "    ") {
+  # Clean lag names: .longy_lag_A_1 -> A_lag1
+  clean_lags <- if (length(lag_covs) > 0) {
+    gsub("^\\.longy_lag_(.+)_(\\d+)$", "\\1_lag\\2", lag_covs)
+  } else {
+    character(0)
+  }
+
+  parts <- character(0)
+  if (length(baseline) > 0) {
+    parts <- c(parts, sprintf("baseline: %s", paste(baseline, collapse = ", ")))
+  }
+  if (length(timevarying) > 0) {
+    parts <- c(parts, sprintf("time-varying: %s",
+                               paste(timevarying, collapse = ", ")))
+  }
+  if (length(clean_lags) > 0) {
+    parts <- c(parts, sprintf("lagged: %s", paste(clean_lags, collapse = ", ")))
+  } else {
+    parts <- c(parts, "lagged: (none)")
+  }
+  .vmsg("%s%s", indent, paste(parts, collapse = "; "))
 }
 
 #' Convert factors/characters to dummy variables in a data.table

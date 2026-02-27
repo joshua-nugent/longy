@@ -207,8 +207,19 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         all_covs <- c(covariates, lag_covs)
 
         if (verbose) {
-          .vmsg("  Qform target=%d time=%d: Q.kplus1 ~ %s",
-                target_t, tt, paste(all_covs, collapse = " + "))
+          # Note: covariates for Q include treatment (A) in addition to
+          # baseline and time-varying. Separate the treatment node.
+          q_base <- nodes$baseline
+          q_tv <- nodes$timevarying
+          q_extra <- setdiff(covariates, c(q_base, q_tv))
+          tv_label <- if (length(q_extra) > 0) {
+            c(q_tv, q_extra)
+          } else {
+            q_tv
+          }
+          .vmsg("  Q target=%d time=%d: n_train=%d, family=%s",
+                target_t, tt, n_train, step_family$family)
+          .vmsg_covariates(q_base, tv_label, lag_covs)
         }
 
         X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])

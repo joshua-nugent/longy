@@ -190,6 +190,7 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       }
       .vmsg("  g_A time %d%s: n_risk=%d, marg=%.3f, method=%s",
             tt, rs_label, n_risk, marg_a, method)
+      .vmsg_covariates(nodes$baseline, nodes$timevarying, lag_covs)
     }
   }
 

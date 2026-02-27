@@ -153,6 +153,7 @@ NULL
       }
       .vmsg("  CF g_A time %d%s: n_risk=%d, marg=%.3f, K=%d",
             tt, rs_label, n_risk, marg_a, n_folds)
+      .vmsg_covariates(nodes$baseline, nodes$timevarying, lag_covs)
     }
   }
 
@@ -315,6 +316,8 @@ NULL
       if (verbose) {
         .vmsg("    CF g_C(%s) time %d: n_risk=%d, marg_uncens=%.3f, K=%d",
               cvar, tt, n_risk, marg_c, n_folds)
+        .vmsg_covariates(nodes$baseline, nodes$timevarying, lag_covs,
+                          indent = "      ")
       }
     }
 
@@ -473,6 +476,7 @@ NULL
     if (verbose) {
       .vmsg("  CF g_R time %d: n_risk=%d, marg=%.3f, K=%d",
             tt, n_risk, marg_r, n_folds)
+      .vmsg_covariates(nodes$baseline, nodes$timevarying, lag_covs)
     }
   }
 

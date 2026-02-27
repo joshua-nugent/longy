@@ -188,6 +188,8 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       if (verbose) {
         .vmsg("    g_C(%s) time %d: n_risk=%d, marg_uncens=%.3f, method=%s",
               cvar, tt, n_risk, marg_c, method)
+        .vmsg_covariates(nodes$baseline, nodes$timevarying, lag_covs,
+                          indent = "      ")
       }
     }
 
