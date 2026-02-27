@@ -745,17 +745,31 @@ influence_diagnostics <- function(obj, regime = NULL, times = NULL,
     base[, .weight_group := 1L]
   }
 
+  # --- Compute g-comp estimates from FULL predictions (all subjects) ---
+  # G-comp uses mean(Q_hat) over ALL subjects, not just regime followers.
+  # The base data only has followers (from weights), so we compute separately.
+  gcomp_by_time <- NULL
+  if (has_outcome) {
+    q_preds_full <- obj$fits$outcome[[regime]]$predictions
+    gcomp_by_time <- q_preds_full[, list(
+      .gcomp_est = mean(.Q_hat, na.rm = TRUE),
+      .gcomp_n = .N
+    ), by = .target_time]
+    data.table::setnames(gcomp_by_time, ".target_time", ".time")
+  }
+
+  # --- Compute population unadjusted mean (all subjects, not just followers) ---
+  pop_unadj <- dt[, list(
+    .pop_unadj = mean(as.numeric(get(y_col)), na.rm = TRUE),
+    .pop_n = sum(!is.na(get(y_col)))
+  ), by = c(time_col)]
+  data.table::setnames(pop_unadj, time_col, ".time")
+
   # --- Time-level summary ---
   time_summary <- base[!is.na(.outcome), {
-    unadj <- mean(.outcome, na.rm = TRUE)
+    follower_mean <- mean(.outcome, na.rm = TRUE)
     wm <- if (has_weights && any(!is.na(.final_weight))) {
       stats::weighted.mean(.outcome, .final_weight, na.rm = TRUE)
-    } else {
-      NA_real_
-    }
-    qh <- if (has_outcome && ".Q_hat" %in% names(base) &&
-              any(!is.na(.Q_hat))) {
-      mean(.Q_hat, na.rm = TRUE)
     } else {
       NA_real_
     }
@@ -766,16 +780,30 @@ influence_diagnostics <- function(obj, regime = NULL, times = NULL,
       NA_real_
     }
     list(
-      n = .N,
-      unadjusted_mean = round(unadj, 2),
+      n_followers = .N,
+      follower_mean = round(follower_mean, 2),
       ipw_estimate = round(wm, 2),
-      gcomp_estimate = round(qh, 2),
       weight_outcome_cor = round(wt_y_cor, 3),
       mean_weight = round(mean(.final_weight, na.rm = TRUE), 3),
       max_weight = round(max(.final_weight, na.rm = TRUE), 2),
       ess = if (has_weights) round(.ess(.final_weight), 1) else as.numeric(.N)
     )
   }, by = .time]
+
+  # Merge population unadjusted mean
+  time_summary <- merge(time_summary, pop_unadj, by = ".time", all.x = TRUE)
+  time_summary[, pop_unadj_mean := round(.pop_unadj, 2)]
+  time_summary[, .pop_unadj := NULL]
+
+  # Merge g-comp estimates from full predictions
+  if (!is.null(gcomp_by_time)) {
+    time_summary <- merge(time_summary, gcomp_by_time, by = ".time", all.x = TRUE)
+    time_summary[, gcomp_estimate := round(.gcomp_est, 2)]
+    time_summary[, c(".gcomp_est", ".gcomp_n") := NULL]
+  } else {
+    time_summary[, gcomp_estimate := NA_real_]
+  }
+
   data.table::setkey(time_summary, .time)
 
   # --- Weight-group summary ---
@@ -824,15 +852,16 @@ print.longy_influence_diag <- function(x, ...) {
   ts <- x$time_summary
   for (i in seq_len(nrow(ts))) {
     row <- ts[i]
-    cat(sprintf("Time %s (n=%d, ESS=%.0f):\n",
-                as.character(row$.time), row$n, row$ess))
-    cat(sprintf("  Unadjusted mean:       %8.2f\n", row$unadjusted_mean))
+    cat(sprintf("Time %s (n_pop=%d, n_followers=%d, ESS=%.0f):\n",
+                as.character(row$.time), row$.pop_n, row$n_followers, row$ess))
+    cat(sprintf("  Population mean (all):   %8.2f\n", row$pop_unadj_mean))
+    cat(sprintf("  Follower mean (unwt'd):  %8.2f\n", row$follower_mean))
     if (!is.na(row$ipw_estimate))
-      cat(sprintf("  IPW estimate:          %8.2f\n", row$ipw_estimate))
+      cat(sprintf("  IPW estimate (wt'd):     %8.2f\n", row$ipw_estimate))
     if (!is.na(row$gcomp_estimate))
-      cat(sprintf("  G-comp estimate:       %8.2f\n", row$gcomp_estimate))
+      cat(sprintf("  G-comp estimate:         %8.2f\n", row$gcomp_estimate))
     if (!is.na(row$weight_outcome_cor))
-      cat(sprintf("  Weight-outcome corr:   %8.3f  %s\n",
+      cat(sprintf("  Weight-outcome corr:     %8.3f  %s\n",
                   row$weight_outcome_cor,
                   if (row$weight_outcome_cor < -0.1) "(high-weight obs have LOWER outcomes)"
                   else if (row$weight_outcome_cor > 0.1) "(high-weight obs have HIGHER outcomes)"

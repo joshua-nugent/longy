@@ -40,6 +40,8 @@ utils::globalVariables(c(
   ".boot_new",
   # influence_diagnostics variables
   ".outcome", ".weight_group", ".Q_hat",
+  ".gcomp_est", ".gcomp_n", ".pop_unadj", ".pop_n",
+  "pop_unadj_mean", "gcomp_estimate",
   "time_label", "group_label", "mean_weight", "mean_outcome",
   "source", "pct_subjects", "cum_weighted_mean",
   "weighted_sum", "contribution_pct"
