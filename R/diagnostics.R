@@ -1075,3 +1075,145 @@ plot_influence_diagnostics <- function(x, type = c("scatter", "quintile",
     ) +
     ggplot2::theme_minimal(base_size = 13)
 }
+
+#' TMLE Diagnostics
+#'
+#' Summarizes TMLE fluctuation steps and EIF decomposition for each target
+#' time point. Shows epsilon values, Q-model methods, risk set sizes, and
+#' the relative contribution of the initial (outcome model) vs augmentation
+#' (IPW correction) terms to the EIF variance.
+#'
+#' @param obj A \code{longy_data} object with TMLE results, or a
+#'   \code{longy_result} from \code{estimate_tmle()}.
+#' @param regime Character. Name of the regime. If NULL, uses the first
+#'   available TMLE result.
+#'
+#' @return Invisibly returns a list with \code{steps} (data.table of per-step
+#'   info) and \code{eif} (data.table of EIF decomposition). Also prints a
+#'   formatted summary.
+#' @export
+tmle_diagnostics <- function(obj, regime = NULL) {
+  obj <- .as_longy_data(obj)
+
+  # Find TMLE result
+  tmle_keys <- grep("_tmle$", names(obj$results), value = TRUE)
+  if (length(tmle_keys) == 0) {
+    stop("No TMLE results found. Run estimate_tmle() first.", call. = FALSE)
+  }
+
+  if (!is.null(regime)) {
+    key <- paste0(regime, "_tmle")
+    if (!key %in% tmle_keys) {
+      stop(sprintf("No TMLE result for regime '%s'. Available: %s",
+                   regime, paste(sub("_tmle$", "", tmle_keys), collapse = ", ")),
+           call. = FALSE)
+    }
+  } else {
+    key <- tmle_keys[1]
+    regime <- sub("_tmle$", "", key)
+  }
+
+  res <- obj$results[[key]]
+  tmle_info <- res$tmle_info
+
+  if (is.null(tmle_info) || length(tmle_info) == 0) {
+    cat("No TMLE diagnostic info stored. Re-run estimate_tmle() to generate diagnostics.\n")
+    return(invisible(list()))
+  }
+
+  steps <- tmle_info$steps
+  eif <- tmle_info$eif
+
+  cat(sprintf("TMLE Diagnostics -- regime: %s\n", regime))
+  cat(paste(rep("=", 60), collapse = ""), "\n")
+
+  if (!is.null(steps) && nrow(steps) > 0) {
+    target_times <- sort(unique(steps$target_time))
+
+    for (tt in target_times) {
+      tt_steps <- steps[steps$target_time == tt, ]
+      tt_steps <- tt_steps[order(tt_steps$step_time, decreasing = TRUE), ]
+
+      cat(sprintf("\nTarget time %d (%d backward steps):\n", tt, nrow(tt_steps)))
+
+      # Summary line: total epsilon, methods
+      total_eps <- sum(abs(tt_steps$epsilon))
+      methods_used <- unique(tt_steps$method[tt_steps$method != "none"])
+      cat(sprintf("  Sum |epsilon|: %.4f | Methods: %s\n",
+                  total_eps, paste(methods_used, collapse = ", ")))
+
+      # Per-step table
+      cat(sprintf("  %6s %9s %8s %7s %7s %8s %8s %8s\n",
+                  "step_t", "epsilon", "method", "n_risk", "n_fluc",
+                  "mean_Qb", "mean_Q*", "min_g"))
+      cat(sprintf("  %s\n", paste(rep("-", 72), collapse = "")))
+
+      for (j in seq_len(nrow(tt_steps))) {
+        s <- tt_steps[j, ]
+        method_short <- switch(s$method,
+                               SuperLearner = "SL",
+                               "cross-fitted" = "CF",
+                               marginal = "marg",
+                               none = "none",
+                               glm = "glm",
+                               s$method)
+        cat(sprintf("  %6d %9.4f %8s %7d %7d %8.4f %8.4f %8.4f\n",
+                    s$step_time, s$epsilon, method_short,
+                    s$n_at_risk, s$n_fluct,
+                    ifelse(is.na(s$mean_Q_bar), 0, s$mean_Q_bar),
+                    ifelse(is.na(s$mean_Q_star), 0, s$mean_Q_star),
+                    ifelse(is.na(s$min_g_denom), 0, s$min_g_denom)))
+      }
+
+      # Flag large epsilons
+      large_eps <- tt_steps[abs(tt_steps$epsilon) > 0.5, ]
+      if (nrow(large_eps) > 0) {
+        cat(sprintf("  WARNING: %d step(s) with |epsilon| > 0.5 (large fluctuation)\n",
+                    nrow(large_eps)))
+      }
+
+      # Flag small fluctuation sets
+      small_fluct <- tt_steps[tt_steps$n_fluct > 0 & tt_steps$n_fluct < 10, ]
+      if (nrow(small_fluct) > 0) {
+        cat(sprintf("  WARNING: %d step(s) with <10 subjects in fluctuation set\n",
+                    nrow(small_fluct)))
+      }
+
+      # Flag near-positivity violations
+      if (any(!is.na(tt_steps$min_g_denom) & tt_steps$min_g_denom < 0.02)) {
+        cat("  WARNING: min g_denom < 0.02 at some steps (near-positivity violation)\n")
+      }
+    }
+  }
+
+  # EIF decomposition
+  if (!is.null(eif) && nrow(eif) > 0) {
+    cat(sprintf("\nEIF Variance Decomposition:\n"))
+    cat(sprintf("  %6s %8s %8s %8s %7s %8s\n",
+                "time", "SE(D)", "SE(init)", "SE(aug)", "pct_aug", "n_aug>0"))
+    cat(sprintf("  %s\n", paste(rep("-", 54), collapse = "")))
+
+    for (j in seq_len(nrow(eif))) {
+      e <- eif[j, ]
+      # Variance decomposition: what fraction of total variance comes from augmentation?
+      var_total <- e$se_total^2
+      var_aug <- e$se_augmentation^2
+      pct_aug <- if (!is.na(var_total) && var_total > 0) {
+        100 * var_aug / var_total
+      } else {
+        NA_real_
+      }
+      cat(sprintf("  %6d %8.4f %8.4f %8.4f %6.1f%% %5d/%d\n",
+                  e$target_time, e$se_total, e$se_initial, e$se_augmentation,
+                  ifelse(is.na(pct_aug), 0, pct_aug),
+                  e$n_aug_nonzero, e$n_subjects))
+    }
+
+    cat("\n  SE(init) = SE of Q*_0 - psi (outcome model contribution)\n")
+    cat("  SE(aug)  = SE of sum H_s*(Q*_{s+1} - Q*_s) (IPW correction)\n")
+    cat("  High pct_aug = SE driven by weight variability, not outcome model\n")
+  }
+
+  cat("\n")
+  invisible(list(steps = steps, eif = eif, regime = regime))
+}

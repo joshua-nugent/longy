@@ -416,7 +416,10 @@ as_longy_data <- function(obj) {
       }
     }
 
+    # Capture warnings during SL call to surface learner error messages
+    sl_warnings <- list()
     fit <- tryCatch(
+      withCallingHandlers(
       {
         sl_args <- list(
           Y = Y, X = X, family = sl_family,
@@ -437,14 +440,26 @@ as_longy_data <- function(obj) {
         if (n_failed > 0) {
           failed_names <- sl_fit$libraryNames[all_errs]
           ctx <- if (nzchar(context)) paste0(" [", context, "]") else ""
+          # Always print learner failure info with error details
+          err_msgs <- vapply(sl_warnings, function(w) conditionMessage(w),
+                             character(1))
+          # Extract the actual error messages (from SL's "Error in algorithm X" warnings)
+          algo_errs <- grep("Error in algorithm", err_msgs, value = TRUE)
+          err_detail <- if (length(algo_errs) > 0) {
+            paste0("\n    ", paste(unique(algo_errs), collapse = "\n    "))
+          } else {
+            ""
+          }
+          msg <- sprintf(
+            "%d/%d learner(s) failed%s: %s%s",
+            n_failed, n_total, ctx,
+            paste(failed_names, collapse = ", "),
+            err_detail)
           if (n_failed >= n_total * 0.5) {
-            warning(sprintf(
-              "%d/%d learner(s) failed%s: %s. SL is relying heavily on survivors.",
-              n_failed, n_total, ctx, paste(failed_names, collapse = ", ")),
-              call. = FALSE)
-          } else if (verbose) {
-            .vmsg("  %d/%d learner(s) failed%s: %s",
-                  n_failed, n_total, ctx, paste(failed_names, collapse = ", "))
+            warning(paste0(msg, "\n    SL is relying heavily on survivors."),
+                    call. = FALSE)
+          } else {
+            message(msg)
           }
         }
 
@@ -456,6 +471,15 @@ as_longy_data <- function(obj) {
           sl_coef = sl_fit$coef
         )
       },
+      warning = function(w) {
+        sl_warnings[[length(sl_warnings) + 1L]] <<- w
+        # Muffle SL's own algorithm error warnings (we report them better)
+        # Let all other warnings through normally
+        msg <- conditionMessage(w)
+        if (grepl("Error in algorithm|Coefficients already 0", msg)) {
+          invokeRestart("muffleWarning")
+        }
+      }),
       error = function(e) {
         ctx <- if (nzchar(context)) paste0(" [", context, "]") else ""
         warning(sprintf("SuperLearner failed%s (n=%d, event_rate=%.3f): %s. Falling back to glm.",

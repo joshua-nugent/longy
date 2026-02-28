@@ -181,7 +181,11 @@
         newX = tempValid[, whichScreen, drop = FALSE],
         family = family, id = tempId, obsWeights = tempObsWeights
       )),
-      error = function(e) NULL
+      error = function(e) {
+        message(sprintf("ffSL: %s failed in CV fold %d: %s",
+                        libraryNames[alg_idx], fold_idx, e$message))
+        NULL
+      }
     )
 
     if (is.null(testAlg)) {
@@ -292,7 +296,11 @@
           newX = newX[, whichScreen[lib$rowScreen[index], ], drop = FALSE],
           family = family, id = id, obsWeights = obsWeights
         )),
-        error = function(e) NULL
+        error = function(e) {
+          message(sprintf("ffSL: %s failed on full data: %s",
+                          libraryNames[index], e$message))
+          NULL
+        }
       )
       if (is.null(testAlg)) {
         out$pred <- rep.int(NA, times = nrow(newX))

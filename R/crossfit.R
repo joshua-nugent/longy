@@ -720,6 +720,8 @@ NULL
   eps <- q_bounds[1]
 
   est_list <- vector("list", length(target_times))
+  step_info_list <- list()  # per-step diagnostics
+  eif_info_list <- list()   # per-target EIF decomposition
 
   for (target_idx in seq_along(target_times)) {
     target_t <- target_times[target_idx]
@@ -884,6 +886,24 @@ NULL
               tt, n_at_risk, n_train, n_primary, n_competing, fluct_epsilon)
       }
 
+      # Collect per-step diagnostic info
+      n_fluct <- if (n_train > 0) sum(in_fluct & !is.na(pseudo_out)) else 0L
+      step_info_list[[length(step_info_list) + 1L]] <- list(
+        target_time = target_t,
+        step_time = tt,
+        epsilon = fluct_epsilon,
+        method = if (n_train > 0) "cross-fitted" else "none",
+        n_at_risk = n_at_risk,
+        n_train = n_train,
+        n_fluct = n_fluct,
+        n_primary_abs = n_primary,
+        n_competing_abs = n_competing,
+        mean_Q_bar = if (length(Q_bar) > 0) mean(Q_bar) else NA_real_,
+        mean_Q_star = if (length(Q_star) > 0) mean(Q_star) else NA_real_,
+        mean_g_denom = if (n_train > 0 && n_fluct > 0) mean(g_denom[in_fluct & !is.na(pseudo_out)]) else NA_real_,
+        min_g_denom = if (n_train > 0 && n_fluct > 0) min(g_denom[in_fluct & !is.na(pseudo_out)]) else NA_real_
+      )
+
       # --- Predict Q* for newly-censored subjects (needed for EIF) ---
       # Subjects who were at-risk at the previous time but dropped out now.
       # Without Q* predictions for them, the EIF defaults missing Q*_{s+1}
@@ -1012,8 +1032,14 @@ NULL
         y_range_width = y_range_width
       )
 
+      # Preserve decomposition before back-transform
+      init_raw <- attr(D_i, "initial")
+      aug_raw <- attr(D_i, "augmentation")
+
       if (!is_binary) {
         D_i <- D_i * y_range_width
+        if (!is.null(init_raw)) init_raw <- init_raw * y_range_width
+        if (!is.null(aug_raw)) aug_raw <- aug_raw * y_range_width
       }
 
       n_i <- length(D_i)
@@ -1022,6 +1048,22 @@ NULL
       } else {
         se <- NA_real_
       }
+
+      # Store EIF decomposition
+      if (!is.null(init_raw) && !is.null(aug_raw)) {
+        se_init <- sqrt(stats::var(init_raw) / n_i)
+        se_aug <- sqrt(stats::var(aug_raw) / n_i)
+        n_aug_nonzero <- sum(abs(aug_raw) > 1e-10)
+        eif_info_list[[length(eif_info_list) + 1L]] <- list(
+          target_time = target_t,
+          se_total = se,
+          se_initial = se_init,
+          se_augmentation = se_aug,
+          n_aug_nonzero = n_aug_nonzero,
+          n_subjects = n_i
+        )
+      }
+
       z <- stats::qnorm(1 - (1 - ci_level) / 2)
       est_row[, se := se]
       est_row[, ci_lower := if (is.na(se)) NA_real_ else psi_hat - z * se]
@@ -1072,12 +1114,22 @@ NULL
   }
   .remove_tracking_columns(obj$data)
 
+  # Build TMLE diagnostics info
+  tmle_info <- list()
+  if (length(step_info_list) > 0) {
+    tmle_info$steps <- data.table::rbindlist(step_info_list)
+  }
+  if (length(eif_info_list) > 0) {
+    tmle_info$eif <- data.table::rbindlist(eif_info_list)
+  }
+
   result <- list(
     estimates = estimates,
     regime = regime,
     estimator = "tmle",
     inference = inference,
-    ci_level = ci_level
+    ci_level = ci_level,
+    tmle_info = tmle_info
   )
   class(result) <- "longy_result"
   obj$results[[paste0(regime, "_tmle")]] <- result
