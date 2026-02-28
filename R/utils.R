@@ -357,63 +357,79 @@ as_longy_data <- function(obj) {
         }
       }
 
-      if ("SL.ranger" %in% learners) {
-        y_is_binary <- all(Y %in% c(0, 1))
-        if (!y_is_binary) {
-          # SL.ranger with gaussian returns a regression fit, but
-          # predict.SL.ranger checks family$family == "binomial" (passed by
-          # predict.SuperLearner) and tries pred[, "1"] on a vector.
-          # Fix: call ranger directly and use a custom predict method.
-          ranger_reg_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
-            if (!requireNamespace("ranger", quietly = TRUE))
-              stop("ranger package required", call. = FALSE)
-            if (is.matrix(X)) X <- data.frame(X)
-            if (is.matrix(newX)) newX <- data.frame(newX)
-            fit_obj <- ranger::ranger(`_Y` ~ ., data = cbind(`_Y` = Y, X),
-                                       case.weights = obsWeights,
-                                       write.forest = TRUE,
-                                       num.threads = 1, verbose = FALSE)
-            pred <- stats::predict(fit_obj, data = newX)$predictions
-            n_clip <- sum(pred < q_lo | pred > q_hi)
-            if (n_clip > 0) {
-              message(sprintf("SL.ranger.reg: %d/%d predictions clipped to [%s, %s].",
-                              n_clip, length(pred), q_lo, q_hi))
-            }
-            pred <- pmin(pmax(pred, q_lo), q_hi)
-            # Store bounds in fit so predict method is self-contained
-            fit <- list(object = fit_obj, bounds = c(q_lo, q_hi))
-            class(fit) <- "SL.ranger.reg"
-            list(pred = pred, fit = fit)
-          }
-          # Self-contained predict method (reads bounds from fit object,
-          # no closure dependencies for robust serialization/dispatch)
-          ranger_reg_pred_fn <- function(object, newdata, family, ...) {
-            if (!requireNamespace("ranger", quietly = TRUE))
-              stop("ranger package required", call. = FALSE)
-            if (is.matrix(newdata)) newdata <- data.frame(newdata)
-            pred <- stats::predict(object$object, data = newdata,
-                            num.threads = 1)$predictions
-            lo <- object$bounds[1]
-            hi <- object$bounds[2]
-            pmin(pmax(pred, lo), hi)
-          }
-          assign("SL.ranger.reg", ranger_reg_fn, envir = sl_env)
-          # Register predict method in multiple locations for robust S3 dispatch:
-          # 1. sl_env (so ffSL workers can find it)
-          assign("predict.SL.ranger.reg", ranger_reg_pred_fn, envir = sl_env)
-          # 2. globalenv (fallback for direct R sessions)
-          assign("predict.SL.ranger.reg", ranger_reg_pred_fn,
-                 envir = globalenv())
-          # 3. S3 methods table (most robust for UseMethod dispatch)
-          tryCatch(
-            registerS3method("predict", "SL.ranger.reg",
-                             ranger_reg_pred_fn,
-                             envir = asNamespace("stats")),
-            error = function(e) NULL
-          )
-          learners[learners == "SL.ranger"] <- "SL.ranger.reg"
+    }
+
+    # Always replace SL.ranger with non-formula wrapper. ranger's formula
+    # interface rejects columns with special characters in their names
+    # (e.g. dummy columns like "uacr_c_>=300"). Use x=, y= interface instead.
+    if ("SL.ranger" %in% learners) {
+      # For quasibinomial with non-binary Y, clip predictions to bounds
+      clip_bounds <- if (is_quasi && !all(Y %in% c(0, 1))) c(q_lo, q_hi) else NULL
+
+      ranger_longy_fn <- function(Y, X, newX, family, obsWeights, id, ...) {
+        if (!requireNamespace("ranger", quietly = TRUE))
+          stop("ranger package required", call. = FALSE)
+        if (is.matrix(X)) X <- data.frame(X)
+        if (is.matrix(newX)) newX <- data.frame(newX)
+        y_binary <- all(Y %in% c(0, 1))
+        if (y_binary) {
+          # Probability forest for binary outcomes (matches stock SL.ranger)
+          fit_obj <- ranger::ranger(x = X, y = as.factor(Y),
+                                     probability = TRUE,
+                                     case.weights = obsWeights,
+                                     write.forest = TRUE,
+                                     num.threads = 1, verbose = FALSE)
+          pred <- stats::predict(fit_obj, data = newX)$predictions[, "1"]
+        } else {
+          # Regression forest for continuous pseudo-outcomes
+          fit_obj <- ranger::ranger(x = X, y = Y,
+                                     case.weights = obsWeights,
+                                     write.forest = TRUE,
+                                     num.threads = 1, verbose = FALSE)
+          pred <- stats::predict(fit_obj, data = newX)$predictions
         }
+        if (!is.null(clip_bounds)) {
+          n_clip <- sum(pred < clip_bounds[1] | pred > clip_bounds[2])
+          if (n_clip > 0) {
+            message(sprintf("SL.ranger.longy: %d/%d predictions clipped to [%s, %s].",
+                            n_clip, length(pred), clip_bounds[1], clip_bounds[2]))
+          }
+          pred <- pmin(pmax(pred, clip_bounds[1]), clip_bounds[2])
+        }
+        fit <- list(object = fit_obj, bounds = clip_bounds,
+                    y_binary = y_binary)
+        class(fit) <- "SL.ranger.longy"
+        list(pred = pred, fit = fit)
       }
+      # Self-contained predict method (reads bounds and y_binary from fit,
+      # no closure dependencies for robust serialization/dispatch)
+      ranger_longy_pred_fn <- function(object, newdata, family, ...) {
+        if (!requireNamespace("ranger", quietly = TRUE))
+          stop("ranger package required", call. = FALSE)
+        if (is.matrix(newdata)) newdata <- data.frame(newdata)
+        raw <- stats::predict(object$object, data = newdata,
+                        num.threads = 1)$predictions
+        pred <- if (isTRUE(object$y_binary)) raw[, "1"] else raw
+        if (!is.null(object$bounds)) {
+          pred <- pmin(pmax(pred, object$bounds[1]), object$bounds[2])
+        }
+        pred
+      }
+      assign("SL.ranger.longy", ranger_longy_fn, envir = sl_env)
+      # Register predict method in multiple locations for robust S3 dispatch:
+      # 1. sl_env (so ffSL workers can find it)
+      assign("predict.SL.ranger.longy", ranger_longy_pred_fn, envir = sl_env)
+      # 2. globalenv (fallback for direct R sessions)
+      assign("predict.SL.ranger.longy", ranger_longy_pred_fn,
+             envir = globalenv())
+      # 3. S3 methods table (most robust for UseMethod dispatch)
+      tryCatch(
+        registerS3method("predict", "SL.ranger.longy",
+                         ranger_longy_pred_fn,
+                         envir = asNamespace("stats")),
+        error = function(e) NULL
+      )
+      learners[learners == "SL.ranger"] <- "SL.ranger.longy"
     }
 
     # Capture warnings during SL call to surface learner error messages

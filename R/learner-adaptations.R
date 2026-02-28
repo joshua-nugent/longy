@@ -34,17 +34,19 @@
 #' transformation approach used for glmnet is not needed here.
 #'
 #' @section SL.ranger adaptation:
-#' \code{SL.ranger} with \code{binomial} family uses probability forests,
-#' which can behave unexpectedly with continuous \eqn{[0,1]} pseudo-outcomes.
-#' longy replaces \code{SL.ranger} with an internal wrapper
-#' \code{SL.ranger.reg} that fits with \code{gaussian} family (regression
-#' forest). Tree-based methods naturally restrict predictions to the range of
-#' the training data, so predictions are well-behaved; clipping to
-#' \eqn{[0.005, 0.995]} is applied as a safety measure.
+#' \code{ranger}'s formula interface rejects column names containing special
+#' characters (e.g., dummy columns like \code{uacr_c_>=300}). longy
+#' \strong{always} replaces \code{SL.ranger} with an internal wrapper
+#' \code{SL.ranger.longy} that uses ranger's non-formula interface
+#' (\code{x = X, y = Y}). This avoids formula-related errors regardless of
+#' column names. When the outcome is continuous \eqn{[0,1]} (quasibinomial
+#' context), predictions are clipped to \eqn{[0.005, 0.995]} as a safety
+#' measure.
 #'
 #' @section When do these adaptations apply?:
-#' These swaps only occur when the internal family is \code{quasibinomial},
-#' which happens in two contexts:
+#' The \code{SL.ranger} adaptation applies unconditionally (all model fits).
+#' The \code{SL.xgboost} and \code{SL.glmnet} adaptations apply only when the
+#' internal family is \code{quasibinomial}, which happens in two contexts:
 #' \enumerate{
 #'   \item \strong{TMLE}: All backward ICE Q-model steps use quasibinomial,
 #'     since pseudo-outcomes are continuous \eqn{[0,1]} predictions from the
@@ -71,5 +73,5 @@
 #' the parallel \code{ffSL} implementation.
 #'
 #' @name learner_adaptations
-#' @aliases SL.xgboost.reg SL.glmnet.reg SL.ranger.reg
+#' @aliases SL.xgboost.reg SL.glmnet.reg SL.ranger.longy
 NULL
