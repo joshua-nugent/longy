@@ -258,6 +258,32 @@ as_longy_data <- function(obj) {
   list(n_eff = n_eff, V = V, n = n, p_hat = p_hat, n_rare = n_rare)
 }
 
+#' Create a clean closure environment for parallel dispatch
+#'
+#' Task functions defined inside fit_* closures capture the entire call frame,
+#' including the full longy_data object (obj) with fitted models and external
+#' pointers. This makes serialization huge and can crash workers. This helper
+#' creates a minimal environment containing only the variables the task
+#' function actually needs, with the package namespace as parent so internal
+#' functions (and base R) remain accessible.
+#'
+#' @param fn The task function whose environment to clean.
+#' @param keep_vars Character vector of variable names to keep from the
+#'   function's current environment.
+#' @return The function with a trimmed environment.
+#' @noRd
+.clean_closure <- function(fn, keep_vars) {
+  old_env <- environment(fn)
+  clean <- new.env(parent = asNamespace("longy"))
+  for (v in keep_vars) {
+    if (exists(v, envir = old_env, inherits = FALSE)) {
+      clean[[v]] <- old_env[[v]]
+    }
+  }
+  environment(fn) <- clean
+  fn
+}
+
 #' Dispatch tasks via future.apply (if available) or lapply
 #'
 #' When \code{parallel = TRUE}, \code{future.apply} is installed, and a

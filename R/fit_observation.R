@@ -190,6 +190,15 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
          n_marginal = task_n_marginal)
   }
 
+  # Strip obj from closure to avoid serializing the full longy_data object
+  if (parallel) {
+    one_timepoint <- .clean_closure(one_timepoint, c(
+      "time_vals", "dt", "nodes", "parallel",
+      "learners", "adaptive_cv", "worker_ffSL", "verbose",
+      "bounds", "min_obs", "min_events", "covariates"
+    ))
+  }
+
   if (verbose && parallel)
     .vmsg("  g_R: dispatching %d time points...", length(time_vals))
 

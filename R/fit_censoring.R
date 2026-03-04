@@ -206,6 +206,15 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
          n_marginal = task_n_marginal)
   }
 
+  # Strip obj from closure to avoid serializing the full longy_data object
+  if (parallel) {
+    one_cens_task <- .clean_closure(one_cens_task, c(
+      "tasks", "nodes", "time_vals", "dt", "parallel",
+      "learners", "adaptive_cv", "worker_ffSL", "verbose",
+      "bounds", "min_obs", "min_events", "covariates"
+    ))
+  }
+
   if (verbose && parallel)
     .vmsg("  g_C: dispatching %d cause x time tasks...", nrow(tasks))
 

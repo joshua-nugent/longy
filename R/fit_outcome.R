@@ -349,6 +349,16 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     list(predictions = preds_out, sl_info = sl_info_out)
   }
 
+  # Strip obj from closure to avoid serializing the full longy_data object
+  if (parallel) {
+    one_target <- .clean_closure(one_target, c(
+      "target_times", "dt", "nodes", "all_time_vals", "id_col", "time_col",
+      "a_col", "y_col", "is_binary", "is_survival", "has_competing",
+      "covariates", "risk_set", "worker_ffSL", "worker_verbose",
+      "min_obs", "bounds", "adaptive_cv", "learners"
+    ))
+  }
+
   if (verbose && parallel)
     .vmsg("  Q: dispatching %d target times...", length(target_times))
 

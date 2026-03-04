@@ -1,6 +1,6 @@
 Package: longy
 Title: Longitudinal Causal Inference via IPW, G-Computation, and TMLE
-Version: 0.1.0
+Version: 0.1.1
 Authors@R:
     person("Joshua", "Nugent", role = c("aut", "cre"),
            email = "joshuanugent@example.com")
