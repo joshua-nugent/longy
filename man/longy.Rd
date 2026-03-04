@@ -39,7 +39,8 @@ longy(
   outcome_range = NULL,
   cross_fit = NULL,
   cross_fit_seed = NULL,
-  sl_fn = "ffSL",
+  use_ffSL = FALSE,
+  parallel = FALSE,
   k = Inf,
   verbose = TRUE
 )
@@ -156,10 +157,14 @@ are 5 or 10. Default NULL (no cross-fitting).}
 \item{cross_fit_seed}{Integer or NULL. Random seed for cross-fitting fold
 assignment. NULL for no seed.}
 
-\item{sl_fn}{Character. Which SuperLearner implementation to use:
-\code{"SuperLearner"} (default, sequential CV) or \code{"ffSL"}
-(future-factorial, parallelizes fold x algorithm combinations via
-\code{future.apply}).}
+\item{use_ffSL}{Logical. If TRUE, use future-factorial SuperLearner
+(parallelizes fold x algorithm combinations via \code{future.apply}).
+Default FALSE. Forced to FALSE inside parallel workers to prevent
+nested parallelism.}
+
+\item{parallel}{Logical. If TRUE and a non-sequential \code{future::plan()}
+is active, dispatches time-point models in parallel via
+\code{future.apply::future_lapply()}. Default FALSE.}
 
 \item{k}{Integer or \code{Inf}. Number of lagged time steps of covariate
 history to include as additional predictors. See \code{\link{longy_data}}

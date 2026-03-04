@@ -22,8 +22,11 @@
 #' @param times Numeric vector. If provided, only fit models for these target
 #'   times. Saves computation when estimation is only needed at specific
 #'   time points.
-#' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
-#'   (default) or \code{"ffSL"} (future-factorial parallel).
+#' @param use_ffSL Logical. If TRUE, use future-factorial SuperLearner.
+#'   Default FALSE. Forced to FALSE inside parallel workers.
+#' @param parallel Logical. If TRUE and a non-sequential \code{future::plan()}
+#'   is active, dispatches target-time backward passes in parallel. Each worker
+#'   copies the full dataset. Default FALSE.
 #' @param risk_set Character. Which subjects form the training set for outcome
 #'   models at each backward step. \code{"all"} (default) uses all uncensored
 #'   subjects. \code{"followers"} restricts to regime-followers (subjects
@@ -40,7 +43,8 @@
 fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                         sl_control = list(), adaptive_cv = TRUE,
                         min_obs = 50L, bounds = c(0.005, 0.995),
-                        times = NULL, sl_fn = "SuperLearner",
+                        times = NULL, use_ffSL = FALSE,
+                        parallel = FALSE,
                         risk_set = c("all", "followers"),
                         verbose = TRUE, refit = FALSE) {
   obj <- .as_longy_data(obj)
@@ -134,16 +138,20 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     }
   }
 
-  # Outer loop: one backward pass per target time (ICE)
-  predictions_list <- vector("list", length(target_times))
-  sl_info_list <- vector("list", length(target_times))
+  # Worker SL flag: force sequential SL inside parallel workers
+  worker_ffSL <- if (parallel) FALSE else use_ffSL
+  worker_verbose <- if (parallel) FALSE else verbose
 
-  for (target_idx in seq_along(target_times)) {
+  # One backward pass per target time (ICE)
+  one_target <- function(target_idx) {
     target_t <- target_times[target_idx]
 
+    # Each worker needs its own copy because the backward pass mutates .longy_Q
+    dt_w <- data.table::copy(dt)
+
     # Initialize Q: Y only at target time, NA elsewhere
-    dt[, .longy_Q := NA_real_]
-    dt[dt[[time_col]] == target_t, .longy_Q := as.numeric(get(y_col))]
+    dt_w[, .longy_Q := NA_real_]
+    dt_w[dt_w[[time_col]] == target_t, .longy_Q := as.numeric(get(y_col))]
 
     # Backward pass: from target_t down to min time
     backward_times <- rev(all_time_vals[all_time_vals <= target_t])
@@ -153,7 +161,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     for (i in seq_along(backward_times)) {
       tt <- backward_times[i]
 
-      dt_t <- dt[dt[[time_col]] == tt, ]
+      dt_t <- dt_w[dt_w[[time_col]] == tt, ]
 
       # Uncensored subjects through t
       still_in <- dt_t$.longy_cum_uncens == 1L
@@ -188,8 +196,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       competing_absorbed_ids <- dt_t[[id_col]][absorbed_competing]
 
       if (n_at_risk == 0 && n_primary == 0 && n_competing == 0) {
-        if (verbose) .vmsg("  Q target=%d time %d: 0 at risk, skipping",
-                           target_t, tt)
+        if (worker_verbose) .vmsg("  Q target=%d time %d: 0 at risk, skipping",
+                                   target_t, tt)
         next
       }
 
@@ -204,9 +212,6 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       n_clipped_upper <- 0L
 
       # Per-step family: quasibinomial (logit link) at all steps for binary/survival
-      # outcomes. Pseudo-outcomes are continuous [0,1] — quasibinomial avoids
-      # warnings about non-integer Y while preserving the logit link that correctly
-      # constrains predictions to (0,1). This matches ltmle's approach.
       step_family <- if (is_binary) stats::quasibinomial() else stats::gaussian()
 
       if (n_at_risk > 0) {
@@ -216,14 +221,11 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       }
 
       if (n_train > 0) {
-        # Covariates for at-risk subjects (augmented with lag columns)
         time_index <- match(tt, all_time_vals)
         lag_covs <- .get_lag_covariates(nodes, time_index)
         all_covs <- c(covariates, lag_covs)
 
-        if (verbose) {
-          # Note: covariates for Q include treatment (A) in addition to
-          # baseline and time-varying. Separate the treatment node.
+        if (worker_verbose) {
           q_base <- nodes$baseline
           q_tv <- nodes$timevarying
           q_extra <- setdiff(covariates, c(q_base, q_tv))
@@ -242,14 +244,12 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]
 
-        # Extract sampling weights for training subjects (NULL if none)
         ow <- NULL
         if (!is.null(nodes$sampling_weights)) {
           ow_risk <- dt_t[[nodes$sampling_weights]][at_risk]
           ow <- ow_risk[has_Q]
         }
 
-        # Fit model
         if (n_train >= min_obs && length(unique(Y_train)) > 1) {
         cv_folds <- 10L
         if (adaptive_cv) {
@@ -260,13 +260,12 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                        target_t, tt, n_train, mean(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, family = step_family,
                         learners = learners, cv_folds = cv_folds,
-                        obs_weights = ow, sl_fn = sl_fn,
-                        context = ctx, verbose = verbose)
+                        obs_weights = ow, use_ffSL = worker_ffSL,
+                        context = ctx, verbose = worker_verbose)
         method <- fit$method
         sl_risk <- fit$sl_risk
         sl_coef <- fit$sl_coef
 
-        # Counterfactual prediction: set A (current + lagged) to regime values
         X_cf <- X_risk
         if (a_col %in% all_covs) {
           X_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
@@ -282,7 +281,6 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
 
         preds <- .predict_from_fit(fit, X_cf)
         } else {
-          # Marginal fallback
           if (!is.null(ow)) {
             marg <- stats::weighted.mean(Y_train, ow)
           } else {
@@ -292,7 +290,6 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
           method <- "marginal"
         }
 
-        # Bound predictions for binary/survival with clip tracking
         if (is_binary) {
           n_clipped_lower <- sum(preds < bounds[1])
           n_clipped_upper <- sum(preds > bounds[2])
@@ -303,12 +300,10 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         }
       } # end if (n_train > 0)
 
-      # Combine at-risk predictions with hard-coded values for absorbed subjects
-      # Primary absorbed (prior Y=1) → Q=1; Competing absorbed (prior D=1) → Q=0
       all_ids <- c(risk_ids, primary_absorbed_ids, competing_absorbed_ids)
       all_preds <- c(preds, rep(1, n_primary), rep(0, n_competing))
 
-      if (verbose) {
+      if (worker_verbose) {
         .vmsg("  Q target=%d time %d: n_at_risk=%d, n_train=%d, n_primary_abs=%d, n_competing_abs=%d, method=%s, clipped=%d/%d (lo/hi)",
               target_t, tt, n_at_risk, n_train, n_primary, n_competing, method,
               n_clipped_lower, n_clipped_upper)
@@ -332,16 +327,16 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
           .tmp_pred = all_preds
         )
         data.table::setnames(pred_dt_prop, ".tmp_id", id_col)
-        prev_rows <- dt[[time_col]] == prev_t
-        prev_ids <- dt[[id_col]][prev_rows]
+        prev_rows <- dt_w[[time_col]] == prev_t
+        prev_ids <- dt_w[[id_col]][prev_rows]
         match_idx <- match(prev_ids, pred_dt_prop[[id_col]])
         has_match <- !is.na(match_idx)
-        dt$.longy_Q[which(prev_rows)[has_match]] <- pred_dt_prop$.tmp_pred[match_idx[has_match]]
+        dt_w$.longy_Q[which(prev_rows)[has_match]] <- pred_dt_prop$.tmp_pred[match_idx[has_match]]
       }
 
       # If this is the final backward step (earliest time), store predictions
       if (tt == backward_times[n_back] && length(all_ids) > 0) {
-        predictions_list[[target_idx]] <- data.table::data.table(
+        return_preds <- data.table::data.table(
           .id = all_ids,
           .target_time = target_t,
           .Q_hat = all_preds
@@ -349,10 +344,21 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       }
     }
 
-    sl_info_list[[target_idx]] <- sl_info_target[
-      !vapply(sl_info_target, is.null, logical(1))
-    ]
+    preds_out <- if (exists("return_preds", inherits = FALSE)) return_preds else NULL
+    sl_info_out <- sl_info_target[!vapply(sl_info_target, is.null, logical(1))]
+    list(predictions = preds_out, sl_info = sl_info_out)
   }
+
+  if (verbose && parallel)
+    .vmsg("  Q: dispatching %d target times...", length(target_times))
+
+  target_results <- .parallel_or_sequential(
+    seq_along(target_times), one_target, parallel = parallel,
+    verbose = FALSE
+  )
+
+  predictions_list <- lapply(target_results, `[[`, "predictions")
+  sl_info_list <- lapply(target_results, `[[`, "sl_info")
 
   # Combine predictions
   non_null <- !vapply(predictions_list, is.null, logical(1))
@@ -373,15 +379,15 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     covariates = covariates,
     learners = learners,
     bounds = bounds,
-    sl_fn = sl_fn,
+    use_ffSL = use_ffSL,
     sl_info = sl_info,
     family = "gaussian",
     risk_set = risk_set
   )
 
-  # Clean up tracking columns
-  dt[, .longy_Q := NULL]
-  dt[, .longy_regime_a := NULL]
+  # Clean up tracking columns (dt is the original obj$data, not the worker copy)
+  if (".longy_Q" %in% names(dt)) dt[, .longy_Q := NULL]
+  if (".longy_regime_a" %in% names(dt)) dt[, .longy_regime_a := NULL]
   regime_lag_cols <- grep("^\\.longy_lag_regime_", names(dt), value = TRUE)
   if (length(regime_lag_cols) > 0) dt[, (regime_lag_cols) := NULL]
   if (is_survival && ".longy_first_event" %in% names(dt)) {

@@ -14,7 +14,8 @@ fit_outcome(
   min_obs = 50L,
   bounds = c(0.005, 0.995),
   times = NULL,
-  sl_fn = "SuperLearner",
+  use_ffSL = FALSE,
+  parallel = FALSE,
   risk_set = c("all", "followers"),
   verbose = TRUE,
   refit = FALSE
@@ -46,8 +47,12 @@ threshold, uses marginal mean.}
 times. Saves computation when estimation is only needed at specific
 time points.}
 
-\item{sl_fn}{Character. SuperLearner implementation: \code{"SuperLearner"}
-(default) or \code{"ffSL"} (future-factorial parallel).}
+\item{use_ffSL}{Logical. If TRUE, use future-factorial SuperLearner.
+Default FALSE. Forced to FALSE inside parallel workers.}
+
+\item{parallel}{Logical. If TRUE and a non-sequential \code{future::plan()}
+is active, dispatches target-time backward passes in parallel. Each worker
+copies the full dataset. Default FALSE.}
 
 \item{risk_set}{Character. Which subjects form the training set for outcome
 models at each backward step. \code{"all"} (default) uses all uncensored

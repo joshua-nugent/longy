@@ -154,7 +154,7 @@
                              covariates = obj$fits$treatment[[regime]]$covariates,
                              learners = obj$fits$treatment[[regime]]$learners,
                              bounds = obj$fits$treatment[[regime]]$bounds,
-                             sl_fn = "SuperLearner",
+                             use_ffSL = FALSE,
                              verbose = FALSE)
       cens_fits <- obj$fits$censoring[[regime]]
       if (length(cens_fits) > 0) {
@@ -163,7 +163,7 @@
         bnd_c <- cens_fits[[1]]$bounds
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, sl_fn = "SuperLearner",
+                               bounds = bnd_c, use_ffSL = FALSE,
                                verbose = FALSE)
       }
       obs_fit <- obj$fits$observation[[regime]]
@@ -172,7 +172,7 @@
                                  covariates = obs_fit$covariates,
                                  learners = obs_fit$learners,
                                  bounds = obs_fit$bounds,
-                                 sl_fn = "SuperLearner",
+                                 use_ffSL = FALSE,
                                  verbose = FALSE)
       }
       b_obj <- compute_weights(b_obj, regime = regime,
@@ -323,7 +323,7 @@
                            learners = outcome_fit$learners,
                            bounds = outcome_fit$bounds,
                            times = times,
-                           sl_fn = "SuperLearner",
+                           use_ffSL = FALSE,
                            verbose = FALSE)
       b_obj
     }, error = function(e) NULL)
@@ -423,7 +423,7 @@
                              covariates = obj$fits$treatment[[regime]]$covariates,
                              learners = obj$fits$treatment[[regime]]$learners,
                              bounds = obj$fits$treatment[[regime]]$bounds,
-                             sl_fn = "SuperLearner",
+                             use_ffSL = FALSE,
                              verbose = FALSE)
 
       # Fit censoring model
@@ -434,7 +434,7 @@
         bnd_c <- cens_fits_tmle[[1]]$bounds
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, sl_fn = "SuperLearner",
+                               bounds = bnd_c, use_ffSL = FALSE,
                                verbose = FALSE)
       }
 
@@ -444,7 +444,7 @@
                            learners = outcome_fit$learners,
                            bounds = outcome_fit$bounds,
                            times = times,
-                           sl_fn = "SuperLearner",
+                           use_ffSL = FALSE,
                            verbose = FALSE)
 
       # Run TMLE (point estimates only)

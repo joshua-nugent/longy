@@ -19,8 +19,10 @@
 #'   is below 0.01, marginal fallback is used. Default 20.
 #' @param bounds Numeric(2). Prediction bounds.
 #' @param times Numeric vector. If provided, only fit through `max(times)`.
-#' @param sl_fn Character. SuperLearner implementation: \code{"SuperLearner"}
-#'   (default) or \code{"ffSL"} (future-factorial parallel).
+#' @param use_ffSL Logical. If TRUE, use future-factorial SuperLearner.
+#'   Default FALSE. Forced to FALSE inside parallel workers.
+#' @param parallel Logical. If TRUE and a non-sequential \code{future::plan()}
+#'   is active, dispatches time-point models in parallel. Default FALSE.
 #' @param verbose Logical. Progress messages.
 #' @param refit Logical. If FALSE (default), errors when observation is already
 #'   fitted for the requested regime(s). Set to TRUE to re-fit.
@@ -31,7 +33,8 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
                             sl_control = list(), adaptive_cv = TRUE,
                             min_obs = 50L, min_events = 20L,
                             bounds = c(0.005, 0.995),
-                            times = NULL, sl_fn = "SuperLearner",
+                            times = NULL, use_ffSL = FALSE,
+                            parallel = FALSE,
                             verbose = TRUE, refit = FALSE) {
   obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "observation")
@@ -57,11 +60,12 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
   # uncensored status only, not regime consistency). Fit once, then replicate
   # the result for all requested regimes.
   if (isTRUE(obj$crossfit$enabled)) {
+    sl_fn_cf <- if (use_ffSL) "ffSL" else "SuperLearner"
     obj <- .cf_fit_observation(obj, regime[1], covariates = covariates,
                                 learners = learners, sl_control = sl_control,
                                 adaptive_cv = adaptive_cv, min_obs = min_obs,
                                 min_events = min_events,
-                                bounds = bounds, times = times, sl_fn = sl_fn,
+                                bounds = bounds, times = times, sl_fn = sl_fn_cf,
                                 verbose = verbose)
     fit_result <- obj$fits$observation[[regime[1]]]
   } else {
@@ -79,11 +83,13 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
 
   dt <- .add_tracking_columns(dt, nodes, reg)
 
-  results <- vector("list", length(time_vals))
-  sl_info <- vector("list", length(time_vals))
-  n_marginal <- 0L
+  # Snapshot data for parallel safety
+  if (parallel) dt <- data.table::copy(dt)
 
-  for (i in seq_along(time_vals)) {
+  # Worker SL flag: force sequential SL inside parallel workers
+  worker_ffSL <- if (parallel) FALSE else use_ffSL
+
+  one_timepoint <- function(i) {
     tt <- time_vals[i]
     dt_t <- dt[dt[[nodes$time]] == tt, ]
 
@@ -103,8 +109,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
 
     n_risk <- sum(still_in)
     if (n_risk == 0) {
-      if (verbose) .vmsg("  g_R time %d: 0 at risk, skipping", tt)
-      next
+      return(list(result = NULL, sl_info = NULL, n_marginal = 0L))
     }
 
     lag_covs <- .get_lag_covariates(nodes, i)
@@ -118,6 +123,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       ow <- dt_t[[nodes$sampling_weights]][still_in]
     }
 
+    task_n_marginal <- 0L
     n_minority <- min(sum(Y == 1), sum(Y == 0))
     minority_rate <- min(mean(Y), 1 - mean(Y))
     rare_events <- n_minority < min_events && minority_rate < 0.01
@@ -131,7 +137,8 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       }
       fit <- .safe_sl(Y = Y, X = X, learners = learners,
                       cv_folds = cv_folds, obs_weights = ow,
-                      sl_fn = sl_fn, context = ctx, verbose = verbose)
+                      use_ffSL = worker_ffSL, context = ctx,
+                      verbose = !parallel && verbose)
       p_r <- .bound(fit$predictions, bounds[1], bounds[2])
       method <- fit$method
       sl_risk <- fit$sl_risk
@@ -142,7 +149,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       method <- "marginal"
       sl_risk <- NULL
       sl_coef <- NULL
-      n_marginal <- n_marginal + 1L
+      task_n_marginal <- 1L
       if (length(unique(Y)) <= 1) {
         warning(sprintf(
           "g_R at time %d: outcome is constant (obs_rate=%.3f). Using marginal.",
@@ -160,7 +167,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
 
     marg_r <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
 
-    results[[i]] <- data.table::data.table(
+    result_dt <- data.table::data.table(
       .id = dt_t[[nodes$id]][still_in],
       .time = tt,
       .n_risk = n_risk,
@@ -170,15 +177,31 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       .method = method
     )
 
-    sl_info[[i]] <- list(time = tt, method = method,
-                         sl_risk = sl_risk, sl_coef = sl_coef)
+    sl_info_entry <- list(time = tt, method = method,
+                          sl_risk = sl_risk, sl_coef = sl_coef)
 
-    if (verbose) {
+    if (!parallel && verbose) {
       .vmsg("  g_R time %d: n_risk=%d, marg=%.3f, method=%s",
             tt, n_risk, marg_r, method)
       .vmsg_covariates(nodes$baseline, nodes$timevarying, lag_covs)
     }
+
+    list(result = result_dt, sl_info = sl_info_entry,
+         n_marginal = task_n_marginal)
   }
+
+  if (verbose && parallel)
+    .vmsg("  g_R: dispatching %d time points...", length(time_vals))
+
+  task_results <- .parallel_or_sequential(
+    seq_along(time_vals), one_timepoint, parallel = parallel,
+    verbose = FALSE
+  )
+
+  # Collect results
+  results <- lapply(task_results, `[[`, "result")
+  sl_info <- lapply(task_results, `[[`, "sl_info")
+  n_marginal <- sum(vapply(task_results, function(x) x$n_marginal, integer(1)))
 
   non_null <- !vapply(results, is.null, logical(1))
   n_fitted <- sum(non_null)
@@ -200,7 +223,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     covariates = covariates,
     learners = learners,
     bounds = bounds,
-    sl_fn = sl_fn,
+    use_ffSL = use_ffSL,
     sl_info = sl_info
   )
 

@@ -15,7 +15,8 @@ fit_treatment(
   min_events = 20L,
   bounds = c(0.005, 0.995),
   times = NULL,
-  sl_fn = "SuperLearner",
+  use_ffSL = FALSE,
+  parallel = FALSE,
   verbose = TRUE,
   refit = FALSE,
   risk_set = c("all", "followers")
@@ -50,8 +51,14 @@ is below 0.01, marginal fallback is used. Default 20.}
 \code{max(times)}. Saves computation when estimation is only needed at
 early time points.}
 
-\item{sl_fn}{Character. SuperLearner implementation: \code{"SuperLearner"}
-(default) or \code{"ffSL"} (future-factorial parallel).}
+\item{use_ffSL}{Logical. If TRUE, use future-factorial SuperLearner
+(parallelizes fold x algorithm combinations via \code{future.apply}).
+Default FALSE (sequential SuperLearner). Forced to FALSE inside parallel
+workers to prevent nested parallelism.}
+
+\item{parallel}{Logical. If TRUE and a non-sequential \code{future::plan()}
+is active, dispatches time-point models in parallel via
+\code{future.apply::future_lapply()}. Default FALSE.}
 
 \item{verbose}{Logical. Print progress.}
 

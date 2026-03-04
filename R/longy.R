@@ -80,10 +80,13 @@
 #'   are 5 or 10. Default NULL (no cross-fitting).
 #' @param cross_fit_seed Integer or NULL. Random seed for cross-fitting fold
 #'   assignment. NULL for no seed.
-#' @param sl_fn Character. Which SuperLearner implementation to use:
-#'   \code{"SuperLearner"} (default, sequential CV) or \code{"ffSL"}
-#'   (future-factorial, parallelizes fold x algorithm combinations via
-#'   \code{future.apply}).
+#' @param use_ffSL Logical. If TRUE, use future-factorial SuperLearner
+#'   (parallelizes fold x algorithm combinations via \code{future.apply}).
+#'   Default FALSE. Forced to FALSE inside parallel workers to prevent
+#'   nested parallelism.
+#' @param parallel Logical. If TRUE and a non-sequential \code{future::plan()}
+#'   is active, dispatches time-point models in parallel via
+#'   \code{future.apply::future_lapply()}. Default FALSE.
 #' @param k Integer or \code{Inf}. Number of lagged time steps of covariate
 #'   history to include as additional predictors. See \code{\link{longy_data}}
 #'   for details. Default \code{Inf} (all available history).
@@ -137,11 +140,10 @@ longy <- function(data,
                   outcome_range = NULL,
                   cross_fit = NULL,
                   cross_fit_seed = NULL,
-                  sl_fn = "ffSL",
+                  use_ffSL = FALSE,
+                  parallel = FALSE,
                   k = Inf,
                   verbose = TRUE) {
-
-  sl_fn <- match.arg(sl_fn, c("SuperLearner", "ffSL"))
 
   # Resolve per-model learner libraries
   if (is.list(learners) && !is.null(names(learners))) {
@@ -240,7 +242,8 @@ longy <- function(data,
                            learners = learners_treatment, adaptive_cv = adaptive_cv,
                            min_obs = min_obs, min_events = min_events,
                            bounds = bounds,
-                           times = times, sl_fn = sl_fn,
+                           times = times, use_ffSL = use_ffSL,
+                           parallel = parallel,
                            verbose = verbose, risk_set = risk_set_treatment)
 
     if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C)...",
@@ -249,7 +252,8 @@ longy <- function(data,
                            learners = learners_censoring, adaptive_cv = adaptive_cv,
                            min_obs = min_obs, min_events = min_events,
                            bounds = bounds,
-                           times = times, sl_fn = sl_fn,
+                           times = times, use_ffSL = use_ffSL,
+                           parallel = parallel,
                            verbose = verbose)
 
     if (verbose) .vmsg("Step %d/%d: Fitting observation model (g_R)...",
@@ -258,7 +262,8 @@ longy <- function(data,
                              learners = learners_observation, adaptive_cv = adaptive_cv,
                              min_obs = min_obs, min_events = min_events,
                              bounds = bounds,
-                             times = times, sl_fn = sl_fn,
+                             times = times, use_ffSL = use_ffSL,
+                             parallel = parallel,
                              verbose = verbose)
     cur_step <- cur_step + 3L
   }
@@ -282,12 +287,21 @@ longy <- function(data,
 
   # --- Shared outcome model (G-comp and/or TMLE) ---
   if (need_outcome) {
+    # G-comp bootstrap conflict: if parallel + gcomp + bootstrap, run
+    # fit_outcome sequentially so bootstrap gets the parallel resources
+    outcome_parallel <- parallel
+    if (do_gcomp && n_boot > 0 && parallel) {
+      outcome_parallel <- FALSE
+      warning("parallel=TRUE with G-comp bootstrap: fit_outcome() runs sequentially so bootstrap gets parallel resources.",
+              call. = FALSE)
+    }
     if (verbose) .vmsg("Step %d/%d: Fitting outcome model...",
                         cur_step + 1L, n_steps)
     obj <- fit_outcome(obj, regime = regime_names, covariates = covariates,
                          learners = learners_outcome, adaptive_cv = adaptive_cv,
                          min_obs = min_obs, bounds = bounds,
-                         times = times, sl_fn = sl_fn,
+                         times = times, use_ffSL = use_ffSL,
+                         parallel = outcome_parallel,
                          risk_set = risk_set_outcome,
                          verbose = verbose)
     cur_step <- cur_step + 1L

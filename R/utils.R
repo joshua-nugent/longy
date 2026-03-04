@@ -258,6 +258,58 @@ as_longy_data <- function(obj) {
   list(n_eff = n_eff, V = V, n = n, p_hat = p_hat, n_rare = n_rare)
 }
 
+#' Dispatch tasks via future.apply (if available) or lapply
+#'
+#' When \code{parallel = TRUE}, \code{future.apply} is installed, and a
+#' non-sequential \code{future::plan()} is active, tasks run in parallel via
+#' \code{future_lapply}. Otherwise falls back to sequential \code{lapply}.
+#'
+#' @param tasks List or vector of task inputs.
+#' @param task_fn Function applied to each element of \code{tasks}.
+#' @param parallel Logical. If FALSE, always uses sequential \code{lapply}.
+#' @param future_seed Passed to \code{future_lapply(future.seed = ...)}.
+#' @param verbose Logical. Print dispatch message.
+#' @param label Character. Label for verbose messaging.
+#' @return List of results (same length as \code{tasks}).
+#' @noRd
+.parallel_or_sequential <- function(tasks, task_fn, parallel = FALSE,
+                                     future_seed = TRUE, verbose = FALSE,
+                                     label = "") {
+  use_future <- parallel &&
+    requireNamespace("future.apply", quietly = TRUE) &&
+    requireNamespace("future", quietly = TRUE) &&
+    !inherits(future::plan(), "sequential")
+  if (verbose && nzchar(label))
+    .vmsg("  %s: dispatching %d tasks (%s)", label, length(tasks),
+          if (use_future) "parallel" else "sequential")
+  if (use_future) {
+    old <- getOption("future.globals.maxSize")
+    options(future.globals.maxSize = +Inf)
+    on.exit(options(future.globals.maxSize = old), add = TRUE)
+    # Export internal package functions as explicit globals. future's
+    # globals scanner doesn't auto-detect dotted internal functions
+    # (.get_lag_covariates, .safe_sl, etc.) from parent namespaces,
+    # and multisession workers run separate R processes.
+    pkg_ns <- asNamespace("longy")
+    internal_fns <- c(
+      ".get_lag_covariates", ".safe_sl", ".bound", ".adaptive_cv_folds",
+      ".vmsg", ".vmsg_covariates", ".predict_from_fit", ".expit", ".logit",
+      ".ffSL", ".add_tracking_columns", ".remove_tracking_columns",
+      ".evaluate_regime", ".factors_to_dummies"
+    )
+    pkg_globals <- mget(internal_fns, envir = pkg_ns, ifnotfound = list(NULL))
+    pkg_globals <- Filter(Negate(is.null), pkg_globals)
+    # Inject these functions into task_fn's closure so future exports them
+    fn_env <- environment(task_fn)
+    for (nm in names(pkg_globals)) {
+      fn_env[[nm]] <- pkg_globals[[nm]]
+    }
+    future.apply::future_lapply(tasks, task_fn, future.seed = future_seed)
+  } else {
+    lapply(tasks, task_fn)
+  }
+}
+
 #' Safe SuperLearner wrapper with glm fallback
 #'
 #' Tries to fit SuperLearner. On failure, falls back to glm.
@@ -269,16 +321,16 @@ as_longy_data <- function(obj) {
 #' @param obs_weights Numeric vector of observation/sampling weights (same
 #'   length as Y). Passed as \code{obsWeights} to SuperLearner and
 #'   \code{weights} to glm. NULL means equal weights.
-#' @param sl_fn Character. Which SuperLearner implementation to use:
-#'   \code{"SuperLearner"} (default, sequential) or \code{"ffSL"}
-#'   (future-factorial, parallelizes fold x algorithm combinations).
+#' @param use_ffSL Logical. If TRUE, use future-factorial SuperLearner
+#'   (parallelizes fold x algorithm combinations via \code{future.apply}).
+#'   Default FALSE (sequential SuperLearner).
 #' @param verbose Logical
 #' @return List with predictions (numeric vector) and fit object
 #' @noRd
 .safe_sl <- function(Y, X, family = stats::binomial(),
                      learners = c("SL.glm", "SL.mean"),
                      cv_folds = 10L, obs_weights = NULL,
-                     sl_fn = "SuperLearner",
+                     use_ffSL = FALSE,
                      context = "", verbose = FALSE) {
   X <- as.data.frame(X)
 
@@ -287,7 +339,6 @@ as_longy_data <- function(obj) {
       requireNamespace("SuperLearner", quietly = TRUE)) {
 
     # Determine which SL function to call
-    use_ffSL <- identical(sl_fn, "ffSL")
     if (use_ffSL && !requireNamespace("future.apply", quietly = TRUE)) {
       warning("future.apply not available; falling back to standard SuperLearner.",
               call. = FALSE)

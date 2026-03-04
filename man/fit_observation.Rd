@@ -15,7 +15,8 @@ fit_observation(
   min_events = 20L,
   bounds = c(0.005, 0.995),
   times = NULL,
-  sl_fn = "SuperLearner",
+  use_ffSL = FALSE,
+  parallel = FALSE,
   verbose = TRUE,
   refit = FALSE
 )
@@ -43,8 +44,11 @@ is below 0.01, marginal fallback is used. Default 20.}
 
 \item{times}{Numeric vector. If provided, only fit through \code{max(times)}.}
 
-\item{sl_fn}{Character. SuperLearner implementation: \code{"SuperLearner"}
-(default) or \code{"ffSL"} (future-factorial parallel).}
+\item{use_ffSL}{Logical. If TRUE, use future-factorial SuperLearner.
+Default FALSE. Forced to FALSE inside parallel workers.}
+
+\item{parallel}{Logical. If TRUE and a non-sequential \code{future::plan()}
+is active, dispatches time-point models in parallel. Default FALSE.}
 
 \item{verbose}{Logical. Progress messages.}
 

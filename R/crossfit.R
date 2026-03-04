@@ -124,7 +124,7 @@ NULL
                        tt, k, n_folds, length(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow_train,
-                        sl_fn = sl_fn, context = ctx, verbose = FALSE)
+                        use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
         marg_train <- if (!is.null(ow_train)) {
@@ -174,7 +174,7 @@ NULL
     covariates = covariates,
     learners = learners,
     bounds = bounds,
-    sl_fn = sl_fn,
+    use_ffSL = identical(sl_fn, "ffSL"),
     sl_info = list(),
     crossfit = TRUE,
     risk_set = risk_set
@@ -295,7 +295,7 @@ NULL
                          cvar, tt, k, n_folds, length(Y_train))
           fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                           cv_folds = cv_folds, obs_weights = ow_train,
-                          sl_fn = sl_fn, context = ctx, verbose = FALSE)
+                          use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
           preds_val <- .predict_from_fit(fit, X_val)
         } else {
           marg_train <- if (!is.null(ow_train)) {
@@ -341,7 +341,7 @@ NULL
       covariates = covariates,
       learners = learners,
       bounds = bounds,
-      sl_fn = sl_fn,
+      use_ffSL = identical(sl_fn, "ffSL"),
       sl_info = list(),
       crossfit = TRUE
     )
@@ -458,7 +458,7 @@ NULL
                        tt, k, n_folds, length(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow_train,
-                        sl_fn = sl_fn, context = ctx, verbose = FALSE)
+                        use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
         marg_train <- if (!is.null(ow_train)) {
@@ -503,7 +503,7 @@ NULL
     covariates = covariates,
     learners = learners,
     bounds = bounds,
-    sl_fn = sl_fn,
+    use_ffSL = identical(sl_fn, "ffSL"),
     sl_info = list(),
     crossfit = TRUE
   )
@@ -593,7 +593,7 @@ NULL
       ctx <- sprintf("CF Q-step, fold=%d/%d, n_train=%d", k, n_folds, length(Y_k))
       fit <- .safe_sl(Y = Y_k, X = X_k, family = family,
                       learners = learners, cv_folds = cv_folds,
-                      sl_fn = sl_fn, context = ctx, verbose = FALSE)
+                      use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
       preds <- .predict_from_fit(fit, X_val_cf)
     } else {
       preds <- rep(mean(Y_k), length(val_idx))
@@ -640,7 +640,7 @@ NULL
   covariates <- outcome_settings$covariates
   learners <- outcome_settings$learners
   q_bounds <- outcome_settings$bounds
-  sl_fn <- if (!is.null(outcome_settings$sl_fn)) outcome_settings$sl_fn else "SuperLearner"
+  sl_fn <- if (isTRUE(outcome_settings$use_ffSL)) "ffSL" else "SuperLearner"
   min_obs <- 50L
 
   fold_col <- obj$crossfit$fold_id
@@ -947,7 +947,7 @@ NULL
                                  family = step_family,
                                  learners = learners,
                                  cv_folds = min(10L, length(Y_all)),
-                                 sl_fn = sl_fn,
+                                 use_ffSL = identical(sl_fn, "ffSL"),
                                  context = "CF newly-censored Q",
                                  verbose = FALSE)
             Q_bar_cens <- .predict_from_fit(cens_fit, X_cens_cf)

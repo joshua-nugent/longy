@@ -80,12 +80,12 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   is_binary <- nodes$outcome_type %in% c("binary", "survival")
   is_survival <- nodes$outcome_type == "survival"
 
-  # Read outcome model settings (covariates, learners, bounds, sl_fn)
+  # Read outcome model settings (covariates, learners, bounds, use_ffSL)
   outcome_settings <- obj$fits$outcome[[rname]]
   covariates <- outcome_settings$covariates
   learners <- outcome_settings$learners
   q_bounds <- outcome_settings$bounds
-  sl_fn <- if (!is.null(outcome_settings$sl_fn)) outcome_settings$sl_fn else "SuperLearner"
+  use_ffSL <- isTRUE(outcome_settings$use_ffSL)
   min_obs <- 50L  # match fit_outcome default
 
   # Determine target times
@@ -265,7 +265,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
           fit <- .safe_sl(Y = Y_train, X = X_train,
                           family = step_family,
                           learners = learners, cv_folds = 10L,
-                          sl_fn = sl_fn, context = ctx, verbose = FALSE)
+                          use_ffSL = use_ffSL, context = ctx, verbose = FALSE)
           method <- fit$method
 
           # Counterfactual prediction: set A (current + lagged) to regime values
