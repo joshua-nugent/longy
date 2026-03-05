@@ -88,18 +88,65 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
   k <- if (is.null(nodes$lag_k)) 0 else nodes$lag_k
   max_regime_lags <- if (is.infinite(k)) length(all_time_vals) - 1 else min(k, length(all_time_vals) - 1)
 
-  # Collect regime objects for task function
-  regimes_list <- lapply(regime, function(rname) obj$regimes[[rname]])
-  names(regimes_list) <- regime
-
   # Worker SL flag: force sequential SL inside parallel workers
   worker_ffSL <- if (parallel) FALSE else use_ffSL
   worker_verbose <- if (parallel) FALSE else verbose
 
-  # Snapshot data for parallel safety (by-reference semantics)
-  if (parallel) dt <- data.table::copy(dt)
+  # Pre-prepare per-regime data: tracking columns, regime values, lag columns,
+  # survival/competing precomputation. Done ONCE per regime instead of
+  # redundantly in each parallel task.
+  prepared_data <- list()
+  for (rname in regime) {
+    reg <- obj$regimes[[rname]]
+    dt_r <- data.table::copy(dt)
 
-  # Flatten regime x target_time into a single task list for better load balancing
+    # Tracking columns (regime-specific: consistency, cumulative uncensored)
+    .add_tracking_columns(dt_r, nodes, reg)
+
+    # Regime values for counterfactual prediction
+    regime_vals <- .evaluate_regime(reg, dt_r)
+    dt_r[, .longy_regime_a := regime_vals]
+
+    # Lagged regime values
+    if (max_regime_lags > 0) {
+      for (j in seq_len(max_regime_lags)) {
+        lag_regime_col <- paste0(".longy_lag_regime_", a_col, "_", j)
+        dt_r[, (lag_regime_col) := shift(.longy_regime_a, n = j, type = "lag"), by = c(id_col)]
+      }
+    }
+
+    # Survival: first observed event time per subject
+    if (is_survival) {
+      event_rows <- dt_r[!is.na(dt_r[[y_col]]) & as.numeric(dt_r[[y_col]]) == 1]
+      if (nrow(event_rows) > 0) {
+        first_ev <- event_rows[, list(.longy_first_event = min(get(time_col))),
+                                by = c(id_col)]
+        dt_r[first_ev, .longy_first_event := i..longy_first_event, on = id_col]
+      }
+      if (!".longy_first_event" %in% names(dt_r)) {
+        dt_r[, .longy_first_event := NA_real_]
+      }
+    }
+
+    # Competing risks: first competing event time per subject
+    if (has_competing) {
+      d_col <- nodes$competing
+      comp_rows <- dt_r[!is.na(dt_r[[d_col]]) & as.numeric(dt_r[[d_col]]) == 1]
+      if (nrow(comp_rows) > 0) {
+        first_comp <- comp_rows[, list(.longy_first_competing = min(get(time_col))),
+                                 by = c(id_col)]
+        dt_r[first_comp, .longy_first_competing := i..longy_first_competing,
+             on = id_col]
+      }
+      if (!".longy_first_competing" %in% names(dt_r)) {
+        dt_r[, .longy_first_competing := NA_real_]
+      }
+    }
+
+    prepared_data[[rname]] <- dt_r
+  }
+
+  # Flatten regime x target_time into a single task list
   tasks <- expand.grid(regime_idx = seq_along(regime),
                        target_idx = seq_along(target_times),
                        KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
@@ -108,52 +155,11 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     ridx <- tasks$regime_idx[task_row]
     tidx <- tasks$target_idx[task_row]
     rname <- regime[ridx]
-    reg <- regimes_list[[rname]]
     target_t <- target_times[tidx]
 
-    # Each worker needs its own copy because the backward pass mutates .longy_Q
-    dt_w <- data.table::copy(dt)
-
-    # Regime-specific prep: tracking columns + regime values
-    .add_tracking_columns(dt_w, nodes, reg)
-    regime_vals <- .evaluate_regime(reg, dt_w)
-    dt_w[, .longy_regime_a := regime_vals]
-
-    # Lagged regime values for counterfactual treatment history
-    if (max_regime_lags > 0) {
-      for (j in seq_len(max_regime_lags)) {
-        lag_regime_col <- paste0(".longy_lag_regime_", a_col, "_", j)
-        dt_w[, (lag_regime_col) := shift(.longy_regime_a, n = j, type = "lag"), by = c(id_col)]
-      }
-    }
-
-    # Survival: precompute first observed event time per subject
-    if (is_survival) {
-      event_rows <- dt_w[!is.na(dt_w[[y_col]]) & as.numeric(dt_w[[y_col]]) == 1]
-      if (nrow(event_rows) > 0) {
-        first_ev <- event_rows[, list(.longy_first_event = min(get(time_col))),
-                                by = c(id_col)]
-        dt_w[first_ev, .longy_first_event := i..longy_first_event, on = id_col]
-      }
-      if (!".longy_first_event" %in% names(dt_w)) {
-        dt_w[, .longy_first_event := NA_real_]
-      }
-    }
-
-    # Competing risks: precompute first competing event time per subject
-    if (has_competing) {
-      d_col <- nodes$competing
-      comp_rows <- dt_w[!is.na(dt_w[[d_col]]) & as.numeric(dt_w[[d_col]]) == 1]
-      if (nrow(comp_rows) > 0) {
-        first_comp <- comp_rows[, list(.longy_first_competing = min(get(time_col))),
-                                 by = c(id_col)]
-        dt_w[first_comp, .longy_first_competing := i..longy_first_competing,
-             on = id_col]
-      }
-      if (!".longy_first_competing" %in% names(dt_w)) {
-        dt_w[, .longy_first_competing := NA_real_]
-      }
-    }
+    # Copy the pre-prepared regime data (already has tracking columns,
+    # regime values, lag columns, survival/competing precomputation)
+    dt_w <- data.table::copy(prepared_data[[rname]])
 
     # Initialize Q: Y only at target time, NA elsewhere
     dt_w[, .longy_Q := NA_real_]
@@ -355,14 +361,13 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     list(regime = rname, predictions = preds_out, sl_info = sl_info_out)
   }
 
-  # Strip obj from closure to avoid serializing the full longy_data object
+  # Strip large objects from closure — only keep what one_task actually needs
   if (parallel) {
     one_task <- .clean_closure(one_task, c(
-      "tasks", "regime", "regimes_list", "target_times",
-      "dt", "nodes", "all_time_vals", "id_col", "time_col",
+      "tasks", "regime", "prepared_data", "target_times",
+      "nodes", "all_time_vals", "id_col", "time_col",
       "a_col", "y_col", "is_binary", "is_survival", "has_competing",
-      "max_regime_lags", "covariates", "risk_set",
-      "worker_ffSL", "worker_verbose",
+      "covariates", "risk_set", "worker_ffSL", "worker_verbose",
       "min_obs", "bounds", "adaptive_cv", "learners"
     ))
   }
