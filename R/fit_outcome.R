@@ -25,8 +25,8 @@
 #' @param use_ffSL Logical. If TRUE, use future-factorial SuperLearner.
 #'   Default FALSE. Forced to FALSE inside parallel workers.
 #' @param parallel Logical. If TRUE and a non-sequential \code{future::plan()}
-#'   is active, dispatches target-time backward passes in parallel. Each worker
-#'   copies the full dataset. Default FALSE.
+#'   is active, dispatches regime x target-time backward passes in parallel.
+#'   Each worker copies the full dataset. Default FALSE.
 #' @param risk_set Character. Which subjects form the training set for outcome
 #'   models at each backward step. \code{"all"} (default) uses all uncensored
 #'   subjects. \code{"followers"} restricts to regime-followers (subjects
@@ -60,9 +60,6 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                    paste(fitted, collapse = ", ")), call. = FALSE)
   }
 
-  for (rname in regime) {
-
-  reg <- obj$regimes[[rname]]
   dt <- obj$data
   nodes <- obj$nodes
   all_time_vals <- obj$meta$time_values
@@ -71,8 +68,10 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
   a_col <- nodes$treatment
   y_col <- nodes$outcome
 
-  # Determine outcome type flag (family is set per-step inside backward loop)
+  # Determine outcome type flags
   is_binary <- nodes$outcome_type %in% c("binary", "survival")
+  is_survival <- nodes$outcome_type == "survival"
+  has_competing <- !is.null(nodes$competing)
 
   # Determine target times
   if (!is.null(times)) {
@@ -85,69 +84,76 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     covariates <- c(nodes$baseline, nodes$timevarying, nodes$treatment)
   }
 
-  # Build cumulative regime-consistency and uncensored tracking
-  dt <- .add_tracking_columns(dt, nodes, reg)
-
-  # Get regime values for counterfactual prediction
-  regime_vals <- .evaluate_regime(reg, dt)
-  dt[, .longy_regime_a := regime_vals]
-
-  # Pre-compute lagged regime values for counterfactual treatment history
-  # At each backward step, the counterfactual X must have regime values for
-
-  # BOTH the current treatment AND lagged treatment columns (matching ltmle
-  # which sets all A nodes to regime values in the counterfactual prediction).
+  # Lag depth for regime counterfactual columns
   k <- if (is.null(nodes$lag_k)) 0 else nodes$lag_k
   max_regime_lags <- if (is.infinite(k)) length(all_time_vals) - 1 else min(k, length(all_time_vals) - 1)
-  if (max_regime_lags > 0) {
-    for (j in seq_len(max_regime_lags)) {
-      lag_regime_col <- paste0(".longy_lag_regime_", a_col, "_", j)
-      dt[, (lag_regime_col) := shift(.longy_regime_a, n = j, type = "lag"), by = c(id_col)]
-    }
-  }
 
-  # For survival outcomes: precompute first observed event time per subject.
-  # Used to enforce the absorbing state (once Y=1, Q=1 at all future times)
-  # without requiring a Y_lag covariate.
-  is_survival <- nodes$outcome_type == "survival"
-  if (is_survival) {
-    event_rows <- dt[!is.na(dt[[y_col]]) & as.numeric(dt[[y_col]]) == 1]
-    if (nrow(event_rows) > 0) {
-      first_ev <- event_rows[, list(.longy_first_event = min(get(time_col))),
-                              by = c(id_col)]
-      dt[first_ev, .longy_first_event := i..longy_first_event, on = id_col]
-    }
-    if (!".longy_first_event" %in% names(dt)) {
-      dt[, .longy_first_event := NA_real_]
-    }
-  }
-
-  # For competing risks: precompute first competing event time per subject
-  has_competing <- !is.null(nodes$competing)
-  if (has_competing) {
-    d_col <- nodes$competing
-    comp_rows <- dt[!is.na(dt[[d_col]]) & as.numeric(dt[[d_col]]) == 1]
-    if (nrow(comp_rows) > 0) {
-      first_comp <- comp_rows[, list(.longy_first_competing = min(get(time_col))),
-                               by = c(id_col)]
-      dt[first_comp, .longy_first_competing := i..longy_first_competing,
-         on = id_col]
-    }
-    if (!".longy_first_competing" %in% names(dt)) {
-      dt[, .longy_first_competing := NA_real_]
-    }
-  }
+  # Collect regime objects for task function
+  regimes_list <- lapply(regime, function(rname) obj$regimes[[rname]])
+  names(regimes_list) <- regime
 
   # Worker SL flag: force sequential SL inside parallel workers
   worker_ffSL <- if (parallel) FALSE else use_ffSL
   worker_verbose <- if (parallel) FALSE else verbose
 
-  # One backward pass per target time (ICE)
-  one_target <- function(target_idx) {
-    target_t <- target_times[target_idx]
+  # Snapshot data for parallel safety (by-reference semantics)
+  if (parallel) dt <- data.table::copy(dt)
+
+  # Flatten regime x target_time into a single task list for better load balancing
+  tasks <- expand.grid(regime_idx = seq_along(regime),
+                       target_idx = seq_along(target_times),
+                       KEEP.OUT.ATTRS = FALSE, stringsAsFactors = FALSE)
+
+  one_task <- function(task_row) {
+    ridx <- tasks$regime_idx[task_row]
+    tidx <- tasks$target_idx[task_row]
+    rname <- regime[ridx]
+    reg <- regimes_list[[rname]]
+    target_t <- target_times[tidx]
 
     # Each worker needs its own copy because the backward pass mutates .longy_Q
     dt_w <- data.table::copy(dt)
+
+    # Regime-specific prep: tracking columns + regime values
+    .add_tracking_columns(dt_w, nodes, reg)
+    regime_vals <- .evaluate_regime(reg, dt_w)
+    dt_w[, .longy_regime_a := regime_vals]
+
+    # Lagged regime values for counterfactual treatment history
+    if (max_regime_lags > 0) {
+      for (j in seq_len(max_regime_lags)) {
+        lag_regime_col <- paste0(".longy_lag_regime_", a_col, "_", j)
+        dt_w[, (lag_regime_col) := shift(.longy_regime_a, n = j, type = "lag"), by = c(id_col)]
+      }
+    }
+
+    # Survival: precompute first observed event time per subject
+    if (is_survival) {
+      event_rows <- dt_w[!is.na(dt_w[[y_col]]) & as.numeric(dt_w[[y_col]]) == 1]
+      if (nrow(event_rows) > 0) {
+        first_ev <- event_rows[, list(.longy_first_event = min(get(time_col))),
+                                by = c(id_col)]
+        dt_w[first_ev, .longy_first_event := i..longy_first_event, on = id_col]
+      }
+      if (!".longy_first_event" %in% names(dt_w)) {
+        dt_w[, .longy_first_event := NA_real_]
+      }
+    }
+
+    # Competing risks: precompute first competing event time per subject
+    if (has_competing) {
+      d_col <- nodes$competing
+      comp_rows <- dt_w[!is.na(dt_w[[d_col]]) & as.numeric(dt_w[[d_col]]) == 1]
+      if (nrow(comp_rows) > 0) {
+        first_comp <- comp_rows[, list(.longy_first_competing = min(get(time_col))),
+                                 by = c(id_col)]
+        dt_w[first_comp, .longy_first_competing := i..longy_first_competing,
+             on = id_col]
+      }
+      if (!".longy_first_competing" %in% names(dt_w)) {
+        dt_w[, .longy_first_competing := NA_real_]
+      }
+    }
 
     # Initialize Q: Y only at target time, NA elsewhere
     dt_w[, .longy_Q := NA_real_]
@@ -256,8 +262,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
           cv_info <- .adaptive_cv_folds(Y_train, binary = (i == 1 && is_binary))
           cv_folds <- cv_info$V
         }
-        ctx <- sprintf("Q, target=%d, time=%d, n_train=%d, mean_Q=%.3f",
-                       target_t, tt, n_train, mean(Y_train))
+        ctx <- sprintf("Q(%s), target=%d, time=%d, n_train=%d, mean_Q=%.3f",
+                       rname, target_t, tt, n_train, mean(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, family = step_family,
                         learners = learners, cv_folds = cv_folds,
                         obs_weights = ow, use_ffSL = worker_ffSL,
@@ -304,8 +310,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       all_preds <- c(preds, rep(1, n_primary), rep(0, n_competing))
 
       if (worker_verbose) {
-        .vmsg("  Q target=%d time %d: n_at_risk=%d, n_train=%d, n_primary_abs=%d, n_competing_abs=%d, method=%s, clipped=%d/%d (lo/hi)",
-              target_t, tt, n_at_risk, n_train, n_primary, n_competing, method,
+        .vmsg("  Q(%s) target=%d time %d: n_at_risk=%d, n_train=%d, n_primary_abs=%d, n_competing_abs=%d, method=%s, clipped=%d/%d (lo/hi)",
+              rname, target_t, tt, n_at_risk, n_train, n_primary, n_competing, method,
               n_clipped_lower, n_clipped_upper)
       }
 
@@ -346,69 +352,60 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
 
     preds_out <- if (exists("return_preds", inherits = FALSE)) return_preds else NULL
     sl_info_out <- sl_info_target[!vapply(sl_info_target, is.null, logical(1))]
-    list(predictions = preds_out, sl_info = sl_info_out)
+    list(regime = rname, predictions = preds_out, sl_info = sl_info_out)
   }
 
   # Strip obj from closure to avoid serializing the full longy_data object
   if (parallel) {
-    one_target <- .clean_closure(one_target, c(
-      "target_times", "dt", "nodes", "all_time_vals", "id_col", "time_col",
+    one_task <- .clean_closure(one_task, c(
+      "tasks", "regime", "regimes_list", "target_times",
+      "dt", "nodes", "all_time_vals", "id_col", "time_col",
       "a_col", "y_col", "is_binary", "is_survival", "has_competing",
-      "covariates", "risk_set", "worker_ffSL", "worker_verbose",
+      "max_regime_lags", "covariates", "risk_set",
+      "worker_ffSL", "worker_verbose",
       "min_obs", "bounds", "adaptive_cv", "learners"
     ))
   }
 
   if (verbose && parallel)
-    .vmsg("  Q: dispatching %d target times...", length(target_times))
+    .vmsg("  Q: dispatching %d regime x target tasks...", nrow(tasks))
 
-  target_results <- .parallel_or_sequential(
-    seq_along(target_times), one_target, parallel = parallel,
+  task_results <- .parallel_or_sequential(
+    seq_len(nrow(tasks)), one_task, parallel = parallel,
     verbose = FALSE
   )
 
-  predictions_list <- lapply(target_results, `[[`, "predictions")
-  sl_info_list <- lapply(target_results, `[[`, "sl_info")
+  # Regroup results by regime
+  for (rname in regime) {
+    rname_tasks <- Filter(function(x) identical(x$regime, rname), task_results)
+    predictions_list <- lapply(rname_tasks, `[[`, "predictions")
+    sl_info_list <- lapply(rname_tasks, `[[`, "sl_info")
 
-  # Combine predictions
-  non_null <- !vapply(predictions_list, is.null, logical(1))
-  if (!any(non_null)) {
-    warning("No observations at risk for any time point in outcome model.",
-            call. = FALSE)
+    # Combine predictions
+    non_null <- !vapply(predictions_list, is.null, logical(1))
+    if (!any(non_null)) {
+      warning(sprintf("No observations at risk for any time point in outcome model (regime=%s).",
+                      rname), call. = FALSE)
+    }
+    all_preds <- data.table::rbindlist(predictions_list[non_null])
+    data.table::setnames(all_preds, ".id", id_col)
+
+    # Flatten sl_info
+    sl_info <- unlist(sl_info_list, recursive = FALSE)
+    sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
+
+    obj$fits$outcome[[rname]] <- list(
+      regime = rname,
+      predictions = all_preds,
+      covariates = covariates,
+      learners = learners,
+      bounds = bounds,
+      use_ffSL = use_ffSL,
+      sl_info = sl_info,
+      family = "gaussian",
+      risk_set = risk_set
+    )
   }
-  all_preds <- data.table::rbindlist(predictions_list[non_null])
-  data.table::setnames(all_preds, ".id", id_col)
-
-  # Flatten sl_info
-  sl_info <- unlist(sl_info_list, recursive = FALSE)
-  sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
-
-  obj$fits$outcome[[rname]] <- list(
-    regime = rname,
-    predictions = all_preds,
-    covariates = covariates,
-    learners = learners,
-    bounds = bounds,
-    use_ffSL = use_ffSL,
-    sl_info = sl_info,
-    family = "gaussian",
-    risk_set = risk_set
-  )
-
-  # Clean up tracking columns (dt is the original obj$data, not the worker copy)
-  if (".longy_Q" %in% names(dt)) dt[, .longy_Q := NULL]
-  if (".longy_regime_a" %in% names(dt)) dt[, .longy_regime_a := NULL]
-  regime_lag_cols <- grep("^\\.longy_lag_regime_", names(dt), value = TRUE)
-  if (length(regime_lag_cols) > 0) dt[, (regime_lag_cols) := NULL]
-  if (is_survival && ".longy_first_event" %in% names(dt)) {
-    dt[, .longy_first_event := NULL]
-  }
-  if (has_competing && ".longy_first_competing" %in% names(dt)) {
-    dt[, .longy_first_competing := NULL]
-  }
-  .remove_tracking_columns(obj$data)
-
-  } # end for (rname in regime)
 
   obj
 }
