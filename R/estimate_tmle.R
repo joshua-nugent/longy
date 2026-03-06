@@ -25,6 +25,9 @@
 #'   models at each backward step. \code{"all"} (default) uses all uncensored
 #'   subjects. \code{"followers"} restricts to regime-followers, matching
 #'   \code{fit_outcome(risk_set = "followers")}.
+#' @param parallel Logical. If TRUE and a non-sequential \code{future::plan()}
+#'   is active, dispatches target-time backward passes in parallel via
+#'   \code{future.apply::future_lapply()}. Default FALSE.
 #' @param verbose Logical. Print progress.
 #'
 #' @return An S3 object of class \code{"longy_result"} with elements:
@@ -42,6 +45,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
                           ci_level = 0.95, n_boot = 200L,
                           g_bounds = c(0.01, 1), outcome_range = NULL,
                           risk_set = "all",
+                          parallel = FALSE,
                           verbose = TRUE) {
   obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
@@ -165,19 +169,25 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   # Epsilon for bounding Q to avoid log(0)
   eps <- q_bounds[1]
 
-  # Store results per target time
-  est_list <- vector("list", length(target_times))
-  step_info_list <- list()  # per-step diagnostics
-  eif_info_list <- list()   # per-target EIF decomposition
+  # Force sequential SL inside parallel workers to prevent nested parallelism
+  worker_ffSL <- if (parallel) FALSE else use_ffSL
 
-  for (target_idx in seq_along(target_times)) {
+  # Snapshot data for parallel safety (by-reference semantics)
+  if (parallel) dt <- data.table::copy(dt)
+
+  # Define per-target-time task
+  one_target_time <- function(target_idx) {
     target_t <- target_times[target_idx]
+    task_verbose <- !parallel && verbose
 
-    if (verbose) .vmsg("TMLE target time %d:", target_t)
+    if (task_verbose) .vmsg("TMLE target time %d:", target_t)
+
+    # Each task needs its own copy of dt for .longy_Q mutations
+    dt_task <- data.table::copy(dt)
 
     # Initialize Q: Y at target time, NA elsewhere
-    dt[, .longy_Q := NA_real_]
-    dt[dt[[time_col]] == target_t,
+    dt_task[, .longy_Q := NA_real_]
+    dt_task[dt_task[[time_col]] == target_t,
        .longy_Q := {
          y_raw <- as.numeric(get(y_col))
          if (!is_binary) (y_raw - y_min) / y_range_width else y_raw
@@ -191,9 +201,11 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     Q_star_list <- vector("list", n_back)
     names(Q_star_list) <- as.character(backward_times)
 
+    step_info <- list()
+
     for (i in seq_along(backward_times)) {
       tt <- backward_times[i]
-      dt_t <- dt[dt[[time_col]] == tt, ]
+      dt_t <- dt_task[dt_task[[time_col]] == tt, ]
 
       # Uncensored subjects through C(t) (Convention B: C before Y).
       still_in <- dt_t$.longy_cum_uncens == 1L
@@ -228,7 +240,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       competing_absorbed_ids <- dt_t[[id_col]][absorbed_competing]
 
       if (n_at_risk == 0 && n_primary == 0 && n_competing == 0) {
-        if (verbose) .vmsg("  TMLE time %d: 0 at risk, skipping", tt)
+        if (task_verbose) .vmsg("  TMLE time %d: 0 at risk, skipping", tt)
         next
       }
 
@@ -256,7 +268,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         # qlogis(Q_bar) for fluctuation, so they MUST be in (0,1).
         # gaussian can produce predictions outside [0,1] that clip to
         # bounds, creating extreme logit values and huge epsilon.
-        # .safe_sl() handles quasibinomial→binomial swap for SL compatibility.
+        # .safe_sl() handles quasibinomial->binomial swap for SL compatibility.
         step_family <- stats::quasibinomial()
 
         # Fit Q model
@@ -265,7 +277,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
           fit <- .safe_sl(Y = Y_train, X = X_train,
                           family = step_family,
                           learners = learners, cv_folds = 10L,
-                          use_ffSL = use_ffSL, context = ctx, verbose = FALSE)
+                          use_ffSL = worker_ffSL, context = ctx,
+                          verbose = task_verbose)
           method <- fit$method
 
           # Counterfactual prediction: set A (current + lagged) to regime values
@@ -332,14 +345,14 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         fluct_epsilon <- fluct$epsilon
       }
 
-      if (verbose) {
+      if (task_verbose) {
         .vmsg("  TMLE time %d: n_at_risk=%d, n_train=%d, n_primary_abs=%d, n_competing_abs=%d, eps=%.4f, method=%s",
               tt, n_at_risk, n_train, n_primary, n_competing, fluct_epsilon, method)
       }
 
       # Collect per-step diagnostic info
       n_fluct <- if (n_train > 0) sum(in_fluct & !is.na(pseudo_out)) else 0L
-      step_info_list[[length(step_info_list) + 1L]] <- list(
+      step_info[[length(step_info) + 1L]] <- list(
         target_time = target_t,
         step_time = tt,
         epsilon = fluct_epsilon,
@@ -406,7 +419,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
       # Combine at-risk Q* with hard-coded values for absorbed subjects
       # and predictions for newly-censored subjects
-      # Primary absorbed (prior Y=1) → Q*=1; Competing absorbed (prior D=1) → Q*=0
+      # Primary absorbed (prior Y=1) -> Q*=1; Competing absorbed (prior D=1) -> Q*=0
       all_ids <- c(risk_ids, primary_absorbed_ids, competing_absorbed_ids, cens_ids)
       all_Q_star <- c(Q_star, rep(1, n_primary), rep(0, n_competing), Q_star_cens)
 
@@ -429,11 +442,11 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
           .tmp_pred = all_Q_star
         )
         data.table::setnames(pred_dt_prop, ".tmp_id", id_col)
-        prev_rows <- dt[[time_col]] == prev_t
-        prev_ids <- dt[[id_col]][prev_rows]
+        prev_rows <- dt_task[[time_col]] == prev_t
+        prev_ids <- dt_task[[id_col]][prev_rows]
         match_idx <- match(prev_ids, pred_dt_prop[[id_col]])
         has_match <- !is.na(match_idx)
-        dt$.longy_Q[which(prev_rows)[has_match]] <-
+        dt_task$.longy_Q[which(prev_rows)[has_match]] <-
           pred_dt_prop$.tmp_pred[match_idx[has_match]]
       }
     }
@@ -443,11 +456,14 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     Q_star_0 <- Q_star_list[[as.character(earliest_t)]]
 
     if (is.null(Q_star_0) || nrow(Q_star_0) == 0) {
-      est_list[[target_idx]] <- data.table::data.table(
-        time = target_t, estimate = NA_real_,
-        n_effective = 0, n_at_risk = 0L
-      )
-      next
+      return(list(
+        est_row = data.table::data.table(
+          time = target_t, estimate = NA_real_,
+          n_effective = 0, n_at_risk = 0L
+        ),
+        step_info = step_info,
+        eif_info = NULL
+      ))
     }
 
     # Back-transform if continuous
@@ -463,6 +479,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     )
 
     # EIF inference
+    eif_info <- NULL
     if (inference == "eif") {
       D_i <- .compute_tmle_eif(
         Q_star_list = Q_star_list,
@@ -498,7 +515,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         se_init <- sqrt(stats::var(init_raw) / n_i)
         se_aug <- sqrt(stats::var(aug_raw) / n_i)
         n_aug_nonzero <- sum(abs(aug_raw) > 1e-10)
-        eif_info_list[[length(eif_info_list) + 1L]] <- list(
+        eif_info <- list(
           target_time = target_t,
           se_total = se,
           se_initial = se_init,
@@ -506,7 +523,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
           n_aug_nonzero = n_aug_nonzero,
           n_subjects = n_i
         )
-        if (verbose) {
+        if (task_verbose) {
           .vmsg("  EIF diagnostics: SE(D)=%.4f, SE(Q*0-psi)=%.4f, SE(aug)=%.4f, n_aug_nonzero=%d/%d",
                 se, se_init, se_aug, n_aug_nonzero, n_i)
         }
@@ -518,8 +535,34 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       est_row[, ci_upper := if (is.na(se)) NA_real_ else psi_hat + z * se]
     }
 
-    est_list[[target_idx]] <- est_row
+    list(est_row = est_row, step_info = step_info, eif_info = eif_info)
   }
+
+  # Strip obj from closure to avoid serializing the full longy_data object
+  if (parallel) {
+    one_target_time <- .clean_closure(one_target_time, c(
+      "target_times", "dt", "parallel", "verbose", "time_col", "y_col",
+      "is_binary", "y_min", "y_range_width", "all_time_vals",
+      "is_survival", "has_competing", "id_col", "a_col",
+      "risk_set", "covariates", "learners", "worker_ffSL", "min_obs",
+      "eps", "nodes", "g_cum_dt", "obj", "rname", "inference", "ci_level"
+    ))
+  }
+
+  if (verbose && parallel)
+    .vmsg("  TMLE: dispatching %d target times...", length(target_times))
+
+  task_results <- .parallel_or_sequential(
+    seq_along(target_times), one_target_time, parallel = parallel,
+    verbose = FALSE
+  )
+
+  # Reassemble results from tasks
+  est_list <- lapply(task_results, `[[`, "est_row")
+  step_info_list <- unlist(lapply(task_results, `[[`, "step_info"),
+                           recursive = FALSE)
+  eif_info_list <- Filter(Negate(is.null),
+                          lapply(task_results, `[[`, "eif_info"))
 
   estimates <- data.table::rbindlist(est_list, fill = TRUE)
 
@@ -550,16 +593,16 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     }
   }
 
-  # Clean up
-  dt[, .longy_Q := NULL]
-  dt[, .longy_regime_a := NULL]
-  regime_lag_cols <- grep("^\\.longy_lag_regime_", names(dt), value = TRUE)
-  if (length(regime_lag_cols) > 0) dt[, (regime_lag_cols) := NULL]
-  if (is_survival && ".longy_first_event" %in% names(dt)) {
-    dt[, .longy_first_event := NULL]
+  # Clean up tracking columns on original obj$data (not the parallel copies)
+  if (".longy_Q" %in% names(obj$data)) obj$data[, .longy_Q := NULL]
+  if (".longy_regime_a" %in% names(obj$data)) obj$data[, .longy_regime_a := NULL]
+  regime_lag_cols <- grep("^\\.longy_lag_regime_", names(obj$data), value = TRUE)
+  if (length(regime_lag_cols) > 0) obj$data[, (regime_lag_cols) := NULL]
+  if (is_survival && ".longy_first_event" %in% names(obj$data)) {
+    obj$data[, .longy_first_event := NULL]
   }
-  if (has_competing && ".longy_first_competing" %in% names(dt)) {
-    dt[, .longy_first_competing := NULL]
+  if (has_competing && ".longy_first_competing" %in% names(obj$data)) {
+    obj$data[, .longy_first_competing := NULL]
   }
   .remove_tracking_columns(obj$data)
 

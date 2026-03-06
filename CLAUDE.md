@@ -24,6 +24,20 @@ estimators with IC/EIF/bootstrap/sandwich inference, plus cross-fitting (CV-TMLE
      fit_observation() |> compute_weights() |> estimate_ipw()
    ```
 
+### `longy()` key parameters
+
+- `estimator`: `"ipw"` (default), `"gcomp"`, `"tmle"`, `"both"` (ipw+gcomp), `"all"` (ipw+gcomp+tmle), or any `c(...)` combination. Unadjusted estimates are always computed.
+- `risk_set_treatment`: `"all"` (default) or `"followers"` — who trains treatment models
+- `risk_set_outcome`: `"all"` (default) or `"followers"` — who trains outcome models (G-comp/TMLE)
+- `outcome_range`: Numeric(2) for continuous outcome scaling in TMLE (NULL = empirical)
+- `g_bounds`: Bounds for cumulative g denominator (default `c(0.01, 1)`)
+- `competing`: Column for binary competing event indicator (survival outcomes)
+- `cross_fit` / `cross_fit_seed`: CV fold count and seed
+- `use_ffSL`: Use future-factorial SuperLearner (parallel CV)
+- `parallel`: Dispatch time-point models in parallel via `future.apply`
+- `k`: Lag depth for covariate history (default `Inf`)
+- `min_obs`, `min_events`, `adaptive_cv`: Model fitting controls
+
 ## Three nuisance models
 
 - **g_A** (treatment): P(A(t)=1 | past) — who gets treated?
@@ -55,7 +69,9 @@ list(
                     censoring_col,     # original column name (e.g. "C"), or NULL
                     censoring_levels,  # non-"uncensored" levels (e.g. c("death","ltfu")), or NULL
                     observation, sampling_weights,
-                    baseline, timevarying, outcome_type, competing),
+                    baseline, timevarying, outcome_type, competing,
+                    lag_vars,          # char vector of columns with lag columns created
+                    lag_k),            # integer or Inf — lag depth
   regimes    = list(),
   fits       = list(treatment = list(), censoring = list(), observation = list(), outcome = list()),
   weights    = list(),
@@ -91,12 +107,14 @@ Results stored as `obj$results$<regime>_<estimator>`:
 | R/estimate_ipw.R | `estimate_ipw()` + print/summary/plot for all estimators |
 | R/estimate_gcomp.R | `estimate_gcomp()` — G-comp estimator + bootstrap |
 | R/estimate_tmle.R | `estimate_tmle()` — TMLE estimator + EIF inference |
+| R/estimate_unadjusted.R | `estimate_unadjusted()` — naive means among regime-followers (reference) |
+| R/learner-adaptations.R | Docs + wrapper functions for SL learner compatibility (SL.xgboost.reg, SL.glmnet.reg, SL.ranger.longy) |
 | R/inference.R | IC-based + bootstrap inference (IPW, G-comp, TMLE) |
 | R/diagnostics.R | Weight & positivity diagnostics |
 | R/crossfit.R | Cross-fitting: `.cf_fit_treatment/censoring/observation()`, `.cf_estimate_tmle()` |
 | R/longy.R | High-level `longy()` wrapper + `results()` accessor + `plot.longy_data` |
 | R/ffSL.R | Future-factorial SuperLearner (parallel CV via `future.apply`) |
-| R/utils.R | Internal helpers: `.as_longy_data()`, `.safe_sl()`, `.bound()`, `.predict_from_fit()`, `.vmsg()` |
+| R/utils.R | Internal helpers: `.as_longy_data()`, `.safe_sl()`, `.bound()`, `.predict_from_fit()`, `.vmsg()`, `.get_lag_covariates()` |
 | R/longy-package.R | Package-level docs, `@import data.table`, `globalVariables()`, `sim_longy` docs |
 | R/zzz.R | `.onLoad()` hook |
 
@@ -157,12 +175,6 @@ For each target time T:
 
 ## TODO
 
-- **Quasibinomial learner compatibility**: Backward ICE pseudo-outcomes are
-  continuous [0,1], requiring quasibinomial family. Per-learner gaussian+clip
-  wrappers: xgboost -> SL.xgboost.reg, glmnet -> SL.glmnet.reg, ranger ->
-  SL.ranger.reg. Other learners (SL.glm, SL.earth, SL.gam, SL.nnet) work
-  with the binomial swap. Any remaining incompatible learner will fail
-  gracefully via tryCatch in .safe_sl().
 - **Continuous outcome scaling**: Decide whether to scale Y to [0,1] for
   continuous outcomes (see Open design decisions above).
 
