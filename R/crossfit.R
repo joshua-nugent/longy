@@ -214,7 +214,7 @@ NULL
   }
 
   if (is.null(covariates)) {
-    covariates <- c(nodes$baseline, nodes$timevarying)
+    covariates <- c(nodes$baseline, nodes$timevarying, nodes$treatment)
   }
 
   fold_col <- obj$crossfit$fold_id
@@ -380,7 +380,7 @@ NULL
   }
 
   if (is.null(covariates)) {
-    covariates <- c(nodes$baseline, nodes$timevarying)
+    covariates <- c(nodes$baseline, nodes$timevarying, nodes$treatment)
   }
 
   fold_col <- obj$crossfit$fold_id

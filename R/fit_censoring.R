@@ -2,8 +2,11 @@
 #'
 #' Fits models for P(C(t) = 0 | past) at each time point, separately for
 #' each censoring cause. The risk set is all subjects uncensored through t-1.
-#' Models are fit on the full uncensored sample regardless of regime consistency,
-#' matching ltmle/stremr.
+#' Models are fit on the full uncensored sample regardless of regime consistency.
+#'
+#' longy assumes the within-period ordering L(t) -> A(t) -> C(t) -> Y(t), so
+#' current-time treatment A(t) is included as a default covariate. This matches
+#' the ltmle vignette ordering. Override via the \code{covariates} argument.
 #'
 #' This function loops over the internal binary censoring columns stored in
 #' \code{obj$nodes$censoring} (e.g. \code{".cens_censored"}, \code{".cens_death"}).
@@ -85,7 +88,7 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
   }
 
   if (is.null(covariates)) {
-    covariates <- c(nodes$baseline, nodes$timevarying)
+    covariates <- c(nodes$baseline, nodes$timevarying, nodes$treatment)
   }
 
   dt <- .add_tracking_columns(dt, nodes, reg)
@@ -164,10 +167,15 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       sl_coef <- NULL
       task_n_marginal <- 1L
       if (length(unique(Y)) <= 1) {
-        cens_rate <- 1 - mean(Y)
-        warning(sprintf(
-          "g_C(%s) at time %d: no censoring events (rate=%.3f). Using marginal.",
-          cvar, tt, cens_rate), call. = FALSE)
+        if (mean(Y) == 1) {
+          warning(sprintf(
+            "g_C(%s) at time %d: no censoring events (all uncensored). Using marginal.",
+            cvar, tt), call. = FALSE)
+        } else {
+          warning(sprintf(
+            "g_C(%s) at time %d: all subjects censored. Using marginal.",
+            cvar, tt), call. = FALSE)
+        }
       } else if (rare_events) {
         warning(sprintf(
           "g_C(%s) at time %d: only %d minority-class events (rate=%.3f, min_events=%d). Using marginal.",
@@ -237,6 +245,7 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       warning(sprintf(
         "No observations at risk for any time point in censoring (g_C) model for '%s'.",
         cvar), call. = FALSE)
+      next
     } else if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
       warning(sprintf(
         "g_C(%s): marginal fallback used at %d/%d time points. Model may be unreliable.",

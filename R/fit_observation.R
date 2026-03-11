@@ -5,7 +5,11 @@
 #' absorbing censoring.
 #'
 #' The risk set is all subjects uncensored through t (not regime-concordant).
-#' Models are fit on the full uncensored sample, matching ltmle/stremr.
+#' Models are fit on the full uncensored sample.
+#'
+#' longy assumes the within-period ordering L(t) -> A(t) -> C(t) -> Y(t), so
+#' current-time treatment A(t) is included as a default covariate. Override via
+#' the \code{covariates} argument.
 #'
 #' @param obj A `longy_data` object.
 #' @param regime Character. Name of the regime.
@@ -78,7 +82,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
   }
 
   if (is.null(covariates)) {
-    covariates <- c(nodes$baseline, nodes$timevarying)
+    covariates <- c(nodes$baseline, nodes$timevarying, nodes$treatment)
   }
 
   dt <- .add_tracking_columns(dt, nodes, reg)

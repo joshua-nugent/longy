@@ -240,13 +240,16 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
   if (!any(non_null)) {
     warning("No observations at risk for any time point in treatment (g_A) model.",
             call. = FALSE)
-  } else if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
-    warning(sprintf(
-      "g_A: marginal fallback used at %d/%d time points. Model may be unreliable.",
-      n_marginal, n_fitted), call. = FALSE)
+    results <- data.table::data.table()
+  } else {
+    if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
+      warning(sprintf(
+        "g_A: marginal fallback used at %d/%d time points. Model may be unreliable.",
+        n_marginal, n_fitted), call. = FALSE)
+    }
+    results <- data.table::rbindlist(results[non_null])
+    data.table::setnames(results, ".id", nodes$id)
   }
-  results <- data.table::rbindlist(results[non_null])
-  data.table::setnames(results, ".id", nodes$id)
 
   sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
 

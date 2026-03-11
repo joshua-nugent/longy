@@ -38,6 +38,30 @@ estimators with IC/EIF/bootstrap/sandwich inference, plus cross-fitting (CV-TMLE
 - `k`: Lag depth for covariate history (default `0`)
 - `min_obs`, `min_events`, `adaptive_cv`: Model fitting controls
 
+## DAG ordering assumption
+
+longy assumes the within-period temporal ordering **L(t) → A(t) → C(t) → Y(t)**:
+
+1. **L(t)**: Time-varying covariates are realized
+2. **A(t)**: Treatment is assigned (may depend on L(t) and history)
+3. **C(t)**: Censoring occurs (may depend on A(t), L(t), and history)
+4. **Y(t)**: Outcome is measured (if uncensored and observed)
+
+This means A(t) is a valid covariate for censoring and observation models, and is
+included by default. This matches ltmle's vignette ordering (W → A1 → C → L → A2 → Y)
+and lmtp's structure. Note that stremr assumes L-C-A-Y by default.
+
+### Default covariates by model
+
+| Model | Default covariates | Rationale |
+|-------|-------------------|-----------|
+| g_A (treatment) | baseline + timevarying | A(t) cannot condition on itself |
+| g_C (censoring) | baseline + timevarying + **A(t)** | A(t) precedes C(t) in DAG |
+| g_R (observation) | baseline + timevarying + **A(t)** | A(t) precedes R(t) in DAG |
+| Q (outcome) | baseline + timevarying + **A(t)** | A(t) precedes Y(t) in DAG |
+
+All models also include lag columns (`.longy_lag_*`) when `k > 0`.
+
 ## Three nuisance models
 
 - **g_A** (treatment): P(A(t)=1 | past) — who gets treated?
