@@ -15,8 +15,14 @@
 #' @param regime Character. Name of the regime.
 #' @param covariates Character vector. Predictor columns.
 #' @param learners Character vector. SuperLearner library.
-#' @param sl_control List. Additional SuperLearner arguments.
-#' @param adaptive_cv Logical. Adaptive CV fold selection.
+#' @param sl_control List. Additional arguments passed to SuperLearner.
+#'   Elements named \code{cvControl} are merged with the default
+#'   \code{cvControl}. \code{cvControl$V} sets the number of CV folds when
+#'   \code{adaptive_cv = FALSE}; specifying \code{V} with
+#'   \code{adaptive_cv = TRUE} is an error.
+#' @param adaptive_cv Logical. Adaptive CV fold selection. When TRUE (default),
+#'   CV folds are chosen automatically. When FALSE, uses
+#'   \code{sl_control$cvControl$V} if specified, or 10.
 #' @param min_obs Integer. Minimum observations for model fitting.
 #' @param min_events Integer. Minimum minority-class events required to fit a
 #'   model. When the minority class count is below this AND the minority rate
@@ -43,6 +49,11 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
   obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "observation")
   regime <- .resolve_regimes(obj, regime)
+
+  if (adaptive_cv && !is.null(sl_control$cvControl$V))
+    stop("Cannot specify sl_control$cvControl$V when adaptive_cv=TRUE. ",
+         "Set adaptive_cv=FALSE to use a fixed number of CV folds.",
+         call. = FALSE)
 
   if (!refit) {
     fitted <- Filter(function(r) !is.null(obj$fits$observation[[r]]) &&
@@ -107,6 +118,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
 
     # Must be uncensored at t (observation requires being present)
     still_in <- still_in & dt_t$.longy_uncens == 1L
+    still_in[is.na(still_in)] <- FALSE
 
     # Exclude subjects with NA observation indicator (absorbed in survival data)
     still_in <- still_in & !is.na(dt_t[[nodes$observation]])
@@ -134,13 +146,14 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     if (length(unique(Y)) > 1 && n_risk >= min_obs && !rare_events) {
       obs_rate <- mean(Y)
       ctx <- sprintf("g_R, time=%d, n=%d, obs_rate=%.3f", tt, n_risk, obs_rate)
-      cv_folds <- 10L
+      cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
       if (adaptive_cv) {
         cv_info <- .adaptive_cv_folds(Y)
         cv_folds <- cv_info$V
       }
       fit <- .safe_sl(Y = Y, X = X, learners = learners,
                       cv_folds = cv_folds, obs_weights = ow,
+                      sl_control = sl_control,
                       use_ffSL = worker_ffSL, context = ctx,
                       verbose = !parallel && verbose)
       p_r <- .bound(fit$predictions, bounds[1], bounds[2])
@@ -155,9 +168,15 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       sl_coef <- NULL
       task_n_marginal <- 1L
       if (length(unique(Y)) <= 1) {
-        warning(sprintf(
-          "g_R at time %d: outcome is constant (obs_rate=%.3f). Using marginal.",
-          tt, mean(Y)), call. = FALSE)
+        if (mean(Y) == 1) {
+          warning(sprintf(
+            "g_R at time %d: all subjects observed (obs_rate=1.000). Using marginal.",
+            tt), call. = FALSE)
+        } else {
+          warning(sprintf(
+            "g_R at time %d: no subjects observed (obs_rate=0.000). Using marginal.",
+            tt), call. = FALSE)
+        }
       } else if (rare_events) {
         warning(sprintf(
           "g_R at time %d: only %d minority-class events (rate=%.3f, min_events=%d). Using marginal.",
@@ -199,7 +218,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     one_timepoint <- .clean_closure(one_timepoint, c(
       "time_vals", "dt", "nodes", "parallel",
       "learners", "adaptive_cv", "worker_ffSL", "verbose",
-      "bounds", "min_obs", "min_events", "covariates"
+      "bounds", "min_obs", "min_events", "covariates", "sl_control"
     ))
   }
 
@@ -221,13 +240,16 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
   if (!any(non_null)) {
     warning("No observations at risk for any time point in observation (g_R) model.",
             call. = FALSE)
-  } else if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
-    warning(sprintf(
-      "g_R: marginal fallback used at %d/%d time points. Model may be unreliable.",
-      n_marginal, n_fitted), call. = FALSE)
+    results <- data.table::data.table()
+  } else {
+    if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
+      warning(sprintf(
+        "g_R: marginal fallback used at %d/%d time points. Model may be unreliable.",
+        n_marginal, n_fitted), call. = FALSE)
+    }
+    results <- data.table::rbindlist(results[non_null])
+    data.table::setnames(results, ".id", nodes$id)
   }
-  results <- data.table::rbindlist(results[non_null])
-  data.table::setnames(results, ".id", nodes$id)
 
   sl_info <- sl_info[!vapply(sl_info, is.null, logical(1))]
 

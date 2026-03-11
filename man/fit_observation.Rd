@@ -30,9 +30,15 @@ fit_observation(
 
 \item{learners}{Character vector. SuperLearner library.}
 
-\item{sl_control}{List. Additional SuperLearner arguments.}
+\item{sl_control}{List. Additional arguments passed to SuperLearner.
+Elements named \code{cvControl} are merged with the default
+\code{cvControl}. \code{cvControl$V} sets the number of CV folds when
+\code{adaptive_cv = FALSE}; specifying \code{V} with
+\code{adaptive_cv = TRUE} is an error.}
 
-\item{adaptive_cv}{Logical. Adaptive CV fold selection.}
+\item{adaptive_cv}{Logical. Adaptive CV fold selection. When TRUE (default),
+CV folds are chosen automatically. When FALSE, uses
+\code{sl_control$cvControl$V} if specified, or 10.}
 
 \item{min_obs}{Integer. Minimum observations for model fitting.}
 
@@ -65,5 +71,9 @@ absorbing censoring.
 }
 \details{
 The risk set is all subjects uncensored through t (not regime-concordant).
-Models are fit on the full uncensored sample, matching ltmle/stremr.
+Models are fit on the full uncensored sample.
+
+longy assumes the within-period ordering L(t) -> A(t) -> C(t) -> Y(t), so
+current-time treatment A(t) is included as a default covariate. Override via
+the \code{covariates} argument.
 }

@@ -115,7 +115,7 @@ NULL
       minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
       rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
       if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
-        cv_folds <- 10L
+        cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
         if (adaptive_cv) {
           cv_info <- .adaptive_cv_folds(Y_train)
           cv_folds <- cv_info$V
@@ -124,6 +124,7 @@ NULL
                        tt, k, n_folds, length(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow_train,
+                        sl_control = sl_control,
                         use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
@@ -286,7 +287,7 @@ NULL
         minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
         rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
         if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
-          cv_folds <- 10L
+          cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
           if (adaptive_cv) {
             cv_info <- .adaptive_cv_folds(Y_train)
             cv_folds <- cv_info$V
@@ -295,6 +296,7 @@ NULL
                          cvar, tt, k, n_folds, length(Y_train))
           fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                           cv_folds = cv_folds, obs_weights = ow_train,
+                          sl_control = sl_control,
                           use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
           preds_val <- .predict_from_fit(fit, X_val)
         } else {
@@ -449,7 +451,7 @@ NULL
       minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
       rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
       if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
-        cv_folds <- 10L
+        cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
         if (adaptive_cv) {
           cv_info <- .adaptive_cv_folds(Y_train)
           cv_folds <- cv_info$V
@@ -458,6 +460,7 @@ NULL
                        tt, k, n_folds, length(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow_train,
+                        sl_control = sl_control,
                         use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
@@ -541,7 +544,8 @@ NULL
 #' @noRd
 .cf_fit_q_step <- function(Y_train_all, X_risk, has_Q, folds_risk, n_folds,
                             family, learners, cv_folds = 10L,
-                            sl_fn = "SuperLearner", min_obs = 50L,
+                            sl_fn = "SuperLearner", sl_control = list(),
+                            min_obs = 50L,
                             regime_cf = NULL) {
   n_risk <- nrow(X_risk)
   Q_bar <- rep(NA_real_, n_risk)
@@ -593,6 +597,7 @@ NULL
       ctx <- sprintf("CF Q-step, fold=%d/%d, n_train=%d", k, n_folds, length(Y_k))
       fit <- .safe_sl(Y = Y_k, X = X_k, family = family,
                       learners = learners, cv_folds = cv_folds,
+                      sl_control = sl_control,
                       use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
       preds <- .predict_from_fit(fit, X_val_cf)
     } else {
@@ -623,6 +628,7 @@ NULL
                                ci_level = 0.95, n_boot = 200L,
                                g_bounds = c(0.01, 1), outcome_range = NULL,
                                risk_set = "all",
+                               sl_control = list(),
                                verbose = TRUE) {
   nodes <- obj$nodes
   dt <- obj$data
@@ -839,6 +845,7 @@ NULL
           learners = learners,
           cv_folds = 10L,
           sl_fn = sl_fn,
+          sl_control = sl_control,
           min_obs = min_obs,
           regime_cf = regime_cf
         )
@@ -947,6 +954,7 @@ NULL
                                  family = step_family,
                                  learners = learners,
                                  cv_folds = min(10L, length(Y_all)),
+                                 sl_control = sl_control,
                                  use_ffSL = identical(sl_fn, "ffSL"),
                                  context = "CF newly-censored Q",
                                  verbose = FALSE)

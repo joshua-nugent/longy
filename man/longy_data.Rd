@@ -17,7 +17,7 @@ longy_data(
   sampling_weights = NULL,
   outcome_type = "binary",
   competing = NULL,
-  k = Inf,
+  k = 0,
   verbose = TRUE
 )
 }
@@ -80,9 +80,15 @@ risks.}
 \item{k}{Integer or \code{Inf}. Number of lagged time steps of covariate
 history to include as additional predictors in nuisance models. At each
 time index \code{i}, up to \code{min(k, i - 1)} lags are added for the
-treatment, outcome, and time-varying columns. \code{k = Inf} (default)
-uses all available history (matching ltmle's wide-format conditioning
-set). \code{k = 0} disables lag columns entirely.}
+treatment, outcome, and time-varying columns. \code{k = 0} (default)
+disables lag columns entirely. \code{k = Inf} uses all available
+history (matching ltmle's wide-format conditioning set).
+
+Lag columns are constructed from LOCF-filled copies so that intermittent
+NAs (e.g., outcome not observed at a time point) carry forward the last
+observed value. Structural NAs at the earliest time points (where no
+prior value exists) are filled with 0 for binary columns and the
+column median for continuous columns.}
 
 \item{verbose}{Logical. Print progress messages.}
 }

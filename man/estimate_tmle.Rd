@@ -14,6 +14,7 @@ estimate_tmle(
   g_bounds = c(0.01, 1),
   outcome_range = NULL,
   risk_set = "all",
+  parallel = FALSE,
   verbose = TRUE
 )
 }
@@ -45,6 +46,10 @@ Ignored for binary/survival outcomes.}
 models at each backward step. \code{"all"} (default) uses all uncensored
 subjects. \code{"followers"} restricts to regime-followers, matching
 \code{fit_outcome(risk_set = "followers")}.}
+
+\item{parallel}{Logical. If TRUE and a non-sequential \code{future::plan()}
+is active, dispatches target-time backward passes in parallel via
+\code{future.apply::future_lapply()}. Default FALSE.}
 
 \item{verbose}{Logical. Print progress.}
 }

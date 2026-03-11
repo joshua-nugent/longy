@@ -39,9 +39,10 @@ longy(
   outcome_range = NULL,
   cross_fit = NULL,
   cross_fit_seed = NULL,
+  sl_control = list(),
   use_ffSL = FALSE,
   parallel = FALSE,
-  k = Inf,
+  k = 0,
   verbose = TRUE
 )
 }
@@ -121,7 +122,10 @@ Ignored for G-comp (always bootstrap).}
 
 \item{times}{Numeric vector. Time points for estimation. NULL = all.}
 
-\item{adaptive_cv}{Logical. Adaptive CV fold selection.}
+\item{adaptive_cv}{Logical. Adaptive CV fold selection. When TRUE (default),
+the number of CV folds is chosen automatically based on effective sample
+size. When FALSE, uses \code{sl_control$cvControl$V} if specified, or 10.
+Cannot be TRUE when \code{sl_control$cvControl$V} is specified.}
 
 \item{min_obs}{Integer. Minimum observations for model fitting.}
 
@@ -157,6 +161,14 @@ are 5 or 10. Default NULL (no cross-fitting).}
 \item{cross_fit_seed}{Integer or NULL. Random seed for cross-fitting fold
 assignment. NULL for no seed.}
 
+\item{sl_control}{List. Additional arguments passed to SuperLearner in all
+nuisance models. Elements named \code{cvControl} are merged with the
+default \code{cvControl} (e.g. \code{list(cvControl = list(stratifyCV = TRUE))}).
+\code{cvControl$V} sets the number of CV folds when \code{adaptive_cv = FALSE};
+specifying \code{V} with \code{adaptive_cv = TRUE} is an error.
+Other elements (e.g. \code{method = "method.CC_LS"}) are passed directly
+to SuperLearner. Default \code{list()}.}
+
 \item{use_ffSL}{Logical. If TRUE, use future-factorial SuperLearner
 (parallelizes fold x algorithm combinations via \code{future.apply}).
 Default FALSE. Forced to FALSE inside parallel workers to prevent
@@ -168,7 +180,7 @@ is active, dispatches time-point models in parallel via
 
 \item{k}{Integer or \code{Inf}. Number of lagged time steps of covariate
 history to include as additional predictors. See \code{\link{longy_data}}
-for details. Default \code{Inf} (all available history).}
+for details. Default \code{0} (no lag columns).}
 
 \item{verbose}{Logical. Print progress.}
 }

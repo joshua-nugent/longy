@@ -54,7 +54,17 @@
 #' @param n_boot Integer. Bootstrap replicates.
 #' @param cluster Character. Cluster column for robust SEs (IPW only).
 #' @param times Numeric vector. Time points for estimation. NULL = all.
-#' @param adaptive_cv Logical. Adaptive CV fold selection.
+#' @param sl_control List. Additional arguments passed to SuperLearner in all
+#'   nuisance models. Elements named \code{cvControl} are merged with the
+#'   default \code{cvControl} (e.g. \code{list(cvControl = list(stratifyCV = TRUE))}).
+#'   \code{cvControl$V} sets the number of CV folds when \code{adaptive_cv = FALSE};
+#'   specifying \code{V} with \code{adaptive_cv = TRUE} is an error.
+#'   Other elements (e.g. \code{method = "method.CC_LS"}) are passed directly
+#'   to SuperLearner. Default \code{list()}.
+#' @param adaptive_cv Logical. Adaptive CV fold selection. When TRUE (default),
+#'   the number of CV folds is chosen automatically based on effective sample
+#'   size. When FALSE, uses \code{sl_control$cvControl$V} if specified, or 10.
+#'   Cannot be TRUE when \code{sl_control$cvControl$V} is specified.
 #' @param min_obs Integer. Minimum observations for model fitting.
 #' @param min_events Integer. Minimum minority-class events required to fit a
 #'   model. When the minority class count is below this AND the minority rate
@@ -140,6 +150,7 @@ longy <- function(data,
                   outcome_range = NULL,
                   cross_fit = NULL,
                   cross_fit_seed = NULL,
+                  sl_control = list(),
                   use_ffSL = FALSE,
                   parallel = FALSE,
                   k = 0,
@@ -156,6 +167,11 @@ longy <- function(data,
     learners_treatment <- learners_censoring <-
       learners_observation <- learners_outcome <- learners
   }
+
+  if (adaptive_cv && !is.null(sl_control$cvControl$V))
+    stop("Cannot specify sl_control$cvControl$V when adaptive_cv=TRUE. ",
+         "Set adaptive_cv=FALSE to use a fixed number of CV folds.",
+         call. = FALSE)
 
   # Backward compatibility: "both" -> ipw + gcomp, "all" -> ipw + gcomp + tmle
   if (length(estimator) == 1 && estimator == "both") {
@@ -239,7 +255,8 @@ longy <- function(data,
     if (verbose) .vmsg("Step %d/%d: Fitting treatment model (g_A)...",
                         cur_step + 1L, n_steps)
     obj <- fit_treatment(obj, regime = regime_names, covariates = covariates,
-                           learners = learners_treatment, adaptive_cv = adaptive_cv,
+                           learners = learners_treatment, sl_control = sl_control,
+                           adaptive_cv = adaptive_cv,
                            min_obs = min_obs, min_events = min_events,
                            bounds = bounds,
                            times = times, use_ffSL = use_ffSL,
@@ -249,7 +266,8 @@ longy <- function(data,
     if (verbose) .vmsg("Step %d/%d: Fitting censoring model (g_C)...",
                         cur_step + 2L, n_steps)
     obj <- fit_censoring(obj, regime = regime_names, covariates = covariates,
-                           learners = learners_censoring, adaptive_cv = adaptive_cv,
+                           learners = learners_censoring, sl_control = sl_control,
+                           adaptive_cv = adaptive_cv,
                            min_obs = min_obs, min_events = min_events,
                            bounds = bounds,
                            times = times, use_ffSL = use_ffSL,
@@ -259,7 +277,8 @@ longy <- function(data,
     if (verbose) .vmsg("Step %d/%d: Fitting observation model (g_R)...",
                         cur_step + 3L, n_steps)
     obj <- fit_observation(obj, regime = regime_names, covariates = covariates,
-                             learners = learners_observation, adaptive_cv = adaptive_cv,
+                             learners = learners_observation, sl_control = sl_control,
+                             adaptive_cv = adaptive_cv,
                              min_obs = min_obs, min_events = min_events,
                              bounds = bounds,
                              times = times, use_ffSL = use_ffSL,
@@ -298,7 +317,8 @@ longy <- function(data,
     if (verbose) .vmsg("Step %d/%d: Fitting outcome model...",
                         cur_step + 1L, n_steps)
     obj <- fit_outcome(obj, regime = regime_names, covariates = covariates,
-                         learners = learners_outcome, adaptive_cv = adaptive_cv,
+                         learners = learners_outcome, sl_control = sl_control,
+                         adaptive_cv = adaptive_cv,
                          min_obs = min_obs, bounds = bounds,
                          times = times, use_ffSL = use_ffSL,
                          parallel = outcome_parallel,

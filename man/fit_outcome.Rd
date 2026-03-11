@@ -32,10 +32,15 @@ If NULL, uses all baseline + timevarying covariates.}
 \item{learners}{Character vector. SuperLearner library names.
 If NULL, uses glm only.}
 
-\item{sl_control}{List. Additional arguments passed to SuperLearner.}
+\item{sl_control}{List. Additional arguments passed to SuperLearner.
+Elements named \code{cvControl} are merged with the default
+\code{cvControl}. \code{cvControl$V} sets the number of CV folds when
+\code{adaptive_cv = FALSE}; specifying \code{V} with
+\code{adaptive_cv = TRUE} is an error.}
 
 \item{adaptive_cv}{Logical. Use adaptive CV fold selection based on effective
-sample size.}
+sample size. When TRUE (default), CV folds are chosen automatically.
+When FALSE, uses \code{sl_control$cvControl$V} if specified, or 10.}
 
 \item{min_obs}{Integer. Minimum observations to fit a model; below this
 threshold, uses marginal mean.}
@@ -51,8 +56,8 @@ time points.}
 Default FALSE. Forced to FALSE inside parallel workers.}
 
 \item{parallel}{Logical. If TRUE and a non-sequential \code{future::plan()}
-is active, dispatches target-time backward passes in parallel. Each worker
-copies the full dataset. Default FALSE.}
+is active, dispatches regime x target-time backward passes in parallel.
+Each worker copies the full dataset. Default FALSE.}
 
 \item{risk_set}{Character. Which subjects form the training set for outcome
 models at each backward step. \code{"all"} (default) uses all uncensored

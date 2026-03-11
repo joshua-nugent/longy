@@ -19,8 +19,14 @@
 #' @param covariates Character vector. Predictor columns. If NULL, uses all
 #'   baseline + timevarying covariates.
 #' @param learners Character vector. SuperLearner library.
-#' @param sl_control List. Additional SuperLearner arguments.
-#' @param adaptive_cv Logical. Adaptive CV fold selection.
+#' @param sl_control List. Additional arguments passed to SuperLearner.
+#'   Elements named \code{cvControl} are merged with the default
+#'   \code{cvControl}. \code{cvControl$V} sets the number of CV folds when
+#'   \code{adaptive_cv = FALSE}; specifying \code{V} with
+#'   \code{adaptive_cv = TRUE} is an error.
+#' @param adaptive_cv Logical. Adaptive CV fold selection. When TRUE (default),
+#'   CV folds are chosen automatically. When FALSE, uses
+#'   \code{sl_control$cvControl$V} if specified, or 10.
 #' @param min_obs Integer. Minimum observations for model fitting.
 #' @param min_events Integer. Minimum minority-class events required to fit a
 #'   model. When the minority class count is below this AND the minority rate
@@ -49,6 +55,11 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
   obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "censoring")
   regime <- .resolve_regimes(obj, regime)
+
+  if (adaptive_cv && !is.null(sl_control$cvControl$V))
+    stop("Cannot specify sl_control$cvControl$V when adaptive_cv=TRUE. ",
+         "Set adaptive_cv=FALSE to use a fixed number of CV folds.",
+         call. = FALSE)
 
   if (!refit) {
     fitted <- Filter(function(r) !is.null(obj$fits$censoring[[r]]) &&
@@ -146,13 +157,14 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       cens_rate <- 1 - mean(Y)
       ctx <- sprintf("g_C(%s), time=%d, n=%d, censoring_rate=%.3f",
                      cvar, tt, n_risk, cens_rate)
-      cv_folds <- 10L
+      cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
       if (adaptive_cv) {
         cv_info <- .adaptive_cv_folds(Y)
         cv_folds <- cv_info$V
       }
       fit <- .safe_sl(Y = Y, X = X, learners = learners,
                       cv_folds = cv_folds, obs_weights = ow,
+                      sl_control = sl_control,
                       use_ffSL = worker_ffSL, context = ctx,
                       verbose = !parallel && verbose)
       p_c <- .bound(fit$predictions, bounds[1], bounds[2])
@@ -219,7 +231,7 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     one_cens_task <- .clean_closure(one_cens_task, c(
       "tasks", "nodes", "time_vals", "dt", "parallel",
       "learners", "adaptive_cv", "worker_ffSL", "verbose",
-      "bounds", "min_obs", "min_events", "covariates"
+      "bounds", "min_obs", "min_events", "covariates", "sl_control"
     ))
   }
 

@@ -31,9 +31,15 @@ baseline + timevarying covariates.}
 
 \item{learners}{Character vector. SuperLearner library.}
 
-\item{sl_control}{List. Additional SuperLearner arguments.}
+\item{sl_control}{List. Additional arguments passed to SuperLearner.
+Elements named \code{cvControl} are merged with the default
+\code{cvControl}. \code{cvControl$V} sets the number of CV folds when
+\code{adaptive_cv = FALSE}; specifying \code{V} with
+\code{adaptive_cv = TRUE} is an error.}
 
-\item{adaptive_cv}{Logical. Adaptive CV fold selection.}
+\item{adaptive_cv}{Logical. Adaptive CV fold selection. When TRUE (default),
+CV folds are chosen automatically. When FALSE, uses
+\code{sl_control$cvControl$V} if specified, or 10.}
 
 \item{min_obs}{Integer. Minimum observations for model fitting.}
 
@@ -64,10 +70,13 @@ Modified \code{longy_data} object with censoring fits stored in
 \description{
 Fits models for P(C(t) = 0 | past) at each time point, separately for
 each censoring cause. The risk set is all subjects uncensored through t-1.
-Models are fit on the full uncensored sample regardless of regime consistency,
-matching ltmle/stremr.
+Models are fit on the full uncensored sample regardless of regime consistency.
 }
 \details{
+longy assumes the within-period ordering L(t) -> A(t) -> C(t) -> Y(t), so
+current-time treatment A(t) is included as a default covariate. This matches
+the ltmle vignette ordering. Override via the \code{covariates} argument.
+
 This function loops over the internal binary censoring columns stored in
 \code{obj$nodes$censoring} (e.g. \code{".cens_censored"}, \code{".cens_death"}).
 These are created automatically by \code{\link{longy_data}} from the

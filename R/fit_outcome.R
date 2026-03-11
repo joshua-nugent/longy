@@ -13,8 +13,13 @@
 #' @param learners Character vector. SuperLearner library names.
 #'   If NULL, uses glm only.
 #' @param sl_control List. Additional arguments passed to SuperLearner.
+#'   Elements named \code{cvControl} are merged with the default
+#'   \code{cvControl}. \code{cvControl$V} sets the number of CV folds when
+#'   \code{adaptive_cv = FALSE}; specifying \code{V} with
+#'   \code{adaptive_cv = TRUE} is an error.
 #' @param adaptive_cv Logical. Use adaptive CV fold selection based on effective
-#'   sample size.
+#'   sample size. When TRUE (default), CV folds are chosen automatically.
+#'   When FALSE, uses \code{sl_control$cvControl$V} if specified, or 10.
 #' @param min_obs Integer. Minimum observations to fit a model; below this
 #'   threshold, uses marginal mean.
 #' @param bounds Numeric vector of length 2. Bounds for predicted probabilities
@@ -51,6 +56,11 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
   learners <- .resolve_learners(learners, "outcome")
   regime <- .resolve_regimes(obj, regime)
   risk_set <- match.arg(risk_set)
+
+  if (adaptive_cv && !is.null(sl_control$cvControl$V))
+    stop("Cannot specify sl_control$cvControl$V when adaptive_cv=TRUE. ",
+         "Set adaptive_cv=FALSE to use a fixed number of CV folds.",
+         call. = FALSE)
 
   if (!refit) {
     fitted <- Filter(function(r) !is.null(obj$fits$outcome[[r]]) &&
@@ -263,7 +273,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         }
 
         if (n_train >= min_obs && length(unique(Y_train)) > 1) {
-        cv_folds <- 10L
+        cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
         if (adaptive_cv) {
           cv_info <- .adaptive_cv_folds(Y_train, binary = (i == 1 && is_binary))
           cv_folds <- cv_info$V
@@ -272,7 +282,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                        rname, target_t, tt, n_train, mean(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, family = step_family,
                         learners = learners, cv_folds = cv_folds,
-                        obs_weights = ow, use_ffSL = worker_ffSL,
+                        obs_weights = ow, sl_control = sl_control,
+                        use_ffSL = worker_ffSL,
                         context = ctx, verbose = worker_verbose)
         method <- fit$method
         sl_risk <- fit$sl_risk
@@ -368,7 +379,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       "nodes", "all_time_vals", "id_col", "time_col",
       "a_col", "y_col", "is_binary", "is_survival", "has_competing",
       "covariates", "risk_set", "worker_ffSL", "worker_verbose",
-      "min_obs", "bounds", "adaptive_cv", "learners"
+      "min_obs", "bounds", "adaptive_cv", "learners", "sl_control"
     ))
   }
 

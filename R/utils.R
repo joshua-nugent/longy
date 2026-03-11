@@ -347,6 +347,11 @@ as_longy_data <- function(obj) {
 #' @param obs_weights Numeric vector of observation/sampling weights (same
 #'   length as Y). Passed as \code{obsWeights} to SuperLearner and
 #'   \code{weights} to glm. NULL means equal weights.
+#' @param sl_control List. Additional arguments passed to SuperLearner.
+#'   Elements named \code{cvControl} are merged with the default
+#'   \code{cvControl} (V is always set by \code{cv_folds}). Other elements
+#'   (e.g. \code{method}, \code{control}) are passed directly. Core args
+#'   (Y, X, family, SL.library, env, obsWeights) cannot be overridden.
 #' @param use_ffSL Logical. If TRUE, use future-factorial SuperLearner
 #'   (parallelizes fold x algorithm combinations via \code{future.apply}).
 #'   Default FALSE (sequential SuperLearner).
@@ -356,6 +361,7 @@ as_longy_data <- function(obj) {
 .safe_sl <- function(Y, X, family = stats::binomial(),
                      learners = c("SL.glm", "SL.mean"),
                      cv_folds = 10L, obs_weights = NULL,
+                     sl_control = list(),
                      use_ffSL = FALSE,
                      context = "", verbose = FALSE) {
   X <- as.data.frame(X)
@@ -522,6 +528,20 @@ as_longy_data <- function(obj) {
         )
         if (!is.null(obs_weights)) {
           sl_args$obsWeights <- obs_weights
+        }
+        # Merge user sl_control into sl_args. cvControl entries are merged
+        # (V is always set by cv_folds/adaptive_cv). Core args are protected.
+        if (length(sl_control) > 0) {
+          if (!is.null(sl_control$cvControl)) {
+            sl_args$cvControl <- utils::modifyList(
+              sl_control$cvControl, list(V = cv_folds))
+            sl_control <- sl_control[names(sl_control) != "cvControl"]
+          }
+          protected <- c("Y", "X", "family", "SL.library", "env", "obsWeights",
+                         "cvControl")
+          for (nm in setdiff(names(sl_control), protected)) {
+            sl_args[[nm]] <- sl_control[[nm]]
+          }
         }
         sl_fit <- do.call(sl_call_fn, sl_args)
         # Post-fit learner failure diagnostics

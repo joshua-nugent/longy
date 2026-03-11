@@ -33,10 +33,18 @@ If NULL, uses all baseline + timevarying covariates.}
 \item{learners}{Character vector. SuperLearner library names.
 If NULL, uses glm only.}
 
-\item{sl_control}{List. Additional arguments passed to SuperLearner.}
+\item{sl_control}{List. Additional arguments passed to SuperLearner.
+Elements named \code{cvControl} are merged with the default
+\code{cvControl} (e.g. \code{list(cvControl = list(stratifyCV = TRUE))}).
+\code{cvControl$V} sets the number of CV folds when
+\code{adaptive_cv = FALSE}; specifying \code{V} with
+\code{adaptive_cv = TRUE} is an error. Other elements (e.g.
+\code{method = "method.CC_LS"}) are passed directly to SuperLearner.}
 
 \item{adaptive_cv}{Logical. Use adaptive CV fold selection based on effective
-sample size.}
+sample size. When TRUE (default), the number of CV folds is chosen
+automatically. When FALSE, uses \code{sl_control$cvControl$V} if
+specified, or 10.}
 
 \item{min_obs}{Integer. Minimum observations to fit a model; below this
 threshold, uses marginal mean.}
