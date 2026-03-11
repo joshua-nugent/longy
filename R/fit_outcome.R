@@ -42,6 +42,12 @@
 #' @param refit Logical. If FALSE (default), errors when outcome is already
 #'   fitted for the requested regime(s). Set to TRUE to re-fit.
 #'
+#' @param metadata_only Logical. If TRUE, stores only the metadata that
+#'   \code{estimate_tmle()} needs (covariates, learners, bounds, use_ffSL)
+#'   without running the expensive backward regression. Used when cross-fitting
+#'   is enabled and only TMLE is requested (since \code{.cf_estimate_tmle()}
+#'   re-does the entire backward pass with cross-fitting). Default FALSE.
+#'
 #' @return Modified \code{longy_data} object with outcome fits stored in
 #'   \code{obj$fits$outcome}.
 #' @export
@@ -51,7 +57,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                         times = NULL, use_ffSL = FALSE,
                         parallel = FALSE,
                         risk_set = c("all", "followers"),
-                        verbose = TRUE, refit = FALSE) {
+                        verbose = TRUE, refit = FALSE,
+                        metadata_only = FALSE) {
   obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "outcome")
   regime <- .resolve_regimes(obj, regime)
@@ -92,6 +99,29 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
 
   if (is.null(covariates)) {
     covariates <- c(nodes$baseline, nodes$timevarying, nodes$treatment)
+  }
+
+  # Metadata-only mode: store just what .cf_estimate_tmle() reads (covariates,
+
+  # learners, bounds, use_ffSL) and skip the expensive backward regression.
+  # Used when cross-fitting is enabled and only TMLE is requested.
+  if (metadata_only) {
+    if (verbose) .vmsg("  Storing outcome model metadata only (backward pass skipped)")
+    for (rname in regime) {
+      obj$fits$outcome[[rname]] <- list(
+        regime = rname,
+        predictions = NULL,
+        covariates = covariates,
+        learners = learners,
+        bounds = bounds,
+        use_ffSL = use_ffSL,
+        sl_info = list(),
+        family = if (is_binary) "quasibinomial" else "gaussian",
+        risk_set = risk_set,
+        metadata_only = TRUE
+      )
+    }
+    return(obj)
   }
 
   # Lag depth for regime counterfactual columns
@@ -175,47 +205,57 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     dt_w[, .longy_Q := NA_real_]
     dt_w[dt_w[[time_col]] == target_t, .longy_Q := as.numeric(get(y_col))]
 
+    # Pre-index rows by time to avoid repeated full-column scans in loop.
+    # Also pre-extract stable vectors accessed every iteration.
+    time_row_idx <- split(seq_len(nrow(dt_w)), dt_w[[time_col]])
+    id_vec <- dt_w[[id_col]]
+    cum_uncens_vec <- dt_w$.longy_cum_uncens
+    consist_prev_vec <- if (risk_set == "followers") dt_w$.longy_consist_prev else NULL
+    first_event_vec <- if (is_survival) dt_w$.longy_first_event else NULL
+    first_competing_vec <- if (has_competing) dt_w$.longy_first_competing else NULL
+    regime_a_vec <- dt_w$.longy_regime_a
+
     # Backward pass: from target_t down to min time
     backward_times <- rev(all_time_vals[all_time_vals <= target_t])
     n_back <- length(backward_times)
     sl_info_target <- vector("list", n_back)
+    return_preds <- NULL
 
     for (i in seq_along(backward_times)) {
       tt <- backward_times[i]
+      rows_t <- time_row_idx[[as.character(tt)]]
 
-      dt_t <- dt_w[dt_w[[time_col]] == tt, ]
-
-      # Uncensored subjects through t
-      still_in <- dt_t$.longy_cum_uncens == 1L
+      # Uncensored subjects through t (pre-extracted vectors, no dt subset needed)
+      still_in <- cum_uncens_vec[rows_t] == 1L
       still_in[is.na(still_in)] <- FALSE
 
       # Followers-only restriction: limit training to regime-consistent subjects
       if (risk_set == "followers") {
-        consist_prev <- dt_t$.longy_consist_prev == 1L
+        consist_prev <- consist_prev_vec[rows_t] == 1L
         consist_prev[is.na(consist_prev)] <- FALSE
         still_in <- still_in & consist_prev
       }
 
       # For survival: exclude absorbed subjects (event strictly before tt)
       if (is_survival) {
-        fe <- dt_t$.longy_first_event
+        fe <- first_event_vec[rows_t]
         absorbed_primary <- still_in & !is.na(fe) & fe < tt
       } else {
-        absorbed_primary <- rep(FALSE, nrow(dt_t))
+        absorbed_primary <- rep(FALSE, length(rows_t))
       }
       # For competing risks: exclude subjects with competing event before tt
       if (has_competing) {
-        fc <- dt_t$.longy_first_competing
+        fc <- first_competing_vec[rows_t]
         absorbed_competing <- still_in & !is.na(fc) & fc < tt
       } else {
-        absorbed_competing <- rep(FALSE, nrow(dt_t))
+        absorbed_competing <- rep(FALSE, length(rows_t))
       }
       at_risk <- still_in & !absorbed_primary & !absorbed_competing
       n_at_risk <- sum(at_risk)
       n_primary <- sum(absorbed_primary)
       n_competing <- sum(absorbed_competing)
-      primary_absorbed_ids <- dt_t[[id_col]][absorbed_primary]
-      competing_absorbed_ids <- dt_t[[id_col]][absorbed_competing]
+      primary_absorbed_ids <- id_vec[rows_t[absorbed_primary]]
+      competing_absorbed_ids <- id_vec[rows_t[absorbed_competing]]
 
       if (n_at_risk == 0 && n_primary == 0 && n_competing == 0) {
         if (worker_verbose) .vmsg("  Q target=%d time %d: 0 at risk, skipping",
@@ -224,7 +264,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       }
 
       # Model fitting on at-risk subjects only
-      risk_ids <- dt_t[[id_col]][at_risk]
+      risk_rows <- rows_t[at_risk]
+      risk_ids <- id_vec[risk_rows]
       preds <- numeric(0)
       method <- "none"
       sl_risk <- NULL
@@ -237,7 +278,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       step_family <- if (is_binary) stats::quasibinomial() else stats::gaussian()
 
       if (n_at_risk > 0) {
-        Q_at_t <- dt_t$.longy_Q[at_risk]
+        Q_at_t <- dt_w$.longy_Q[risk_rows]
         has_Q <- !is.na(Q_at_t)
         n_train <- sum(has_Q)
       }
@@ -262,13 +303,13 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
           .vmsg_covariates(q_base, tv_label, lag_covs)
         }
 
-        X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])
+        X_risk <- as.data.frame(dt_w[risk_rows, all_covs, with = FALSE])
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]
 
         ow <- NULL
         if (!is.null(nodes$sampling_weights)) {
-          ow_risk <- dt_t[[nodes$sampling_weights]][at_risk]
+          ow_risk <- dt_w[[nodes$sampling_weights]][risk_rows]
           ow <- ow_risk[has_Q]
         }
 
@@ -291,14 +332,14 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
 
         X_cf <- X_risk
         if (a_col %in% all_covs) {
-          X_cf[[a_col]] <- dt_t$.longy_regime_a[at_risk]
+          X_cf[[a_col]] <- regime_a_vec[risk_rows]
         }
         trt_lag_prefix <- paste0(".longy_lag_", a_col, "_")
         for (lc in all_covs[startsWith(all_covs, trt_lag_prefix)]) {
           regime_lc <- sub(trt_lag_prefix,
                            paste0(".longy_lag_regime_", a_col, "_"), lc, fixed = TRUE)
-          if (regime_lc %in% names(dt_t)) {
-            X_cf[[lc]] <- dt_t[[regime_lc]][at_risk]
+          if (regime_lc %in% names(dt_w)) {
+            X_cf[[lc]] <- dt_w[[regime_lc]][risk_rows]
           }
         }
 
@@ -323,6 +364,13 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         }
       } # end if (n_train > 0)
 
+      # Fallback: at-risk subjects with no pseudo-outcomes get NA predictions
+      # to maintain vector alignment (prevents length mismatch in all_preds)
+      if (n_at_risk > 0 && length(preds) == 0) {
+        preds <- rep(NA_real_, n_at_risk)
+        method <- "no_pseudo_outcome"
+      }
+
       all_ids <- c(risk_ids, primary_absorbed_ids, competing_absorbed_ids)
       all_preds <- c(preds, rep(1, n_primary), rep(0, n_competing))
 
@@ -341,20 +389,15 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                                   n_clipped_upper = n_clipped_upper,
                                   n_preds = length(preds))
 
-      # Propagate pseudo-outcomes backward
+      # Propagate pseudo-outcomes backward (direct vector match, no intermediate dt)
       prev_times <- all_time_vals[all_time_vals < tt]
       if (length(prev_times) > 0 && length(all_ids) > 0) {
         prev_t <- max(prev_times)
-        pred_dt_prop <- data.table::data.table(
-          .tmp_id = all_ids,
-          .tmp_pred = all_preds
-        )
-        data.table::setnames(pred_dt_prop, ".tmp_id", id_col)
-        prev_rows <- dt_w[[time_col]] == prev_t
-        prev_ids <- dt_w[[id_col]][prev_rows]
-        match_idx <- match(prev_ids, pred_dt_prop[[id_col]])
+        rows_prev <- time_row_idx[[as.character(prev_t)]]
+        prev_ids <- id_vec[rows_prev]
+        match_idx <- match(prev_ids, all_ids)
         has_match <- !is.na(match_idx)
-        dt_w$.longy_Q[which(prev_rows)[has_match]] <- pred_dt_prop$.tmp_pred[match_idx[has_match]]
+        dt_w$.longy_Q[rows_prev[has_match]] <- all_preds[match_idx[has_match]]
       }
 
       # If this is the final backward step (earliest time), store predictions
@@ -367,7 +410,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       }
     }
 
-    preds_out <- if (exists("return_preds", inherits = FALSE)) return_preds else NULL
+    preds_out <- return_preds
     sl_info_out <- sl_info_target[!vapply(sl_info_target, is.null, logical(1))]
     list(regime = rname, predictions = preds_out, sl_info = sl_info_out)
   }
@@ -402,9 +445,11 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     if (!any(non_null)) {
       warning(sprintf("No observations at risk for any time point in outcome model (regime=%s).",
                       rname), call. = FALSE)
+      all_preds <- data.table::data.table()
+    } else {
+      all_preds <- data.table::rbindlist(predictions_list[non_null])
+      data.table::setnames(all_preds, ".id", id_col)
     }
-    all_preds <- data.table::rbindlist(predictions_list[non_null])
-    data.table::setnames(all_preds, ".id", id_col)
 
     # Flatten sl_info
     sl_info <- unlist(sl_info_list, recursive = FALSE)
@@ -418,7 +463,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       bounds = bounds,
       use_ffSL = use_ffSL,
       sl_info = sl_info,
-      family = "gaussian",
+      family = if (is_binary) "quasibinomial" else "gaussian",
       risk_set = risk_set
     )
   }

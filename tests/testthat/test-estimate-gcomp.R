@@ -347,7 +347,7 @@ test_that("G-comp bootstrap runs in parallel with future.apply", {
   expect_true("ci_upper" %in% names(res$estimates))
 })
 
-test_that("fit_outcome sl_info contains clip tracking and gaussian family", {
+test_that("fit_outcome sl_info contains clip tracking and correct family", {
   d <- simulate_test_data(n = 200, K = 4)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -357,8 +357,8 @@ test_that("fit_outcome sl_info contains clip tracking and gaussian family", {
   obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
 
   outcome_fit <- obj$fits$outcome[["always"]]
-  # Top-level family should be "gaussian" (LMTP-style)
-  expect_equal(outcome_fit$family, "gaussian")
+  # Top-level family should reflect outcome type (quasibinomial for binary)
+  expect_equal(outcome_fit$family, "quasibinomial")
 
   # sl_info should have per-step entries with clip counts and family
   sl_info <- outcome_fit$sl_info

@@ -314,8 +314,14 @@ longy <- function(data,
       warning("parallel=TRUE with G-comp bootstrap: fit_outcome() runs sequentially so bootstrap gets parallel resources.",
               call. = FALSE)
     }
-    if (verbose) .vmsg("Step %d/%d: Fitting outcome model...",
-                        cur_step + 1L, n_steps)
+    # When cross-fitting is enabled and only TMLE needs the outcome model,
+    # skip the expensive backward regression — .cf_estimate_tmle() will redo
+    # it with cross-fitting anyway. Only store metadata.
+    outcome_metadata_only <- isTRUE(obj$crossfit$enabled) && do_tmle && !do_gcomp
+
+    if (verbose) .vmsg("Step %d/%d: Fitting outcome model%s...",
+                        cur_step + 1L, n_steps,
+                        if (outcome_metadata_only) " (metadata only)" else "")
     obj <- fit_outcome(obj, regime = regime_names, covariates = covariates,
                          learners = learners_outcome, sl_control = sl_control,
                          adaptive_cv = adaptive_cv,
@@ -323,7 +329,8 @@ longy <- function(data,
                          times = times, use_ffSL = use_ffSL,
                          parallel = outcome_parallel,
                          risk_set = risk_set_outcome,
-                         verbose = verbose)
+                         verbose = verbose,
+                         metadata_only = outcome_metadata_only)
     cur_step <- cur_step + 1L
   }
 

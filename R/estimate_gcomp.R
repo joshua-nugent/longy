@@ -35,6 +35,15 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
          call. = FALSE)
   }
 
+  if (isTRUE(obj$fits$outcome[[rname]]$metadata_only)) {
+    stop(sprintf(
+      "Outcome model for regime '%s' contains metadata only (no predictions). ",
+      rname),
+      "Re-run fit_outcome() with metadata_only=FALSE, or call longy() with ",
+      "estimator including 'gcomp'.",
+      call. = FALSE)
+  }
+
   nodes <- obj$nodes
   id_col <- nodes$id
   pred_dt <- obj$fits$outcome[[rname]]$predictions
