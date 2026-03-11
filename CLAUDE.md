@@ -35,7 +35,7 @@ estimators with IC/EIF/bootstrap/sandwich inference, plus cross-fitting (CV-TMLE
 - `cross_fit` / `cross_fit_seed`: CV fold count and seed
 - `use_ffSL`: Use future-factorial SuperLearner (parallel CV)
 - `parallel`: Dispatch time-point models in parallel via `future.apply`
-- `k`: Lag depth for covariate history (default `Inf`)
+- `k`: Lag depth for covariate history (default `0`)
 - `min_obs`, `min_events`, `adaptive_cv`: Model fitting controls
 
 ## Three nuisance models

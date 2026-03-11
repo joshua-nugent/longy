@@ -49,9 +49,15 @@
 #' @param k Integer or \code{Inf}. Number of lagged time steps of covariate
 #'   history to include as additional predictors in nuisance models. At each
 #'   time index \code{i}, up to \code{min(k, i - 1)} lags are added for the
-#'   treatment, outcome, and time-varying columns. \code{k = Inf} (default)
-#'   uses all available history (matching ltmle's wide-format conditioning
-#'   set). \code{k = 0} disables lag columns entirely.
+#'   treatment, outcome, and time-varying columns. \code{k = 0} (default)
+#'   disables lag columns entirely. \code{k = Inf} uses all available
+#'   history (matching ltmle's wide-format conditioning set).
+#'
+#'   Lag columns are constructed from LOCF-filled copies so that intermittent
+#'   NAs (e.g., outcome not observed at a time point) carry forward the last
+#'   observed value. Structural NAs at the earliest time points (where no
+#'   prior value exists) are filled with 0 for binary columns and the
+#'   column median for continuous columns.
 #' @param verbose Logical. Print progress messages.
 #'
 #' @return An S3 object of class \code{"longy_data"}, a list with components:
@@ -112,11 +118,14 @@ longy_data <- function(data,
                        sampling_weights = NULL,
                        outcome_type = "binary",
                        competing = NULL,
-                       k = Inf,
+                       k = 0,
                        verbose = TRUE) {
 
-  # --- Convert to data.table ---
-  dt <- data.table::as.data.table(data)
+  # --- Validate outcome_type early (used before match.arg would catch it) ---
+  outcome_type <- match.arg(outcome_type, c("binary", "continuous", "survival"))
+
+  # --- Convert to data.table (copy to avoid mutating caller's object) ---
+  dt <- data.table::copy(data.table::as.data.table(data))
 
   # --- Validate column existence ---
   all_nodes <- c(id, time, outcome, treatment, censoring, observation,
@@ -177,12 +186,31 @@ longy_data <- function(data,
       internal_cols <- character(length(censoring_levels))
       for (j in seq_along(censoring_levels)) {
         lvl <- censoring_levels[j]
-        col_name <- paste0(".cens_", lvl)
+        safe_lvl <- gsub("[^a-zA-Z0-9_]", "_", lvl)
+        col_name <- paste0(".cens_", safe_lvl)
         data.table::set(dt, j = col_name,
                         value = as.integer(c_vals == lvl))
         internal_cols[j] <- col_name
       }
       censoring <- internal_cols
+
+      # Validate censoring is absorbing: once censored, must stay censored
+      data.table::setkeyv(dt, c(id, time))
+      cens_col_name <- censoring_col
+      dt[, .longy_check_cens := {
+        cv <- get(cens_col_name)
+        first_cens <- which(cv != "uncensored")[1]
+        if (is.na(first_cens)) TRUE
+        else all(cv[first_cens:length(cv)] != "uncensored")
+      }, by = c(id)]
+      if (!all(dt$.longy_check_cens)) {
+        bad_n <- length(unique(dt[[id]][!dt$.longy_check_cens]))
+        dt[, .longy_check_cens := NULL]
+        stop(sprintf(
+          "Censoring must be absorbing (once censored, all subsequent rows must be censored). Violated for %d subject(s).",
+          bad_n), call. = FALSE)
+      }
+      dt[, .longy_check_cens := NULL]
     }
   }
 
@@ -268,12 +296,14 @@ longy_data <- function(data,
 
   # --- Auto-detect observation from outcome NAs ---
   if (is.null(observation)) {
-    # Check for NAs in outcome among uncensored rows
+    # Check for NAs in outcome among uncensored, non-competing-event rows
+    # (post-competing-event NAs are structural, not intermittent missingness)
+    uncensored_na <- is.na(dt[[outcome]])
     if (!is.null(censoring_col)) {
-      censored <- dt[[censoring_col]] != "uncensored"
-      uncensored_na <- !censored & is.na(dt[[outcome]])
-    } else {
-      uncensored_na <- is.na(dt[[outcome]])
+      uncensored_na <- uncensored_na & dt[[censoring_col]] == "uncensored"
+    }
+    if (!is.null(competing)) {
+      uncensored_na <- uncensored_na & (dt[[competing]] == 0L | is.na(dt[[competing]]))
     }
     if (any(uncensored_na)) {
       observation <- ".obs"
@@ -301,7 +331,10 @@ longy_data <- function(data,
     if (!is.numeric(sw_vals)) {
       stop("Sampling weights column must be numeric.", call. = FALSE)
     }
-    if (any(sw_vals < 0, na.rm = TRUE)) {
+    if (any(is.na(sw_vals))) {
+      stop("Sampling weights must not contain NAs.", call. = FALSE)
+    }
+    if (any(sw_vals < 0)) {
       stop("Sampling weights must be non-negative.", call. = FALSE)
     }
     if (all(sw_vals == 0, na.rm = TRUE)) {
@@ -318,9 +351,6 @@ longy_data <- function(data,
         bad_n), call. = FALSE)
     }
   }
-
-  # --- Validate outcome_type ---
-  outcome_type <- match.arg(outcome_type, c("binary", "continuous", "survival"))
 
   # --- Validate binary outcome values ---
   if (outcome_type == "binary") {
@@ -360,7 +390,7 @@ longy_data <- function(data,
   if (length(baseline) > 0) {
     data.table::setkeyv(dt, c(id, time))
     for (bvar in baseline) {
-      n_unique <- dt[, list(nu = data.table::uniqueN(get(bvar), na.rm = TRUE)),
+      n_unique <- dt[, list(nu = data.table::uniqueN(get(bvar))),
                      by = c(id)]
       if (any(n_unique$nu > 1)) {
         bad_n <- sum(n_unique$nu > 1)
@@ -394,7 +424,8 @@ longy_data <- function(data,
       new_names <- character(0)
       if (length(lvls) > 1) {
         for (i in seq_along(lvls)[-1]) {
-          new_name <- paste0(col, "_", lvls[i])
+          safe_lvl <- gsub("[^a-zA-Z0-9_]", "_", lvls[i])
+          new_name <- paste0(col, "_", safe_lvl)
           data.table::set(dt, j = new_name,
                           value = as.integer(vals == lvls[i]))
           new_names <- c(new_names, new_name)
@@ -432,11 +463,23 @@ longy_data <- function(data,
       time_vals_pre <- sort(unique(dt[[time]]))
       n_times_pre <- length(time_vals_pre)
       max_lags <- if (is.infinite(k)) n_times_pre - 1L else min(as.integer(k), n_times_pre - 1L)
+      n_lag_cols <- as.numeric(max_lags) * length(cols_to_lag)
+      if (n_lag_cols > 2000) {
+        stop(sprintf(
+          "Lag columns would create %d columns (%d variables x %d lags). Reduce k to avoid memory explosion.",
+          as.integer(n_lag_cols), length(cols_to_lag), max_lags),
+          call. = FALSE)
+      }
       if (max_lags > 0) {
         # First, create a LOCF-filled copy of each column to lag from.
         # This ensures that unobserved values (e.g., Y=NA when R=0) are
         # carried forward from the last observed value rather than becoming
-        # NA or 0 in the lag columns. Original columns are NOT modified.
+        # NA in the lag columns. Original columns are NOT modified.
+        #
+        # Remaining structural NAs (no prior value at all, i.e. the first
+        # time points for a subject) are filled with 0 for binary columns
+        # and the column median for continuous columns, to avoid introducing
+        # out-of-range values into the predictor set.
         locf_cols <- character(length(cols_to_lag))
         names(locf_cols) <- cols_to_lag
         for (col in cols_to_lag) {
@@ -446,20 +489,47 @@ longy_data <- function(data,
           # LOCF within subject: fill NAs with last observed value
           dt[, (locf_name) := data.table::nafill(get(locf_name), type = "locf"),
              by = c(id)]
-          # Any remaining NAs (no prior value at all) become 0
-          data.table::setnafill(dt, fill = 0, cols = locf_name)
+          # Remaining NAs (no prior value at all): 0 for binary, median for continuous
+          col_vals <- dt[[col]]
+          col_vals_nona <- col_vals[!is.na(col_vals)]
+          is_binary <- length(col_vals_nona) > 0 &&
+                       all(col_vals_nona %in% c(0L, 1L, 0, 1))
+          if (is_binary) {
+            data.table::setnafill(dt, fill = 0, cols = locf_name)
+          } else {
+            fill_val <- stats::median(col_vals, na.rm = TRUE)
+            if (is.na(fill_val)) fill_val <- 0
+            na_idx <- which(is.na(dt[[locf_name]]))
+            if (length(na_idx) > 0) {
+              data.table::set(dt, i = na_idx, j = locf_name, value = fill_val)
+            }
+          }
         }
 
         # Now create lag columns from the LOCF-filled copies
         for (col in cols_to_lag) {
           locf_name <- locf_cols[col]
+          # Determine fill value for structural NAs from shift
+          col_vals <- dt[[col]]
+          col_vals_nona <- col_vals[!is.na(col_vals)]
+          is_binary <- length(col_vals_nona) > 0 &&
+                       all(col_vals_nona %in% c(0L, 1L, 0, 1))
+          fill_val <- if (is_binary) 0 else stats::median(col_vals, na.rm = TRUE)
+          if (is.na(fill_val)) fill_val <- 0
           for (j in seq_len(max_lags)) {
             lag_name <- paste0(".longy_lag_", col, "_", j)
             dt[, (lag_name) := data.table::shift(get(locf_name), n = j,
                                                   type = "lag"),
                by = c(id)]
-            # Structural NAs from shift (first j time points) become 0
-            data.table::setnafill(dt, fill = 0, cols = lag_name)
+            # Structural NAs from shift (first j time points)
+            if (is_binary) {
+              data.table::setnafill(dt, fill = 0, cols = lag_name)
+            } else {
+              na_idx <- which(is.na(dt[[lag_name]]))
+              if (length(na_idx) > 0) {
+                data.table::set(dt, i = na_idx, j = lag_name, value = fill_val)
+              }
+            }
           }
         }
 
@@ -566,10 +636,29 @@ set_crossfit <- function(obj, n_folds = 5L, fold_column = NULL, seed = NULL) {
       stop(sprintf("Fold column '%s' not found in data.", fold_column),
            call. = FALSE)
     }
-    fold_dt <- unique(obj$data[, c(id_col, fold_column), with = FALSE])
+    # Validate fold column values
+    fold_vals <- obj$data[[fold_column]]
+    if (!is.numeric(fold_vals) && !is.integer(fold_vals)) {
+      stop(sprintf("Fold column '%s' must be numeric/integer.", fold_column),
+           call. = FALSE)
+    }
+    if (any(is.na(fold_vals))) {
+      stop(sprintf("Fold column '%s' must not contain NAs.", fold_column),
+           call. = FALSE)
+    }
+    # Must be constant within subject
+    fold_by_id <- obj$data[, list(nu = data.table::uniqueN(get(fold_column))),
+                           by = c(id_col)]
+    if (any(fold_by_id$nu > 1)) {
+      bad_n <- sum(fold_by_id$nu > 1)
+      stop(sprintf(
+        "Fold column '%s' varies within %d subject(s). Must be constant within subject.",
+        fold_column, bad_n), call. = FALSE)
+    }
+    n_folds_detected <- data.table::uniqueN(fold_vals)
     obj$crossfit <- list(
       enabled = TRUE,
-      n_folds = data.table::uniqueN(fold_dt[[fold_column]]),
+      n_folds = n_folds_detected,
       fold_id = fold_column
     )
   } else {
@@ -581,8 +670,7 @@ set_crossfit <- function(obj, n_folds = 5L, fold_column = NULL, seed = NULL) {
     fold_dt <- data.table::data.table(V1 = ids, .longy_fold = folds)
     data.table::setnames(fold_dt, "V1", id_col)
 
-    obj$data <- merge(obj$data, fold_dt, by = id_col, all.x = TRUE)
-    data.table::setkeyv(obj$data, c(id_col, obj$nodes$time))
+    obj$data[fold_dt, .longy_fold := i..longy_fold, on = id_col]
 
     obj$crossfit <- list(
       enabled = TRUE,

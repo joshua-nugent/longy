@@ -89,7 +89,7 @@
 #'   \code{future.apply::future_lapply()}. Default FALSE.
 #' @param k Integer or \code{Inf}. Number of lagged time steps of covariate
 #'   history to include as additional predictors. See \code{\link{longy_data}}
-#'   for details. Default \code{Inf} (all available history).
+#'   for details. Default \code{0} (no lag columns).
 #' @param verbose Logical. Print progress.
 #'
 #' @return An S3 object of class \code{"longy_data"} with estimation results
@@ -142,7 +142,7 @@ longy <- function(data,
                   cross_fit_seed = NULL,
                   use_ffSL = FALSE,
                   parallel = FALSE,
-                  k = Inf,
+                  k = 0,
                   verbose = TRUE) {
 
   # Resolve per-model learner libraries
