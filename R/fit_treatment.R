@@ -101,10 +101,19 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   if (is.null(covariates)) {
     covariates <- c(nodes$baseline, nodes$timevarying)
+  } else {
+    # Guard: treatment column must not be in covariates (A(t) can't condition on itself)
+    if (nodes$treatment %in% covariates) {
+      covariates <- setdiff(covariates, nodes$treatment)
+      warning(sprintf(
+        "Removed treatment column '%s' from covariates (A(t) cannot condition on itself).",
+        nodes$treatment), call. = FALSE)
+    }
   }
 
   # Build cumulative regime-consistency and uncensored tracking
   dt <- .add_tracking_columns(dt, nodes, reg)
+  on.exit(.remove_tracking_columns(obj$data), add = TRUE)
 
   # Snapshot data for parallel safety (by-reference semantics)
   if (parallel) dt <- data.table::copy(dt)
@@ -255,7 +264,13 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
   if (!any(non_null)) {
     warning("No observations at risk for any time point in treatment (g_A) model.",
             call. = FALSE)
-    results <- data.table::data.table()
+    # Empty table with correct schema so downstream code gets proper column errors
+    results <- data.table::data.table(
+      .id = character(0), .time = numeric(0), .n_risk = integer(0),
+      .treatment = integer(0), .marg_a = numeric(0),
+      .p_a = numeric(0), .method = character(0)
+    )
+    data.table::setnames(results, ".id", nodes$id)
   } else {
     if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
       warning(sprintf(

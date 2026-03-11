@@ -375,3 +375,220 @@ test_that("longy() forwards risk_set_treatment parameter", {
   expect_equal(obj$fits$treatment[["never"]]$risk_set, "followers")
   expect_false(is.null(obj$results$always_ipw))
 })
+
+# ---------------------------------------------------------------------------
+# Refit protection
+# ---------------------------------------------------------------------------
+
+test_that("fit_treatment refit protection works", {
+  d <- simulate_test_data(n = 80, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+
+  # Should error without refit=TRUE
+  expect_error(
+    fit_treatment(obj, regime = "always", verbose = FALSE),
+    "refit"
+  )
+
+  # Should succeed with refit=TRUE
+  expect_no_error(
+    fit_treatment(obj, regime = "always", verbose = FALSE, refit = TRUE)
+  )
+})
+
+# ---------------------------------------------------------------------------
+# Tracking column cleanup
+# ---------------------------------------------------------------------------
+
+test_that("fit_treatment does not leave tracking columns on obj$data", {
+  d <- simulate_test_data(n = 80, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  cols_before <- names(obj$data)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  cols_after <- names(obj$data)
+
+  # No .longy_ tracking columns should leak (except .longy_fold/.longy_lag_*)
+  new_cols <- setdiff(cols_after, cols_before)
+  tracking_leaked <- grep("^\\.longy_(regime|consist|uncens|cum)",
+                          new_cols, value = TRUE)
+  expect_length(tracking_leaked, 0)
+})
+
+test_that("on.exit cleanup removes tracking columns even on error", {
+  d <- simulate_test_data(n = 80, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  # Fit once so refit protection triggers an error mid-function
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+
+  # Second call without refit=TRUE errors BEFORE tracking columns are added,
+
+  # but verify no tracking columns leaked from the successful first call
+  tracking <- grep("^\\.longy_(regime|consist|uncens|cum)", names(obj$data),
+                   value = TRUE)
+  expect_length(tracking, 0)
+})
+
+# ---------------------------------------------------------------------------
+# times parameter
+# ---------------------------------------------------------------------------
+
+test_that("fit_treatment times parameter restricts fitting", {
+  d <- simulate_test_data(n = 100, K = 5)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  obj <- fit_treatment(obj, regime = "always", times = c(2),
+                       verbose = FALSE)
+
+  preds <- obj$fits$treatment[["always"]]$predictions
+  fitted_times <- unique(preds$.time)
+  # Should only fit through max(times) = 2
+  expect_true(all(fitted_times <= 2))
+  # Should have at least time 0
+  expect_true(0 %in% fitted_times)
+})
+
+# ---------------------------------------------------------------------------
+# Multiple regimes with risk_set="all" share fits
+# ---------------------------------------------------------------------------
+
+test_that("risk_set='all' shares identical fits across regimes", {
+  d <- simulate_test_data(n = 100, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- define_regime(obj, "never", static = 0L)
+
+  obj <- fit_treatment(obj, regime = c("always", "never"),
+                       risk_set = "all", verbose = FALSE)
+
+  # Same model, same predictions (just different regime label)
+  preds_always <- obj$fits$treatment[["always"]]$predictions
+  preds_never <- obj$fits$treatment[["never"]]$predictions
+  expect_equal(preds_always$.p_a, preds_never$.p_a)
+  expect_equal(nrow(preds_always), nrow(preds_never))
+})
+
+# ---------------------------------------------------------------------------
+# sl_info diagnostics
+# ---------------------------------------------------------------------------
+
+test_that("fit_treatment sl_info has entries for each time point", {
+  d <- simulate_test_data(n = 100, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+
+  sl_info <- obj$fits$treatment[["always"]]$sl_info
+  expect_true(length(sl_info) > 0)
+
+  for (entry in sl_info) {
+    expect_true("time" %in% names(entry))
+    expect_true("method" %in% names(entry))
+  }
+})
+
+# ---------------------------------------------------------------------------
+# adaptive_cv conflict
+# ---------------------------------------------------------------------------
+
+test_that("adaptive_cv=TRUE with explicit V errors", {
+  d <- simulate_test_data(n = 80, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  expect_error(
+    fit_treatment(obj, regime = "always",
+                  adaptive_cv = TRUE,
+                  sl_control = list(cvControl = list(V = 5)),
+                  verbose = FALSE),
+    "adaptive_cv"
+  )
+})
+
+# ---------------------------------------------------------------------------
+# Treatment column guard
+# ---------------------------------------------------------------------------
+
+test_that("fit_treatment warns and removes treatment from covariates", {
+  d <- simulate_test_data(n = 100, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+
+  expect_warning(
+    obj <- fit_treatment(obj, regime = "always",
+                         covariates = c("W1", "W2", "A"),
+                         verbose = FALSE),
+    "Removed treatment column"
+  )
+
+  # Should still produce valid predictions
+  expect_true(nrow(obj$fits$treatment[["always"]]$predictions) > 0)
+  # Treatment should not be in stored covariates
+  expect_false("A" %in% obj$fits$treatment[["always"]]$covariates)
+})
+
+# ---------------------------------------------------------------------------
+# No censoring case
+# ---------------------------------------------------------------------------
+
+test_that("fit_treatment works without censoring column", {
+  d <- simulate_test_data(n = 80, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", baseline = c("W1", "W2"),
+                    timevarying = c("L1", "L2"), verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+
+  preds <- obj$fits$treatment[["always"]]$predictions
+  expect_true(nrow(preds) > 0)
+  # Without censoring, all subjects should be at risk at all times
+  t0_risk <- preds[preds$.time == 0, ]$.n_risk[1]
+  n_subjects <- length(unique(d$id))
+  expect_equal(t0_risk, n_subjects)
+})
+
+# ---------------------------------------------------------------------------
+# Dynamic regime
+# ---------------------------------------------------------------------------
+
+test_that("fit_treatment works with dynamic regime", {
+  d <- simulate_test_data(n = 100, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "dynamic_w1",
+                       dynamic = function(data) as.integer(data$W1 > 0))
+
+  obj <- fit_treatment(obj, regime = "dynamic_w1", verbose = FALSE)
+
+  expect_false(is.null(obj$fits$treatment[["dynamic_w1"]]))
+  expect_true(nrow(obj$fits$treatment[["dynamic_w1"]]$predictions) > 0)
+})

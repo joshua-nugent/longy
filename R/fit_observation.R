@@ -97,6 +97,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
   }
 
   dt <- .add_tracking_columns(dt, nodes, reg)
+  on.exit(.remove_tracking_columns(obj$data), add = TRUE)
 
   # Snapshot data for parallel safety
   if (parallel) dt <- data.table::copy(dt)
