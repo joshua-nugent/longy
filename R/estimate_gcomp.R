@@ -28,7 +28,23 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
   obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
 
+  if (ci_level <= 0 || ci_level >= 1)
+    stop("ci_level must be between 0 and 1.", call. = FALSE)
+
+  if (isTRUE(obj$crossfit$enabled))
+    warning("Cross-fitting is enabled but G-comp does not currently support ",
+            "cross-fitted estimation. Using full-sample outcome fit.",
+            call. = FALSE)
+
+  # Preserve user's original times so each regime gets the same input
+
+  user_times <- times
+
   for (rname in regime) {
+
+  # Reset times for each regime to avoid cross-contamination
+  times <- user_times
+  if (!is.null(times)) times <- sort(unique(times))
 
   if (is.null(obj$fits$outcome[[rname]]) || length(obj$fits$outcome[[rname]]) == 0) {
     stop(sprintf("Outcome model not fitted for regime '%s'. Run fit_outcome() first.", rname),
@@ -59,6 +75,10 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
                       paste(bad_times, collapse = ", ")))
       times <- intersect(times, available_times)
     }
+    if (length(times) == 0)
+      stop(sprintf("No valid time points for regime '%s'. Available: %s",
+                   rname, paste(available_times, collapse = ", ")),
+           call. = FALSE)
   }
 
   # Point estimates: mean(Q_hat(t)) for each time
@@ -85,12 +105,6 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
       n_boot = n_boot, ci_level = ci_level, verbose = verbose
     )
     estimates <- cbind(estimates, inf_dt)
-
-    # Center percentile CIs on point estimates
-    boot_center <- (estimates$ci_lower + estimates$ci_upper) / 2
-    shift <- estimates$estimate - boot_center
-    estimates$ci_lower <- estimates$ci_lower + shift
-    estimates$ci_upper <- estimates$ci_upper + shift
   }
 
   # Isotonic smoothing for survival outcomes
@@ -98,10 +112,14 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
     raw_est <- estimates$estimate
     iso <- stats::isoreg(raw_est)
     estimates$estimate <- iso$yf
-    if ("se" %in% names(estimates)) {
-      z <- stats::qnorm(1 - (1 - ci_level) / 2)
-      estimates$ci_lower <- estimates$estimate - z * estimates$se
-      estimates$ci_upper <- estimates$estimate + z * estimates$se
+    # Shift CIs to match smoothed estimates (preserves bootstrap CI width)
+    if ("ci_lower" %in% names(estimates)) {
+      shift_iso <- estimates$estimate - raw_est
+      estimates$ci_lower <- estimates$ci_lower + shift_iso
+      estimates$ci_upper <- estimates$ci_upper + shift_iso
+      # Clamp CIs to [0, 1] for survival/binary outcomes
+      estimates$ci_lower <- pmax(estimates$ci_lower, 0)
+      estimates$ci_upper <- pmin(estimates$ci_upper, 1)
     }
   }
 
@@ -109,7 +127,7 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
     estimates = estimates,
     regime = rname,
     estimator = "gcomp",
-    inference = "bootstrap",
+    inference = if (n_boot > 0) "bootstrap" else "none",
     ci_level = ci_level
   )
   class(result) <- "longy_result"

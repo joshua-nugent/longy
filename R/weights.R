@@ -159,6 +159,12 @@
 #' are cumulated (absorbing processes); observation weights are point-in-time
 #' (intermittent process).
 #'
+#' Weight truncation is controlled via \code{truncation} (hard cap) and
+#' \code{truncation_quantile} (percentile-based cap), which bound the final
+#' stabilized weight directly. For TMLE, use \code{g_bounds} in
+#' \code{\link{estimate_tmle}()} instead — it bounds the unstabilized
+#' cumulative propensity score used in the clever covariate denominator.
+#'
 #' @param obj A `longy_data` object with treatment (and optionally censoring/observation)
 #'   models already fit.
 #' @param regime Character. Name of the regime.
@@ -166,8 +172,6 @@
 #' @param truncation Numeric. Hard upper bound for weights. NULL for no truncation.
 #' @param truncation_quantile Numeric in (0,1). Truncate at this quantile.
 #'   Applied after `truncation` if both specified.
-#' @param g_bounds Numeric vector of length 2. Bounds for cumulative g
-#'   (denominator). Default \code{c(0.01, 1)}. Stored for use by TMLE.
 #' @param recompute Logical. If FALSE (default), errors when weights are already
 #'   computed for the requested regime(s). Set to TRUE to re-compute.
 #'
@@ -175,7 +179,7 @@
 #' @export
 compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
                             truncation = NULL, truncation_quantile = NULL,
-                            g_bounds = c(0.01, 1), recompute = FALSE) {
+                            recompute = FALSE) {
   obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
 
@@ -308,7 +312,7 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     ess_pct <- 100 * ess_total / n_obs
     if (ess_pct < 10) {
       warning(sprintf(
-        "ESS=%.0f is <10%% of n=%d. Weights are highly variable. Consider truncation or tighter g_bounds.",
+        "ESS=%.0f is <10%% of n=%d. Weights are highly variable. Consider truncation or truncation_quantile.",
         ess_total, n_obs), call. = FALSE)
     } else if (ess_pct < 25) {
       warning(sprintf(
@@ -341,8 +345,7 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     weights_dt = w,
     stabilized = stabilized,
     truncation = truncation,
-    truncation_quantile = truncation_quantile,
-    g_bounds = g_bounds
+    truncation_quantile = truncation_quantile
   )
 
   } # end for (rname in regime)

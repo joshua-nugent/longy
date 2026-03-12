@@ -392,6 +392,103 @@ test_that("fit_outcome sl_info contains clip tracking and correct family", {
   }
 })
 
+test_that("estimate_gcomp times are independent across regimes", {
+  # Bug: times parameter was mutated across regimes in the for-loop
+  d <- simulate_test_data(n = 100, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- define_regime(obj, "never", static = 0L)
+  obj <- fit_outcome(obj, regime = c("always", "never"), verbose = FALSE)
+
+  obj <- estimate_gcomp(obj, regime = c("always", "never"), n_boot = 0,
+                        verbose = FALSE)
+
+  # Both regimes should have estimates at all time points
+  est_a <- obj$results$always_gcomp$estimates
+  est_n <- obj$results$never_gcomp$estimates
+  expect_equal(sort(est_a$time), sort(est_n$time))
+  expect_true(nrow(est_a) > 0)
+})
+
+test_that("estimate_gcomp errors on invalid ci_level", {
+  d <- simulate_test_data(n = 50, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  expect_error(estimate_gcomp(obj, regime = "always", ci_level = 2),
+               "ci_level must be between 0 and 1")
+  expect_error(estimate_gcomp(obj, regime = "always", ci_level = 0),
+               "ci_level must be between 0 and 1")
+})
+
+test_that("estimate_gcomp errors when all requested times are invalid", {
+  d <- simulate_test_data(n = 80, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  expect_error(
+    estimate_gcomp(obj, regime = "always", times = c(999, 1000),
+                   n_boot = 0, verbose = FALSE),
+    "No valid time points"
+  )
+})
+
+test_that("estimate_gcomp de-duplicates times", {
+  d <- simulate_test_data(n = 80, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  avail <- sort(unique(obj$fits$outcome[["always"]]$predictions$.target_time))
+  dup_times <- c(avail[1], avail[1], avail[2])
+  obj <- estimate_gcomp(obj, regime = "always", times = dup_times,
+                        n_boot = 0, verbose = FALSE)
+  est <- obj$results$always_gcomp$estimates
+  # No duplicate rows
+  expect_equal(nrow(est), length(unique(dup_times)))
+})
+
+test_that("estimate_gcomp inference label is 'none' when n_boot=0", {
+  d <- simulate_test_data(n = 80, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+  obj <- estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE)
+
+  expect_equal(obj$results$always_gcomp$inference, "none")
+})
+
+test_that("estimate_gcomp warns about cross-fitting", {
+  d <- simulate_test_data(n = 100, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- set_crossfit(obj, n_folds = 3, seed = 1)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  expect_warning(
+    estimate_gcomp(obj, regime = "always", n_boot = 0, verbose = FALSE),
+    "cross-fitted estimation"
+  )
+})
+
 test_that("adaptive_cv_folds handles binary and continuous correctly", {
   # Binary: minority class should shrink n_eff
   y_binary <- c(rep(0, 95), rep(1, 5))

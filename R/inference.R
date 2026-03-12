@@ -79,7 +79,12 @@
       # then var/n_cl (ltmle's HouseholdIC pattern)
       merged_cl <- merge(merged, dt_t[, c(id_col, cluster), with = FALSE],
                          by = id_col)
-      cl_IC <- tapply(IC, merged_cl[[cluster]], sum)
+      # Recompute IC from merged_cl to guarantee alignment after merge reorder
+      wi_cl <- merged_cl$.final_weight
+      yi_cl <- merged_cl[[nodes$outcome]]
+      ic_cl <- wi_cl * (yi_cl - psi_hat) / sum(wi_cl)
+      IC_cl <- ic_cl * n_i
+      cl_IC <- tapply(IC_cl, merged_cl[[cluster]], sum)
       n_cl <- length(cl_IC)
       cl_IC <- as.numeric(cl_IC) * n_cl / n_i
       se <- sqrt(stats::var(cl_IC) / n_cl)
@@ -178,8 +183,7 @@
       b_obj <- compute_weights(b_obj, regime = regime,
                                stabilized = obj$weights[[regime]]$stabilized,
                                truncation = obj$weights[[regime]]$truncation,
-                               truncation_quantile = obj$weights[[regime]]$truncation_quantile,
-                               g_bounds = obj$weights[[regime]]$g_bounds)
+                               truncation_quantile = obj$weights[[regime]]$truncation_quantile)
       b_obj
     }, error = function(e) NULL)
 
@@ -190,6 +194,16 @@
 
   boot_list <- .run_bootstrap(n_boot, one_boot, verbose)
   boot_estimates <- do.call(rbind, boot_list)
+
+  # Warn if many bootstrap replicates failed
+  n_failed <- sum(vapply(boot_list, function(x) all(is.na(x)), logical(1)))
+  if (n_failed == n_boot) {
+    warning("All IPW bootstrap replicates failed. SEs and CIs will be NA.",
+            call. = FALSE)
+  } else if (n_failed > n_boot * 0.5) {
+    warning(sprintf("IPW bootstrap: %d/%d replicates failed. SEs may be unreliable.",
+                    n_failed, n_boot), call. = FALSE)
+  }
 
   # Percentile CIs
   alpha <- 1 - ci_level
@@ -322,6 +336,7 @@
                            covariates = outcome_fit$covariates,
                            learners = outcome_fit$learners,
                            bounds = outcome_fit$bounds,
+                           risk_set = if (!is.null(outcome_fit$risk_set)) outcome_fit$risk_set else "all",
                            times = times,
                            use_ffSL = FALSE,
                            verbose = FALSE)
@@ -340,6 +355,16 @@
 
   boot_list <- .run_bootstrap(n_boot, one_boot, verbose)
   boot_estimates <- do.call(rbind, boot_list)
+
+  # Warn if many bootstrap replicates failed
+  n_failed <- sum(vapply(boot_list, function(x) all(is.na(x)), logical(1)))
+  if (n_failed == n_boot) {
+    warning("All G-comp bootstrap replicates failed. SEs and CIs will be NA.",
+            call. = FALSE)
+  } else if (n_failed > n_boot * 0.5) {
+    warning(sprintf("G-comp bootstrap: %d/%d replicates failed. SEs may be unreliable.",
+                    n_failed, n_boot), call. = FALSE)
+  }
 
   # Percentile CIs
   alpha <- 1 - ci_level
@@ -453,7 +478,8 @@
                                    outcome_range = outcome_range,
                                    verbose = FALSE)
 
-      tmle_result$estimates$estimate
+      tmle_key <- paste0(regime, "_tmle")
+      tmle_result$results[[tmle_key]]$estimates$estimate
     }, error = function(e) rep(NA_real_, length(times)))
 
     boot_est
@@ -461,6 +487,16 @@
 
   boot_list <- .run_bootstrap(n_boot, one_boot, verbose)
   boot_estimates <- do.call(rbind, boot_list)
+
+  # Warn if many bootstrap replicates failed
+  n_failed <- sum(vapply(boot_list, function(x) all(is.na(x)), logical(1)))
+  if (n_failed == n_boot) {
+    warning("All TMLE bootstrap replicates failed. SEs and CIs will be NA.",
+            call. = FALSE)
+  } else if (n_failed > n_boot * 0.5) {
+    warning(sprintf("TMLE bootstrap: %d/%d replicates failed. SEs may be unreliable.",
+                    n_failed, n_boot), call. = FALSE)
+  }
 
   # Percentile CIs
   alpha <- 1 - ci_level

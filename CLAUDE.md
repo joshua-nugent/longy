@@ -30,7 +30,7 @@ estimators with IC/EIF/bootstrap/sandwich inference, plus cross-fitting (CV-TMLE
 - `risk_set_treatment`: `"all"` (default) or `"followers"` — who trains treatment models
 - `risk_set_outcome`: `"all"` (default) or `"followers"` — who trains outcome models (G-comp/TMLE)
 - `outcome_range`: Numeric(2) for continuous outcome scaling in TMLE (NULL = empirical)
-- `g_bounds`: Bounds for cumulative g denominator (default `c(0.01, 1)`)
+- `g_bounds`: Bounds for unstabilized cumulative g in TMLE clever covariate (default `c(0.01, 1)`). IPW uses `truncation`/`truncation_quantile` instead.
 - `competing`: Column for binary competing event indicator (survival outcomes)
 - `cross_fit` / `cross_fit_seed`: CV fold count and seed
 - `use_ffSL`: Use future-factorial SuperLearner (parallel CV)

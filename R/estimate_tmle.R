@@ -51,6 +51,9 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   regime <- .resolve_regimes(obj, regime)
   inference <- match.arg(inference, c("eif", "bootstrap", "none"))
 
+  if (ci_level <= 0 || ci_level >= 1)
+    stop("ci_level must be between 0 and 1.", call. = FALSE)
+
   for (rname in regime) {
 
   if (isTRUE(obj$crossfit$enabled)) {
@@ -590,6 +593,11 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       z <- stats::qnorm(1 - (1 - ci_level) / 2)
       estimates$ci_lower <- estimates$estimate - z * estimates$se
       estimates$ci_upper <- estimates$estimate + z * estimates$se
+    }
+    # Clamp CIs to [0, 1] for survival outcomes
+    if ("ci_lower" %in% names(estimates)) {
+      estimates$ci_lower <- pmax(estimates$ci_lower, 0)
+      estimates$ci_upper <- pmin(estimates$ci_upper, 1)
     }
   }
 

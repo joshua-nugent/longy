@@ -78,8 +78,10 @@
 #'   outcome models (used by G-comp and TMLE). \code{"all"} (default) uses all
 #'   uncensored subjects. \code{"followers"} restricts to regime-followers, so
 #'   the model learns \code{E(Q|H)} without extrapolation to non-followers.
-#' @param g_bounds Numeric(2). Bounds for cumulative g (denominator of clever
-#'   covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.
+#' @param g_bounds Numeric(2). Bounds for the unstabilized cumulative
+#'   propensity score used in the TMLE clever covariate denominator. Default
+#'   \code{c(0.01, 1)}. Only affects TMLE. For IPW weight control, use
+#'   \code{truncation} or \code{truncation_quantile} instead.
 #' @param outcome_range Numeric(2) or NULL. Range for scaling continuous
 #'   outcomes to \code{[0,1]} in TMLE. If NULL, uses empirical range.
 #'   Ignored for binary/survival outcomes.
@@ -294,13 +296,11 @@ longy <- function(data,
     obj <- compute_weights(obj, regime = regime_names,
                              stabilized = stabilized,
                              truncation = truncation,
-                             truncation_quantile = truncation_quantile,
-                             g_bounds = g_bounds)
+                             truncation_quantile = truncation_quantile)
 
     obj <- estimate_ipw(obj, regime = regime_names, times = times,
                         inference = inference, ci_level = ci_level,
-                        n_boot = n_boot, cluster = cluster,
-                        g_bounds = g_bounds)
+                        n_boot = n_boot, cluster = cluster)
     cur_step <- cur_step + 1L
   }
 

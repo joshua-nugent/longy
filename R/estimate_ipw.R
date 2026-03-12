@@ -3,10 +3,14 @@
 #' Computes the Hajek (self-normalized) IPW estimator at each requested time
 #' point, with standard errors and confidence intervals.
 #'
+#' Weight truncation is controlled via \code{truncation} and
+#' \code{truncation_quantile} in \code{\link{compute_weights}()}. For TMLE,
+#' use \code{g_bounds} in \code{\link{estimate_tmle}()} instead — it bounds
+#' the unstabilized cumulative propensity score used in the clever covariate.
+#'
 #' @param obj A `longy_data` object with treatment (and optionally
 #'   censoring/observation) models already fit. Weights are computed
-#'   automatically if not already present, or recomputed when \code{g_bounds}
-#'   differs from the stored value.
+#'   automatically if not already present.
 #' @param regime Character. Name of the regime.
 #' @param times Numeric vector. Time points at which to estimate. If NULL,
 #'   estimates at all time points with data.
@@ -15,42 +19,36 @@
 #' @param ci_level Numeric. Confidence level (default 0.95).
 #' @param n_boot Integer. Number of bootstrap replicates (only for `"bootstrap"`).
 #' @param cluster Character. Column name for clustered standard errors.
-#' @param g_bounds Numeric vector of length 2. Bounds for cumulative g
-#'   (denominator). Default \code{c(0.01, 1)}. If different from the stored
-#'   weights, weights are recomputed automatically (no model refitting needed).
 #'
 #' @return Modified \code{longy_data} object with IPW results stored in
 #'   \code{obj$results}.
 #'
 #' @export
 estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
-                         ci_level = 0.95, n_boot = 200L, cluster = NULL,
-                         g_bounds = c(0.01, 1)) {
+                         ci_level = 0.95, n_boot = 200L, cluster = NULL) {
   obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
   inference <- match.arg(inference, c("ic", "bootstrap", "sandwich", "none"))
 
+  if (ci_level <= 0 || ci_level >= 1)
+    stop("ci_level must be between 0 and 1.", call. = FALSE)
+
+  # Preserve user's original times so each regime gets the same input
+  user_times <- times
+
   for (rname in regime) {
 
-  # Recompute weights if g_bounds changed or weights not yet computed
-  stored_w <- obj$weights[[rname]]
-  needs_weights <- is.null(stored_w) || length(stored_w) == 0
-  if (!needs_weights && !identical(stored_w$g_bounds, g_bounds)) {
-    needs_weights <- TRUE
-  }
-  if (needs_weights) {
+  # Reset times for each regime to avoid cross-contamination
+  times <- user_times
+
+  # Auto-compute weights if not yet computed
+  if (is.null(obj$weights[[rname]]) || length(obj$weights[[rname]]) == 0) {
     if (is.null(obj$fits$treatment[[rname]])) {
       stop(sprintf(
         "No treatment model fitted for regime '%s'. Run fit_treatment() first.",
         rname), call. = FALSE)
     }
-    # Recover weight-computation settings from stored weights, or use defaults
-    stab  <- if (!is.null(stored_w$stabilized)) stored_w$stabilized else TRUE
-    trunc <- if (!is.null(stored_w$truncation)) stored_w$truncation else NULL
-    trunc_q <- if (!is.null(stored_w$truncation_quantile)) stored_w$truncation_quantile else NULL
-    obj <- compute_weights(obj, regime = rname, stabilized = stab,
-                           truncation = trunc, truncation_quantile = trunc_q,
-                           g_bounds = g_bounds, recompute = TRUE)
+    obj <- compute_weights(obj, regime = rname, recompute = TRUE)
   }
 
   nodes <- obj$nodes
@@ -68,6 +66,10 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
                       paste(bad_times, collapse = ", ")))
       times <- intersect(times, available_times)
     }
+    if (length(times) == 0)
+      stop(sprintf("No valid time points for regime '%s'. Available: %s",
+                   rname, paste(available_times, collapse = ", ")),
+           call. = FALSE)
   }
 
   # Point estimates
@@ -111,15 +113,18 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
 
   # Isotonic smoothing for survival outcomes (enforce monotone non-decreasing)
   # Applied after inference so SEs are computed from unsmoothed ICs.
-  # CIs are recomputed around the smoothed point estimate.
+  # CIs are shifted to match smoothed estimates (preserves CI width).
   if (nodes$outcome_type == "survival" && nrow(estimates) > 1) {
     raw_est <- estimates$estimate
     iso <- stats::isoreg(raw_est)
     estimates$estimate <- iso$yf
-    if ("se" %in% names(estimates)) {
-      z <- stats::qnorm(1 - (1 - ci_level) / 2)
-      estimates$ci_lower <- estimates$estimate - z * estimates$se
-      estimates$ci_upper <- estimates$estimate + z * estimates$se
+    if ("ci_lower" %in% names(estimates)) {
+      shift_iso <- estimates$estimate - raw_est
+      estimates$ci_lower <- estimates$ci_lower + shift_iso
+      estimates$ci_upper <- estimates$ci_upper + shift_iso
+      # Clamp CIs to [0, 1] for survival/binary outcomes
+      estimates$ci_lower <- pmax(estimates$ci_lower, 0)
+      estimates$ci_upper <- pmin(estimates$ci_upper, 1)
     }
   }
 

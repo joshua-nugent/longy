@@ -260,3 +260,103 @@ test_that("IPW works with survival outcomes and isotonic smoothing", {
                                paste(round(est, 4), collapse = ", ")))
   }
 })
+
+test_that("estimate_ipw errors on invalid ci_level", {
+  d <- simulate_test_data(n = 50, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  expect_error(estimate_ipw(obj, regime = "always", ci_level = 0),
+               "ci_level must be between 0 and 1")
+  expect_error(estimate_ipw(obj, regime = "always", ci_level = 1),
+               "ci_level must be between 0 and 1")
+  expect_error(estimate_ipw(obj, regime = "always", ci_level = -0.5),
+               "ci_level must be between 0 and 1")
+})
+
+test_that("estimate_ipw errors when all requested times are invalid", {
+  d <- simulate_test_data(n = 50, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  expect_error(estimate_ipw(obj, regime = "always", times = c(999, 1000)),
+               "No valid time points")
+})
+
+test_that("multi-regime IPW produces distinct results per regime", {
+  d <- simulate_test_data(n = 100, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- define_regime(obj, "never", static = 0L)
+  obj <- fit_treatment(obj, regime = c("always", "never"), verbose = FALSE)
+  obj <- fit_censoring(obj, regime = c("always", "never"), verbose = FALSE)
+  obj <- fit_observation(obj, regime = c("always", "never"), verbose = FALSE)
+  obj <- compute_weights(obj, regime = c("always", "never"))
+
+  obj <- estimate_ipw(obj, regime = c("always", "never"))
+
+  expect_true(!is.null(obj$results$always_ipw))
+  expect_true(!is.null(obj$results$never_ipw))
+  expect_equal(obj$results$always_ipw$regime, "always")
+  expect_equal(obj$results$never_ipw$regime, "never")
+  # Point estimates should generally differ between regimes
+  expect_true(nrow(obj$results$always_ipw$estimates) > 0)
+  expect_true(nrow(obj$results$never_ipw$estimates) > 0)
+})
+
+test_that("estimate_ipw times independence across regimes", {
+  d <- simulate_test_data(n = 100, K = 4)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- define_regime(obj, "never", static = 0L)
+  obj <- fit_treatment(obj, regime = c("always", "never"), verbose = FALSE)
+  obj <- fit_censoring(obj, regime = c("always", "never"), verbose = FALSE)
+  obj <- fit_observation(obj, regime = c("always", "never"), verbose = FALSE)
+  obj <- compute_weights(obj, regime = c("always", "never"))
+
+  # Request specific times; both regimes should get the same times
+  obj <- estimate_ipw(obj, regime = c("always", "never"), times = c(0, 1))
+
+  expect_equal(obj$results$always_ipw$estimates$time, c(0, 1))
+  expect_equal(obj$results$never_ipw$estimates$time, c(0, 1))
+})
+
+test_that("IPW inference='none' produces no SE/CI columns", {
+  d <- simulate_test_data(n = 50, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
+  obj <- compute_weights(obj, regime = "always")
+
+  obj <- estimate_ipw(obj, regime = "always", inference = "none")
+  res <- obj$results$always_ipw
+
+  expect_equal(res$inference, "none")
+  expect_false("se" %in% names(res$estimates))
+  expect_false("ci_lower" %in% names(res$estimates))
+})

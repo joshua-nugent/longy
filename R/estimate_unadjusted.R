@@ -22,6 +22,9 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
   obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
 
+  if (ci_level <= 0 || ci_level >= 1)
+    stop("ci_level must be between 0 and 1.", call. = FALSE)
+
   for (rname in regime) {
 
   nodes <- obj$nodes
