@@ -646,8 +646,9 @@ NULL
   covariates <- outcome_settings$covariates
   learners <- outcome_settings$learners
   q_bounds <- outcome_settings$bounds
+  min_obs <- if (!is.null(outcome_settings$min_obs)) outcome_settings$min_obs else 50L
   sl_fn <- if (isTRUE(outcome_settings$use_ffSL)) "ffSL" else "SuperLearner"
-  min_obs <- 50L
+  sl_control <- if (!is.null(outcome_settings$sl_control)) outcome_settings$sl_control else list()
 
   fold_col <- obj$crossfit$fold_id
   n_folds <- obj$crossfit$n_folds
@@ -657,6 +658,10 @@ NULL
   } else {
     target_times <- all_time_vals
   }
+
+  if (length(target_times) == 0)
+    stop(sprintf("No valid time points for regime '%s'. Available: %s",
+                 regime, paste(all_time_vals, collapse = ", ")), call. = FALSE)
 
   # Compute cross-fitted cumulative g (uses already cross-fitted g_A, g_C, g_R)
   g_cum_dt <- .compute_cumulative_g(obj, regime = regime, g_bounds = g_bounds)
@@ -681,6 +686,18 @@ NULL
   }
 
   dt <- .add_tracking_columns(dt, nodes, reg)
+
+  # Guard against leaked temporary columns if an error occurs mid-execution.
+  # dt IS obj$data (data.table reference semantics), so cleanup must run on exit.
+  on.exit({
+    for (col in c(".longy_Q", ".longy_regime_a", ".longy_first_event", ".longy_first_competing")) {
+      if (col %in% names(dt)) dt[, (col) := NULL]
+    }
+    rlc <- grep("^\\.longy_lag_regime_", names(dt), value = TRUE)
+    if (length(rlc) > 0) dt[, (rlc) := NULL]
+    .remove_tracking_columns(obj$data)
+  }, add = TRUE)
+
   regime_vals <- .evaluate_regime(reg, dt)
   dt[, .longy_regime_a := regime_vals]
 
@@ -835,6 +852,8 @@ NULL
         # .safe_sl() handles quasibinomial→binomial swap for SL compatibility.
         step_family <- stats::quasibinomial()
 
+        cf_cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
+
         Q_bar <- .cf_fit_q_step(
           Y_train_all = Y_train_all,
           X_risk = X_risk,
@@ -843,7 +862,7 @@ NULL
           n_folds = n_folds,
           family = step_family,
           learners = learners,
-          cv_folds = 10L,
+          cv_folds = cf_cv_folds,
           sl_fn = sl_fn,
           sl_control = sl_control,
           min_obs = min_obs,
@@ -950,10 +969,11 @@ NULL
           X_all <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])[all_Q_idx, , drop = FALSE]
 
           if (length(Y_all) >= min_obs && length(unique(Y_all)) > 1) {
+            cens_cv <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
             cens_fit <- .safe_sl(Y = Y_all, X = X_all,
                                  family = step_family,
                                  learners = learners,
-                                 cv_folds = min(10L, length(Y_all)),
+                                 cv_folds = min(cens_cv, length(Y_all)),
                                  sl_control = sl_control,
                                  use_ffSL = identical(sl_fn, "ffSL"),
                                  context = "CF newly-censored Q",
@@ -1102,25 +1122,21 @@ NULL
     raw_est <- estimates$estimate
     iso <- stats::isoreg(raw_est)
     estimates$estimate <- iso$yf
-    if ("se" %in% names(estimates)) {
+    # Reconstruct Wald CIs for EIF inference (bootstrap percentile CIs are
+    # already isotonicity-aware since each replicate is smoothed internally)
+    if (inference != "bootstrap" && "se" %in% names(estimates)) {
       z <- stats::qnorm(1 - (1 - ci_level) / 2)
       estimates$ci_lower <- estimates$estimate - z * estimates$se
       estimates$ci_upper <- estimates$estimate + z * estimates$se
     }
+    # Clamp CIs to [0, 1] for survival outcomes
+    if ("ci_lower" %in% names(estimates)) {
+      estimates$ci_lower <- pmax(estimates$ci_lower, 0)
+      estimates$ci_upper <- pmin(estimates$ci_upper, 1)
+    }
   }
 
-  # Clean up
-  dt[, .longy_Q := NULL]
-  dt[, .longy_regime_a := NULL]
-  regime_lag_cols <- grep("^\\.longy_lag_regime_", names(dt), value = TRUE)
-  if (length(regime_lag_cols) > 0) dt[, (regime_lag_cols) := NULL]
-  if (is_survival && ".longy_first_event" %in% names(dt)) {
-    dt[, .longy_first_event := NULL]
-  }
-  if (has_competing && ".longy_first_competing" %in% names(dt)) {
-    dt[, .longy_first_competing := NULL]
-  }
-  .remove_tracking_columns(obj$data)
+  # Cleanup handled by on.exit() registered above
 
   # Build TMLE diagnostics info
   tmle_info <- list()

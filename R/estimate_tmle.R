@@ -75,6 +75,14 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
          call. = FALSE)
   }
 
+  # Warn if censoring exists but no censoring model was fit (g_c=1 silently → biased TMLE)
+  if (!is.null(obj$nodes$censoring) && length(obj$nodes$censoring) > 0 &&
+      (is.null(obj$fits$censoring[[rname]]) || length(obj$fits$censoring[[rname]]) == 0)) {
+    warning(sprintf(
+      "Censoring exists but no censoring model fit for regime '%s'. TMLE will assume P(uncensored)=1. Run fit_censoring() first.",
+      rname), call. = FALSE)
+  }
+
   nodes <- obj$nodes
   dt <- obj$data
   id_col <- nodes$id
@@ -87,13 +95,15 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   is_binary <- nodes$outcome_type %in% c("binary", "survival")
   is_survival <- nodes$outcome_type == "survival"
 
-  # Read outcome model settings (covariates, learners, bounds, use_ffSL)
+  # Read outcome model settings from fit_outcome() output
   outcome_settings <- obj$fits$outcome[[rname]]
   covariates <- outcome_settings$covariates
   learners <- outcome_settings$learners
   q_bounds <- outcome_settings$bounds
+  min_obs <- if (!is.null(outcome_settings$min_obs)) outcome_settings$min_obs else 50L
+  adaptive_cv <- if (!is.null(outcome_settings$adaptive_cv)) outcome_settings$adaptive_cv else TRUE
   use_ffSL <- isTRUE(outcome_settings$use_ffSL)
-  min_obs <- 50L  # match fit_outcome default
+  sl_control <- if (!is.null(outcome_settings$sl_control)) outcome_settings$sl_control else list()
 
   # Determine target times
   if (!is.null(times)) {
@@ -101,6 +111,10 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   } else {
     target_times <- all_time_vals
   }
+
+  if (length(target_times) == 0)
+    stop(sprintf("No valid time points for regime '%s'. Available: %s",
+                 rname, paste(all_time_vals, collapse = ", ")), call. = FALSE)
 
   # Compute cumulative g (shared helper from weights.R)
   g_cum_dt <- .compute_cumulative_g(obj, regime = rname, g_bounds = g_bounds)
@@ -276,10 +290,16 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
         # Fit Q model
         if (n_train >= min_obs && length(unique(Y_train)) > 1) {
+          cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
+          if (adaptive_cv) {
+            cv_info <- .adaptive_cv_folds(Y_train)
+            cv_folds <- cv_info$V
+          }
           ctx <- sprintf("TMLE-Q, target=%d, time=%d, n_train=%d", target_t, tt, n_train)
           fit <- .safe_sl(Y = Y_train, X = X_train,
                           family = step_family,
-                          learners = learners, cv_folds = 10L,
+                          learners = learners, cv_folds = cv_folds,
+                          sl_control = sl_control,
                           use_ffSL = worker_ffSL, context = ctx,
                           verbose = task_verbose)
           method <- fit$method
@@ -548,6 +568,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       "is_binary", "y_min", "y_range_width", "all_time_vals",
       "is_survival", "has_competing", "id_col", "a_col",
       "risk_set", "covariates", "learners", "worker_ffSL", "min_obs",
+      "adaptive_cv", "sl_control",
       "eps", "nodes", "g_cum_dt", "obj", "rname", "inference", "ci_level"
     ))
   }
@@ -589,7 +610,9 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     raw_est <- estimates$estimate
     iso <- stats::isoreg(raw_est)
     estimates$estimate <- iso$yf
-    if ("se" %in% names(estimates)) {
+    # Reconstruct Wald CIs for EIF inference (bootstrap percentile CIs are
+    # already isotonicity-aware since each replicate is smoothed internally)
+    if (inference != "bootstrap" && "se" %in% names(estimates)) {
       z <- stats::qnorm(1 - (1 - ci_level) / 2)
       estimates$ci_lower <- estimates$estimate - z * estimates$se
       estimates$ci_upper <- estimates$estimate + z * estimates$se
@@ -770,10 +793,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   augmentation <- rep(0, n)
   names(augmentation) <- as.character(all_ids)
 
-  # Need tracking columns for regime-consistency and uncensored
-  dt_track <- data.table::copy(dt)
-  dt_track <- .add_tracking_columns(dt_track, nodes, reg)
-
+  # Tracking columns (.longy_cum_consist, .longy_cum_uncens, etc.) are already
+  # on obj$data from the caller — use dt directly (read-only, no copy needed)
   for (s_idx in seq_along(backward_times)) {
     s <- backward_times[s_idx]
 
@@ -831,7 +852,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     # For s = target_t: augmentation_s = H_s * (Y_T_scaled - Q*_T)
     if (s == target_t) {
       # Build the augmentation for this step
-      dt_s <- dt_track[dt_track[[time_col]] == s, ]
+      dt_s <- dt[dt[[time_col]] == s, ]
       # regime-consistent AND uncensored through C(s) (Convention B)
       cum_consist <- dt_s$.longy_cum_consist == 1L
       cum_consist[is.na(cum_consist)] <- FALSE
@@ -876,7 +897,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         aug_dt$.aug[valid]
     } else {
       # For s < target_t: augmentation_s = H_s * (Q*_{s+1} - Q*_s)
-      dt_s <- dt_track[dt_track[[time_col]] == s, ]
+      dt_s <- dt[dt[[time_col]] == s, ]
       cum_consist <- dt_s$.longy_cum_consist == 1L
       cum_consist[is.na(cum_consist)] <- FALSE
       # Convention B: uncensored through C(s)
@@ -921,8 +942,6 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
   Q_star_0_vals <- subj_dt$.Q_star_0
   initial_term <- Q_star_0_vals - psi_hat
   D_i <- initial_term + augmentation
-
-  .remove_tracking_columns(dt_track)
 
   # Attach decomposition as attributes for diagnostics
   attr(D_i, "initial") <- initial_term

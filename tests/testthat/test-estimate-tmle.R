@@ -229,6 +229,67 @@ test_that(".compute_cumulative_g returns valid results", {
   }
 })
 
+test_that("estimate_tmle errors when times have no overlap with data", {
+  d <- simulate_test_data(n = 50, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  # Request times that don't exist in the data
+  expect_error(
+    estimate_tmle(obj, regime = "always", times = c(999, 1000),
+                  inference = "none", verbose = FALSE),
+    "No valid time points"
+  )
+})
+
+test_that("estimate_tmle warns when censoring exists but no censoring model fit", {
+  d <- simulate_test_data(n = 50, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  # Intentionally skip fit_censoring()
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  expect_warning(
+    estimate_tmle(obj, regime = "always", inference = "none", verbose = FALSE),
+    "Censoring exists but no censoring model fit"
+  )
+})
+
+test_that("estimate_tmle rejects invalid ci_level", {
+  d <- simulate_test_data(n = 50, K = 3)
+  obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
+                    treatment = "A", censoring = "C", observation = "R",
+                    baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+                    verbose = FALSE)
+  obj <- define_regime(obj, "always", static = 1L)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
+  obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
+  obj <- fit_outcome(obj, regime = "always", verbose = FALSE)
+
+  expect_error(
+    estimate_tmle(obj, regime = "always", ci_level = 0),
+    "ci_level must be between 0 and 1"
+  )
+  expect_error(
+    estimate_tmle(obj, regime = "always", ci_level = 1),
+    "ci_level must be between 0 and 1"
+  )
+  expect_error(
+    estimate_tmle(obj, regime = "always", ci_level = 1.5),
+    "ci_level must be between 0 and 1"
+  )
+})
+
 test_that("TMLE EIF SEs for continuous outcomes", {
   d <- simulate_continuous_outcome(n = 200, K = 3)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",

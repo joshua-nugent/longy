@@ -44,7 +44,12 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
       warning(sprintf("Time(s) %s not in data, removing.",
                       paste(bad_times, collapse = ", ")))
     }
-    intersect(times, available_times)
+    et <- intersect(times, available_times)
+    if (length(et) == 0)
+      stop(sprintf("No valid time points. Available: %s",
+                   paste(available_times, collapse = ", ")),
+           call. = FALSE)
+    et
   }
 
   z <- stats::qnorm(1 - (1 - ci_level) / 2)
@@ -56,10 +61,13 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
 
     # Subset: naturally followed regime AND uncensored through t
     keep <- dt_t$.longy_cum_consist == 1L & dt_t$.longy_cum_uncens == 1L
+    keep[is.na(keep)] <- FALSE
 
     # Also require observed at t if observation node exists
     if (!is.null(r_col)) {
-      keep <- keep & dt_t[[r_col]] == 1L
+      obs_ok <- dt_t[[r_col]] == 1L
+      obs_ok[is.na(obs_ok)] <- FALSE
+      keep <- keep & obs_ok
     }
 
     # Require non-NA outcome
@@ -99,6 +107,9 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
     estimates$estimate <- iso$yf
     estimates$ci_lower <- estimates$estimate - z * estimates$se
     estimates$ci_upper <- estimates$estimate + z * estimates$se
+    # Clamp CIs to [0, 1] for survival outcomes
+    estimates$ci_lower <- pmax(estimates$ci_lower, 0)
+    estimates$ci_upper <- pmin(estimates$ci_upper, 1)
   }
 
   # Clean up tracking columns
