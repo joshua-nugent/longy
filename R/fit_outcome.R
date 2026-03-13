@@ -144,7 +144,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
     .add_tracking_columns(dt_r, nodes, reg)
 
     # Regime values for counterfactual prediction
-    regime_vals <- .evaluate_regime(reg, dt_r)
+    regime_vals <- .evaluate_regime(reg, dt_r, time_col = time_col)
     dt_r[, .longy_regime_a := regime_vals]
 
     # Lagged regime values

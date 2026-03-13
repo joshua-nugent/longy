@@ -141,7 +141,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
   # Build tracking columns for risk set computation
   dt <- .add_tracking_columns(dt, nodes, reg)
-  regime_vals <- .evaluate_regime(reg, dt)
+  regime_vals <- .evaluate_regime(reg, dt, time_col = time_col)
   dt[, .longy_regime_a := regime_vals]
 
   # Pre-compute lagged regime values for counterfactual treatment history
@@ -617,11 +617,13 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       estimates$ci_lower <- estimates$estimate - z * estimates$se
       estimates$ci_upper <- estimates$estimate + z * estimates$se
     }
-    # Clamp CIs to [0, 1] for survival outcomes
-    if ("ci_lower" %in% names(estimates)) {
-      estimates$ci_lower <- pmax(estimates$ci_lower, 0)
-      estimates$ci_upper <- pmin(estimates$ci_upper, 1)
-    }
+  }
+
+  # Clamp CIs to [0, 1] for binary/survival outcomes
+  if (nodes$outcome_type %in% c("binary", "survival") &&
+      "ci_lower" %in% names(estimates)) {
+    estimates$ci_lower <- pmax(estimates$ci_lower, 0)
+    estimates$ci_upper <- pmin(estimates$ci_upper, 1)
   }
 
   # Clean up tracking columns on original obj$data (not the parallel copies)

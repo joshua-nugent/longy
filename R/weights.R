@@ -64,18 +64,14 @@
   # --- Treatment component: g_a ---
   gA <- obj$fits$treatment[[regime]]$predictions
   if (reg$type == "static") {
-    if (reg$value == 1L) {
-      # P(A=1|past) for regime-followers who had A=1
-      gA_sub <- gA[gA$.treatment == 1L, ]
-      g_dt <- gA_sub[, c(id_col, ".time", ".p_a"), with = FALSE]
-      data.table::setnames(g_dt, ".p_a", ".g_a")
-    } else {
-      gA_sub <- gA[gA$.treatment == 0L, ]
-      g_dt <- gA_sub[, c(id_col, ".time", ".p_a"), with = FALSE]
-      # g_a = P(A=0|past) = 1 - p_a
-      g_dt[, .p_a := 1 - .p_a]
-      data.table::setnames(g_dt, ".p_a", ".g_a")
-    }
+    # Resolve regime value d(t) at each row's time, filter to followers,
+    # compute g_a = P(A = d(t) | past)
+    gA_work <- data.table::copy(gA)
+    gA_work[, .d := .resolve_static_at_time(reg$value, .time)]
+    gA_sub <- gA_work[.treatment == .d]
+    g_dt <- gA_sub[, c(id_col, ".time", ".p_a", ".d"), with = FALSE]
+    g_dt[, .g_a := ifelse(.d == 1L, .p_a, 1 - .p_a)]
+    g_dt[, c(".p_a", ".d") := NULL]
   } else {
     # Dynamic/stochastic: g_a = p_a for all (consistency built in)
     g_dt <- data.table::copy(gA[, c(id_col, ".time", ".p_a"), with = FALSE])
@@ -204,15 +200,21 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
   # --- Treatment weights ---
   gA <- obj$fits$treatment[[rname]]$predictions
   if (reg$type == "static") {
-    if (reg$value == 1L) {
-      # Keep only rows where treatment == 1 (regime followers)
-      gA_follow <- gA[gA$.treatment == 1L, ]
-      gA_follow[, .sw_a := if (stabilized) .marg_a / .p_a else 1 / .p_a]
-    } else {
-      gA_follow <- gA[gA$.treatment == 0L, ]
-      gA_follow[, .sw_a := if (stabilized) (1 - .marg_a) / (1 - .p_a)
-                            else 1 / (1 - .p_a)]
-    }
+    # Resolve regime value d(t), filter to followers, compute weights
+    gA_work <- data.table::copy(gA)
+    gA_work[, .d := .resolve_static_at_time(reg$value, .time)]
+    gA_follow <- gA_work[.treatment == .d]
+    # g_a = P(A = d(t) | past); marg_g_a = marginal P(A = d(t))
+    gA_follow[, .sw_a := {
+      g_a <- ifelse(.d == 1L, .p_a, 1 - .p_a)
+      if (stabilized) {
+        marg_g_a <- ifelse(.d == 1L, .marg_a, 1 - .marg_a)
+        marg_g_a / g_a
+      } else {
+        1 / g_a
+      }
+    }]
+    gA_follow[, .d := NULL]
   } else {
     # Dynamic/stochastic: all rows are "followers" (consistency built into risk set)
     gA_follow <- data.table::copy(gA)

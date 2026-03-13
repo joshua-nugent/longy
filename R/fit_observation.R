@@ -260,6 +260,8 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     learners = learners,
     bounds = bounds,
     use_ffSL = use_ffSL,
+    sl_control = sl_control,
+    adaptive_cv = adaptive_cv,
     sl_info = sl_info
   )
 

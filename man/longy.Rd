@@ -83,10 +83,15 @@ if no competing risks.}
 
 \item{regimes}{Named list. Each element defines a regime:
 \itemize{
-\item For static: an integer (0 or 1), e.g., \code{list(always = 1L, never = 0L)}
-\item For dynamic: a function returning 0/1
-\item For stochastic: a function returning P(A=1)
-}}
+\item Scalar 0/1: constant static regime, e.g., \code{list(always = 1L, never = 0L)}
+\item Named numeric vector of 0/1: time-varying static regime, e.g.,
+\code{list(early = c("0" = 1, "1" = 1, "2" = 0))}
+\item Character string: column name with pre-computed 0/1 counterfactual
+treatment values, e.g., \code{list(custom = "A_counterfactual")}
+\item Function: dynamic regime returning 0/1 per row
+}
+For static regimes defined as a function of time, use
+\code{\link{define_regime}()} directly with \code{static = function(t) ...}.}
 
 \item{estimator}{Character vector. Which estimator(s) to run. Any combination
 of \code{"ipw"}, \code{"gcomp"}, and \code{"tmle"} (e.g.
@@ -145,8 +150,10 @@ outcome models (used by G-comp and TMLE). \code{"all"} (default) uses all
 uncensored subjects. \code{"followers"} restricts to regime-followers, so
 the model learns \code{E(Q|H)} without extrapolation to non-followers.}
 
-\item{g_bounds}{Numeric(2). Bounds for cumulative g (denominator of clever
-covariate). Default \code{c(0.01, 1)}. Used by TMLE and IPW.}
+\item{g_bounds}{Numeric(2). Bounds for the unstabilized cumulative
+propensity score used in the TMLE clever covariate denominator. Default
+\code{c(0.01, 1)}. Only affects TMLE. For IPW weight control, use
+\code{truncation} or \code{truncation_quantile} instead.}
 
 \item{outcome_range}{Numeric(2) or NULL. Range for scaling continuous
 outcomes to \code{[0,1]} in TMLE. If NULL, uses empirical range.
@@ -196,6 +203,7 @@ nuisance model fitting, and estimation via IPW, G-computation, or both.
 }
 \examples{
 \dontrun{
+# --- Basic: always vs. never treat (IPW, default) ---
 obj <- longy(
   data = sim_longy,
   id = "id", time = "time", outcome = "Y",
@@ -205,6 +213,58 @@ obj <- longy(
 )
 obj$results$always_ipw$estimates
 results(obj, estimator = "ipw")
+
+# --- Time-varying static regimes ---
+# Compare always-treat to a "treat for first 6 months" policy.
+# Names in the vector must match the time values in your data.
+obj <- longy(
+  data = sim_longy,
+  id = "id", time = "time", outcome = "Y",
+  treatment = "A", censoring = "C",
+  baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+  regimes = list(
+    always     = 1L,
+    never      = 0L,
+    first_six  = c("0"=1, "1"=1, "2"=1, "3"=1, "4"=1, "5"=1,
+                    "6"=0, "7"=0, "8"=0, "9"=0, "10"=0, "11"=0)
+  ),
+  estimator = "ipw"
+)
+results(obj)
+
+# --- Multiple estimators ---
+obj <- longy(
+  data = sim_longy,
+  id = "id", time = "time", outcome = "Y",
+  treatment = "A", censoring = "C",
+  baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+  regimes = list(always = 1L, never = 0L),
+  estimator = c("ipw", "tmle")
+)
+results(obj, regime = "always", estimator = "tmle")
+
+# --- Pre-computed (shifted) regime ---
+# Compute your own counterfactual treatment column, then pass the name.
+# Useful for complex rules involving history, multiple covariates, etc.
+sim_longy$A_cf <- ifelse(sim_longy$time <= 5 & sim_longy$L1 > 0, 1L, 0L)
+obj <- longy(
+  data = sim_longy,
+  id = "id", time = "time", outcome = "Y",
+  treatment = "A", censoring = "C",
+  baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+  regimes = list(always = 1L, custom = "A_cf"),
+  estimator = "ipw"
+)
+
+# --- Time-varying static via the modular pipeline ---
+# Use define_regime() directly for function-based static regimes:
+obj <- longy_data(sim_longy, id = "id", time = "time",
+                  outcome = "Y", treatment = "A") |>
+  define_regime("always", static = 1L) |>
+  define_regime("first_6mo", static = function(t) as.integer(t <= 5)) |>
+  fit_treatment() |>
+  compute_weights() |>
+  estimate_ipw()
 }
 
 }

@@ -698,7 +698,7 @@ NULL
     .remove_tracking_columns(obj$data)
   }, add = TRUE)
 
-  regime_vals <- .evaluate_regime(reg, dt)
+  regime_vals <- .evaluate_regime(reg, dt, time_col = time_col)
   dt[, .longy_regime_a := regime_vals]
 
   # Pre-compute lagged regime values for counterfactual treatment history

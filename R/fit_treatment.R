@@ -289,6 +289,8 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     learners = learners,
     bounds = bounds,
     use_ffSL = use_ffSL,
+    sl_control = sl_control,
+    adaptive_cv = adaptive_cv,
     sl_info = sl_info,
     risk_set = risk_set
   )
@@ -332,15 +334,12 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   # Regime-consistent indicator at each time
   if (regime$type == "static") {
-    if (regime$value == 1L) {
-      dt[, .longy_regime_consist := as.integer(get(a_col) == 1L)]
-    } else {
-      dt[, .longy_regime_consist := as.integer(get(a_col) == 0L)]
-    }
+    regime_vals <- .resolve_static_at_time(regime$value, dt[[time_col]])
+    dt[, .longy_regime_consist := as.integer(get(a_col) == regime_vals)]
   } else {
-    # Dynamic/stochastic: evaluate regime
-    regime_vals <- .evaluate_regime(regime, dt)
-    if (regime$type == "dynamic") {
+    # Shifted/dynamic/stochastic: evaluate regime
+    regime_vals <- .evaluate_regime(regime, dt, time_col = time_col)
+    if (regime$type %in% c("dynamic", "shifted")) {
       dt[, .longy_regime_consist := as.integer(get(a_col) == regime_vals)]
     } else {
       # Stochastic: always "consistent" (probabilities handled in weights)

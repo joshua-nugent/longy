@@ -12,14 +12,15 @@ estimate_ipw(
   ci_level = 0.95,
   n_boot = 200L,
   cluster = NULL,
-  g_bounds = c(0.01, 1)
+  stabilized = TRUE,
+  truncation = NULL,
+  truncation_quantile = NULL
 )
 }
 \arguments{
 \item{obj}{A \code{longy_data} object with treatment (and optionally
 censoring/observation) models already fit. Weights are computed
-automatically if not already present, or recomputed when \code{g_bounds}
-differs from the stored value.}
+automatically if not already present.}
 
 \item{regime}{Character. Name of the regime.}
 
@@ -35,9 +36,16 @@ estimates at all time points with data.}
 
 \item{cluster}{Character. Column name for clustered standard errors.}
 
-\item{g_bounds}{Numeric vector of length 2. Bounds for cumulative g
-(denominator). Default \code{c(0.01, 1)}. If different from the stored
-weights, weights are recomputed automatically (no model refitting needed).}
+\item{stabilized}{Logical. Use stabilized weights? Only applies when
+weights are auto-computed (ignored if weights already exist). Default TRUE.}
+
+\item{truncation}{Numeric(2) or NULL. Hard bounds for weight truncation,
+passed to \code{\link{compute_weights}()}. Only applies when weights are
+auto-computed.}
+
+\item{truncation_quantile}{Numeric(2) or NULL. Quantile bounds for weight
+truncation, passed to \code{\link{compute_weights}()}. Only applies when
+weights are auto-computed.}
 }
 \value{
 Modified \code{longy_data} object with IPW results stored in
@@ -46,4 +54,18 @@ Modified \code{longy_data} object with IPW results stored in
 \description{
 Computes the Hajek (self-normalized) IPW estimator at each requested time
 point, with standard errors and confidence intervals.
+}
+\details{
+\strong{Competing risks:} IPW is not supported when a \code{competing}
+column is specified. The Hajek estimator cannot correctly attribute
+cause-specific outcomes because subjects absorbed by a competing event may
+drop out of the regime-follower risk set, losing their known Y=0
+contribution. Use \code{\link{estimate_gcomp}} or
+\code{\link{estimate_tmle}} instead — both handle competing risks
+explicitly through the outcome model.
+
+Weight truncation is controlled via \code{truncation} and
+\code{truncation_quantile} in \code{\link{compute_weights}()}. For TMLE,
+use \code{g_bounds} in \code{\link{estimate_tmle}()} instead — it bounds
+the unstabilized cumulative propensity score used in the clever covariate.
 }

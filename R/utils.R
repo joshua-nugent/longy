@@ -321,7 +321,7 @@ as_longy_data <- function(obj) {
       ".get_lag_covariates", ".safe_sl", ".bound", ".adaptive_cv_folds",
       ".vmsg", ".vmsg_covariates", ".predict_from_fit", ".expit", ".logit",
       ".ffSL", ".add_tracking_columns", ".remove_tracking_columns",
-      ".evaluate_regime", ".factors_to_dummies"
+      ".evaluate_regime", ".resolve_static_at_time", ".factors_to_dummies"
     )
     pkg_globals <- mget(internal_fns, envir = pkg_ns, ifnotfound = list(NULL))
     pkg_globals <- Filter(Negate(is.null), pkg_globals)

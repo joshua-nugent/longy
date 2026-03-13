@@ -26,7 +26,7 @@ estimators with IC/EIF/bootstrap/sandwich inference, plus cross-fitting (CV-TMLE
 
 ### `longy()` key parameters
 
-- `estimator`: `"ipw"` (default), `"gcomp"`, `"tmle"`, `"both"` (ipw+gcomp), `"all"` (ipw+gcomp+tmle), or any `c(...)` combination. Unadjusted estimates are always computed.
+- `estimator`: `"ipw"` (default), `"gcomp"`, `"tmle"`, `"both"` (ipw+gcomp), `"all"` (ipw+gcomp+tmle), or any `c(...)` combination. Unadjusted estimates are always computed. **IPW is not supported with competing risks** — `longy()` auto-drops it with a warning; `estimate_ipw()` errors.
 - `risk_set_treatment`: `"all"` (default) or `"followers"` — who trains treatment models
 - `risk_set_outcome`: `"all"` (default) or `"followers"` — who trains outcome models (G-comp/TMLE)
 - `outcome_range`: Numeric(2) for continuous outcome scaling in TMLE (NULL = empirical)
@@ -128,7 +128,8 @@ Results stored as `obj$results$<regime>_<estimator>`:
 | R/fit_observation.R | g_R models (intermittent) |
 | R/fit_outcome.R | Outcome models via sequential regression (G-comp/TMLE) |
 | R/weights.R | `compute_weights()` + `.compute_cumulative_g()` shared helper |
-| R/estimate_ipw.R | `estimate_ipw()` + print/summary/plot for all estimators |
+| R/estimate_ipw.R | `estimate_ipw()` — IPW estimator (not supported with competing risks) |
+| R/longy_result.R | `print/summary/plot.longy_result` + `.estimator_label()` for all estimators |
 | R/estimate_gcomp.R | `estimate_gcomp()` — G-comp estimator + bootstrap |
 | R/estimate_tmle.R | `estimate_tmle()` — TMLE estimator + EIF inference |
 | R/estimate_unadjusted.R | `estimate_unadjusted()` — naive means among regime-followers (reference) |

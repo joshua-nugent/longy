@@ -40,11 +40,20 @@
 #' @param cluster Character. Column name for cluster-robust SEs.
 #' @return data.table with se, ci_lower, ci_upper added
 #' @noRd
-.ic_inference <- function(estimates, obj, regime, ci_level = 0.95, cluster = NULL) {
+.ic_inference <- function(estimates, obj, regime, ci_level = 0.95,
+                          cluster = NULL, merged_list = NULL) {
   z <- stats::qnorm(1 - (1 - ci_level) / 2)
   nodes <- obj$nodes
   id_col <- nodes$id
   w_dt <- obj$weights[[regime]]$weights_dt
+
+  # Full baseline population size — the IC denominator.
+  # Subjects not at risk at time t contribute IC=0. The weights already
+
+  # account for censoring/dropout, so dividing by N (not n_t) avoids
+  # double-counting attrition. Matches Lunceford & Davidian (2004),
+  # Hernán & Robins Ch 12, and ltmle's implementation.
+  N <- obj$meta$n_subjects
 
   results <- vector("list", nrow(estimates))
 
@@ -52,44 +61,54 @@
     tt <- estimates$time[j]
     psi_hat <- estimates$estimate[j]
 
-    # Get individual data for this time point
-    w_t <- w_dt[w_dt$.time == tt, ]
-    # Merge with outcome
-    dt_t <- obj$data[obj$data[[nodes$time]] == tt, ]
-    merged <- merge(w_t, dt_t[, c(id_col, nodes$outcome), with = FALSE],
-                    by = id_col)
+    # Use pre-computed merged data if available, otherwise compute
+    if (!is.null(merged_list) && j <= length(merged_list)) {
+      merged <- merged_list[[j]]
+    } else {
+      w_t <- w_dt[w_dt$.time == tt, ]
+      dt_t <- obj$data[obj$data[[nodes$time]] == tt, ]
+      merge_cols <- unique(c(id_col, nodes$outcome))
+      if (!is.null(cluster)) merge_cols <- unique(c(merge_cols, cluster))
+      merged <- merge(w_t, dt_t[, merge_cols, with = FALSE], by = id_col)
+      # Filter NA outcomes
+      merged <- merged[!is.na(merged[[nodes$outcome]]), ]
+    }
 
     wi <- merged$.final_weight
     yi <- merged[[nodes$outcome]]
-    n_i <- nrow(merged)
+    n_t <- nrow(merged)
     sum_w <- sum(wi)
 
-    # Person-level IC (small scale: psi_hat - psi ≈ sum(ic))
-    ic <- wi * (yi - psi_hat) / sum_w
+    if (n_t < 2 || sum_w == 0) {
+      results[[j]] <- data.table::data.table(
+        se = NA_real_,
+        ci_lower = NA_real_,
+        ci_upper = NA_real_
+      )
+      next
+    }
 
-    # Scale to ltmle convention (large scale: psi_hat - psi ≈ mean(IC))
-    # so that var(IC)/n gives the right variance. Uses centered variance
-    # (robust in finite samples). Follows ltmle's HouseholdIC approach.
-    IC <- ic * n_i
+    # Person-level IC for at-risk subjects, scaled by N (full population).
+    # IC_i = N * w_i * (Y_i - psi) / sum(w) for at-risk subjects;
+    # IC_i = 0 for subjects not at risk (absorbed by weights).
+    # Variance: var(IC_padded) / N where IC_padded includes N - n_t zeros.
+    IC <- N * wi * (yi - psi_hat) / sum_w
 
-    if (n_i < 2) {
-      se <- NA_real_
-    } else if (!is.null(cluster) && cluster %in% names(dt_t)) {
-      # Cluster-robust: sum IC within clusters, rescale by n_cl/n_i,
-      # then var/n_cl (ltmle's HouseholdIC pattern)
-      merged_cl <- merge(merged, dt_t[, c(id_col, cluster), with = FALSE],
-                         by = id_col)
-      # Recompute IC from merged_cl to guarantee alignment after merge reorder
-      wi_cl <- merged_cl$.final_weight
-      yi_cl <- merged_cl[[nodes$outcome]]
-      ic_cl <- wi_cl * (yi_cl - psi_hat) / sum(wi_cl)
-      IC_cl <- ic_cl * n_i
-      cl_IC <- tapply(IC_cl, merged_cl[[cluster]], sum)
-      n_cl <- length(cl_IC)
-      cl_IC <- as.numeric(cl_IC) * n_cl / n_i
-      se <- sqrt(stats::var(cl_IC) / n_cl)
+    if (!is.null(cluster) && cluster %in% names(merged)) {
+      # Cluster-robust: sum IC within clusters, pad with zero-IC clusters,
+      # then var/N_cl. Follows ltmle's HouseholdIC pattern.
+      cl_IC <- tapply(IC, merged[[cluster]], sum)
+      # Total clusters in population (not just at-risk clusters)
+      all_clusters <- unique(obj$data[[cluster]])
+      N_cl <- length(all_clusters)
+      # Pad with zeros for clusters not at risk at this time
+      n_cl_at_risk <- length(cl_IC)
+      cl_IC_full <- c(as.numeric(cl_IC), rep(0, N_cl - n_cl_at_risk))
+      se <- sqrt(stats::var(cl_IC_full) / N_cl)
     } else {
-      se <- sqrt(stats::var(IC) / n_i)
+      # Pad IC with zeros for subjects not at risk, compute var/N
+      IC_full <- c(IC, rep(0, N - n_t))
+      se <- sqrt(stats::var(IC_full) / N)
     }
 
     # Degenerate IC (all outcomes identical) gives SE=0;
@@ -155,10 +174,14 @@
       )
       b_obj$regimes <- obj$regimes
       # Force sequential SL inside bootstrap to prevent nested parallelism
+      trt_fit <- obj$fits$treatment[[regime]]
       b_obj <- fit_treatment(b_obj, regime = regime,
-                             covariates = obj$fits$treatment[[regime]]$covariates,
-                             learners = obj$fits$treatment[[regime]]$learners,
-                             bounds = obj$fits$treatment[[regime]]$bounds,
+                             covariates = trt_fit$covariates,
+                             learners = trt_fit$learners,
+                             bounds = trt_fit$bounds,
+                             sl_control = if (!is.null(trt_fit$sl_control)) trt_fit$sl_control else list(),
+                             adaptive_cv = if (!is.null(trt_fit$adaptive_cv)) trt_fit$adaptive_cv else TRUE,
+                             risk_set = if (!is.null(trt_fit$risk_set)) trt_fit$risk_set else "all",
                              use_ffSL = FALSE,
                              verbose = FALSE)
       cens_fits <- obj$fits$censoring[[regime]]
@@ -166,9 +189,12 @@
         cov_c <- cens_fits[[1]]$covariates
         lrn_c <- cens_fits[[1]]$learners
         bnd_c <- cens_fits[[1]]$bounds
+        slc_c <- if (!is.null(cens_fits[[1]]$sl_control)) cens_fits[[1]]$sl_control else list()
+        acv_c <- if (!is.null(cens_fits[[1]]$adaptive_cv)) cens_fits[[1]]$adaptive_cv else TRUE
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, use_ffSL = FALSE,
+                               bounds = bnd_c, sl_control = slc_c,
+                               adaptive_cv = acv_c, use_ffSL = FALSE,
                                verbose = FALSE)
       }
       obs_fit <- obj$fits$observation[[regime]]
@@ -177,6 +203,8 @@
                                  covariates = obs_fit$covariates,
                                  learners = obs_fit$learners,
                                  bounds = obs_fit$bounds,
+                                 sl_control = if (!is.null(obs_fit$sl_control)) obs_fit$sl_control else list(),
+                                 adaptive_cv = if (!is.null(obs_fit$adaptive_cv)) obs_fit$adaptive_cv else TRUE,
                                  use_ffSL = FALSE,
                                  verbose = FALSE)
       }
@@ -530,8 +558,10 @@
   dt_t <- obj$data[obj$data[[nodes$time]] == tt, ]
   merged <- merge(w_t, dt_t[, c(id_col, nodes$outcome), with = FALSE],
                   by = id_col)
+  # Filter NA outcomes
+  merged <- merged[!is.na(merged[[nodes$outcome]]), ]
   yi <- merged[[nodes$outcome]]
   wi <- merged$.final_weight
-  if (length(wi) == 0) return(NA_real_)
+  if (length(wi) == 0 || sum(wi) == 0) return(NA_real_)
   stats::weighted.mean(yi, wi)
 }

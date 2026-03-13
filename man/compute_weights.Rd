@@ -10,7 +10,6 @@ compute_weights(
   stabilized = TRUE,
   truncation = NULL,
   truncation_quantile = NULL,
-  g_bounds = c(0.01, 1),
   recompute = FALSE
 )
 }
@@ -27,9 +26,6 @@ models already fit.}
 \item{truncation_quantile}{Numeric in (0,1). Truncate at this quantile.
 Applied after \code{truncation} if both specified.}
 
-\item{g_bounds}{Numeric vector of length 2. Bounds for cumulative g
-(denominator). Default \code{c(0.01, 1)}. Stored for use by TMLE.}
-
 \item{recompute}{Logical. If FALSE (default), errors when weights are already
 computed for the requested regime(s). Set to TRUE to re-compute.}
 }
@@ -41,4 +37,11 @@ Combines treatment, censoring, and observation model predictions into
 stabilized inverse probability weights. Treatment and censoring weights
 are cumulated (absorbing processes); observation weights are point-in-time
 (intermittent process).
+}
+\details{
+Weight truncation is controlled via \code{truncation} (hard cap) and
+\code{truncation_quantile} (percentile-based cap), which bound the final
+stabilized weight directly. For TMLE, use \code{g_bounds} in
+\code{\link{estimate_tmle}()} instead — it bounds the unstabilized
+cumulative propensity score used in the clever covariate denominator.
 }

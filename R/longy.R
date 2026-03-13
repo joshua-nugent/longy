@@ -27,10 +27,15 @@
 #'   if no competing risks.
 #' @param regimes Named list. Each element defines a regime:
 #'   \itemize{
-#'     \item For static: an integer (0 or 1), e.g., \code{list(always = 1L, never = 0L)}
-#'     \item For dynamic: a function returning 0/1
-#'     \item For stochastic: a function returning P(A=1)
+#'     \item Scalar 0/1: constant static regime, e.g., \code{list(always = 1L, never = 0L)}
+#'     \item Named numeric vector of 0/1: time-varying static regime, e.g.,
+#'       \code{list(early = c("0" = 1, "1" = 1, "2" = 0))}
+#'     \item Character string: column name with pre-computed 0/1 counterfactual
+#'       treatment values, e.g., \code{list(custom = "A_counterfactual")}
+#'     \item Function: dynamic regime returning 0/1 per row
 #'   }
+#'   For static regimes defined as a function of time, use
+#'   \code{\link{define_regime}()} directly with \code{static = function(t) ...}.
 #' @param estimator Character vector. Which estimator(s) to run. Any combination
 #'   of \code{"ipw"}, \code{"gcomp"}, and \code{"tmle"} (e.g.
 #'   \code{c("ipw", "tmle")}). Results are keyed as
@@ -111,6 +116,7 @@
 #'
 #' @examples
 #' \dontrun{
+#' # --- Basic: always vs. never treat (IPW, default) ---
 #' obj <- longy(
 #'   data = sim_longy,
 #'   id = "id", time = "time", outcome = "Y",
@@ -120,6 +126,58 @@
 #' )
 #' obj$results$always_ipw$estimates
 #' results(obj, estimator = "ipw")
+#'
+#' # --- Time-varying static regimes ---
+#' # Compare always-treat to a "treat for first 6 months" policy.
+#' # Names in the vector must match the time values in your data.
+#' obj <- longy(
+#'   data = sim_longy,
+#'   id = "id", time = "time", outcome = "Y",
+#'   treatment = "A", censoring = "C",
+#'   baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+#'   regimes = list(
+#'     always     = 1L,
+#'     never      = 0L,
+#'     first_six  = c("0"=1, "1"=1, "2"=1, "3"=1, "4"=1, "5"=1,
+#'                     "6"=0, "7"=0, "8"=0, "9"=0, "10"=0, "11"=0)
+#'   ),
+#'   estimator = "ipw"
+#' )
+#' results(obj)
+#'
+#' # --- Multiple estimators ---
+#' obj <- longy(
+#'   data = sim_longy,
+#'   id = "id", time = "time", outcome = "Y",
+#'   treatment = "A", censoring = "C",
+#'   baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+#'   regimes = list(always = 1L, never = 0L),
+#'   estimator = c("ipw", "tmle")
+#' )
+#' results(obj, regime = "always", estimator = "tmle")
+#'
+#' # --- Pre-computed (shifted) regime ---
+#' # Compute your own counterfactual treatment column, then pass the name.
+#' # Useful for complex rules involving history, multiple covariates, etc.
+#' sim_longy$A_cf <- ifelse(sim_longy$time <= 5 & sim_longy$L1 > 0, 1L, 0L)
+#' obj <- longy(
+#'   data = sim_longy,
+#'   id = "id", time = "time", outcome = "Y",
+#'   treatment = "A", censoring = "C",
+#'   baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+#'   regimes = list(always = 1L, custom = "A_cf"),
+#'   estimator = "ipw"
+#' )
+#'
+#' # --- Time-varying static via the modular pipeline ---
+#' # Use define_regime() directly for function-based static regimes:
+#' obj <- longy_data(sim_longy, id = "id", time = "time",
+#'                   outcome = "Y", treatment = "A") |>
+#'   define_regime("always", static = 1L) |>
+#'   define_regime("first_6mo", static = function(t) as.integer(t <= 5)) |>
+#'   fit_treatment() |>
+#'   compute_weights() |>
+#'   estimate_ipw()
 #' }
 #'
 #' @export
@@ -182,6 +240,22 @@ longy <- function(data,
     estimator <- c("ipw", "gcomp", "tmle")
   }
   estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle"), several.ok = TRUE)
+
+  # IPW is not valid with competing risks — drop it with a warning
+  if ("ipw" %in% estimator && !is.null(competing)) {
+    estimator <- setdiff(estimator, "ipw")
+    if (length(estimator) == 0) {
+      stop("IPW is not supported with competing risks. ",
+           "Use estimator = \"gcomp\", \"tmle\", or \"all\" instead. ",
+           "See ?estimate_ipw for details.",
+           call. = FALSE)
+    }
+    warning("IPW is not supported with competing risks and was removed from ",
+            "the estimator set. Using: ", paste(estimator, collapse = ", "), ". ",
+            "See ?estimate_ipw for details.",
+            call. = FALSE)
+  }
+
   do_ipw <- "ipw" %in% estimator
   do_gcomp <- "gcomp" %in% estimator
   do_tmle <- "tmle" %in% estimator
@@ -231,13 +305,24 @@ longy <- function(data,
   if (verbose) .vmsg("Step %d/%d: Defining regimes...", step, n_steps)
   for (rname in names(regimes)) {
     rval <- regimes[[rname]]
-    if (is.numeric(rval) && length(rval) == 1) {
+    if (is.numeric(rval) && length(rval) == 1 && is.null(names(rval))) {
+      # Scalar 0/1
       obj <- define_regime(obj, name = rname, static = as.integer(rval))
+    } else if (is.numeric(rval) && !is.null(names(rval))) {
+      # Named vector — time-varying static
+      obj <- define_regime(obj, name = rname, static = rval)
+    } else if (is.character(rval) && length(rval) == 1) {
+      # Character string — shifted column name
+      obj <- define_regime(obj, name = rname, shifted = rval)
     } else if (is.function(rval)) {
+      # Could be a dynamic regime or a static function of time.
+      # Use dynamic by default; users wanting static-function should use
+      # define_regime() directly or wrap in list(static = fn).
       obj <- define_regime(obj, name = rname, dynamic = rval)
     } else {
-      stop(sprintf("Regime '%s': must be an integer (0/1) or a function.", rname),
-           call. = FALSE)
+      stop(sprintf(
+        "Regime '%s': must be a scalar 0/1, a named numeric vector of 0/1, a column name, or a function.",
+        rname), call. = FALSE)
     }
   }
 
@@ -362,6 +447,406 @@ longy <- function(data,
     cur_step <- cur_step + 1L
   }
 
+  obj
+}
+
+#' Add a Regime to an Existing longy_data Object
+#'
+#' Defines a new regime and runs estimation, reusing compatible nuisance model
+#' fits from previously fitted regimes. This avoids re-fitting treatment,
+#' censoring, and observation models when the underlying data and covariates
+#' are the same.
+#'
+#' @param obj A \code{longy_data} object, typically returned by \code{longy()}
+#'   or the modular pipeline, with at least one regime already fitted.
+#' @param name Character. Name for the new regime (must be unique).
+#' @param static,shifted,dynamic,stochastic Regime specification. Exactly one
+#'   must be provided. See \code{\link{define_regime}} for details.
+#' @param description Character. Optional description for the regime.
+#' @param estimator Character vector. Which estimator(s) to run. If NULL
+#'   (default), matches the estimators present in existing results.
+#' @param reuse_nuisance Logical. If TRUE (default), copies compatible
+#'   nuisance fits (g_A, g_C, g_R) from existing regimes instead of
+#'   re-fitting. Treatment fits are reused when \code{risk_set} was
+#'   \code{"all"}; censoring and observation fits are always reused.
+#'   Set to FALSE to force re-fitting everything.
+#' @param learners Character vector, named list, or NULL. SuperLearner
+#'   library specification, same format as in \code{\link{longy}()}. A
+#'   character vector applies the same library to all models; a named list
+#'   (keys: \code{treatment}, \code{censoring}, \code{observation},
+#'   \code{outcome}, \code{default}) specifies per-model libraries; NULL
+#'   uses plain glm. When omitted (not explicitly passed), learners are
+#'   inherited from existing fits. When explicitly provided \emph{and} a
+#'   donor fit exists, the resolved per-model libraries are validated
+#'   against the donor — a mismatch raises an error to prevent silent
+#'   inconsistency.
+#' @param covariates Character vector or NULL. Predictor columns for nuisance
+#'   models. Used when fitting from scratch (no donor available). NULL uses
+#'   all baseline + timevarying. Ignored when reusing donor fits.
+#' @param stabilized Logical. Use stabilized weights (IPW only). Default TRUE.
+#' @param truncation Numeric. Weight truncation cap (IPW only).
+#' @param truncation_quantile Numeric. Quantile-based weight truncation (IPW only).
+#' @param inference Character. Inference method. If NULL (default), matches
+#'   existing results.
+#' @param ci_level Numeric. Confidence level. Default 0.95.
+#' @param n_boot Integer. Bootstrap replicates. Default 200.
+#' @param cluster Character. Cluster column for robust SEs (IPW only).
+#' @param g_bounds Numeric(2). Bounds for TMLE clever covariate denominator.
+#'   Default \code{c(0.01, 1)}.
+#' @param outcome_range Numeric(2) or NULL. Range for continuous outcome
+#'   scaling in TMLE.
+#' @param risk_set_outcome Character. Risk set for outcome models.
+#'   Default \code{"all"}.
+#' @param times Numeric vector. Time points for estimation. NULL = all.
+#' @param parallel Logical. Parallelize where possible. Default FALSE.
+#' @param verbose Logical. Print progress. Default TRUE.
+#'
+#' @return Modified \code{longy_data} object with the new regime added and
+#'   estimation results accumulated in \code{obj$results}.
+#'
+#' @details
+#' \code{add_regime()} is designed for the common workflow where you run
+#' \code{longy()} once with initial regimes, then want to add more regimes
+#' without re-fitting expensive nuisance models.
+#'
+#' \strong{What gets reused} (when \code{reuse_nuisance = TRUE}):
+#' \itemize{
+#'   \item \strong{g_C} (censoring model): always reused — identical across regimes.
+#'   \item \strong{g_R} (observation model): always reused — identical across regimes.
+#'   \item \strong{g_A} (treatment model): reused when the existing fit used
+#'     \code{risk_set = "all"} (the default). If the existing fit used
+#'     \code{risk_set = "followers"}, treatment is re-fitted for the new
+#'     regime's followers.
+#' }
+#'
+#' \strong{What is always re-fitted}:
+#' \itemize{
+#'   \item \strong{Outcome models}: regime-specific (counterfactual treatment
+#'     differs), always fitted fresh.
+#'   \item \strong{Weights}: regime-specific, always computed fresh.
+#' }
+#'
+#' @examples
+#' \dontrun{
+#' # Initial analysis
+#' obj <- longy(
+#'   data = sim_longy,
+#'   id = "id", time = "time", outcome = "Y",
+#'   treatment = "A", censoring = "C",
+#'   baseline = c("W1", "W2"), timevarying = c("L1", "L2"),
+#'   regimes = list(always = 1L, never = 0L),
+#'   estimator = c("ipw", "tmle")
+#' )
+#'
+#' # Later, add a time-varying regime — reuses all nuisance models
+#' obj <- add_regime(obj, name = "early_stop",
+#'   static = c("0"=1, "1"=1, "2"=0))
+#'
+#' # Add a pre-computed regime
+#' obj$data$A_cf <- ifelse(obj$data$time <= 1, 1L, 0L)
+#' obj <- add_regime(obj, name = "first_two", shifted = "A_cf")
+#'
+#' # Compare all regimes
+#' results(obj)
+#' }
+#'
+#' @export
+add_regime <- function(obj, name, static = NULL, shifted = NULL,
+                       dynamic = NULL, stochastic = NULL,
+                       description = NULL,
+                       estimator = NULL,
+                       reuse_nuisance = TRUE,
+                       learners,
+                       covariates = NULL,
+                       stabilized = TRUE,
+                       truncation = NULL,
+                       truncation_quantile = NULL,
+                       inference = NULL,
+                       ci_level = 0.95,
+                       n_boot = 200L,
+                       cluster = NULL,
+                       g_bounds = c(0.01, 1),
+                       outcome_range = NULL,
+                       risk_set_outcome = "all",
+                       times = NULL,
+                       parallel = FALSE,
+                       verbose = TRUE) {
+
+  obj <- .as_longy_data(obj)
+
+  # --- Learners: detect whether user explicitly provided them ---
+  learners_provided <- !missing(learners)
+  if (!learners_provided) learners <- NULL
+
+  # Resolve per-model learner libraries (same logic as longy())
+  # Used for validation against donor fits and for from-scratch fitting
+  if (learners_provided) {
+    lrn_treatment   <- .resolve_learners(learners, "treatment")
+    lrn_censoring   <- .resolve_learners(learners, "censoring")
+    lrn_observation <- .resolve_learners(learners, "observation")
+    lrn_outcome     <- .resolve_learners(learners, "outcome")
+  }
+
+  # --- Define the regime ---
+  obj <- define_regime(obj, name = name, static = static, shifted = shifted,
+                       dynamic = dynamic, stochastic = stochastic,
+                       description = description)
+
+  # --- Detect existing estimators if not specified ---
+  if (is.null(estimator)) {
+    existing_estimators <- unique(vapply(obj$results, function(r) {
+      if (!is.null(r$estimator)) r$estimator else "ipw"
+    }, character(1)))
+    # Exclude "unadjusted" from auto-detection — it always runs
+    estimator <- setdiff(existing_estimators, "unadjusted")
+    if (length(estimator) == 0) {
+      estimator <- "ipw"
+      if (verbose) .vmsg("  No existing estimators detected, defaulting to IPW")
+    }
+  }
+  estimator <- match.arg(estimator, c("ipw", "gcomp", "tmle"), several.ok = TRUE)
+
+  # IPW not valid with competing risks
+  if ("ipw" %in% estimator && !is.null(obj$nodes$competing)) {
+    estimator <- setdiff(estimator, "ipw")
+    if (length(estimator) == 0) {
+      stop("IPW is not supported with competing risks. ",
+           "Use estimator = \"gcomp\" or \"tmle\" instead.",
+           call. = FALSE)
+    }
+    warning("IPW is not supported with competing risks and was removed. ",
+            "Using: ", paste(estimator, collapse = ", "), ".",
+            call. = FALSE)
+  }
+
+  do_ipw <- "ipw" %in% estimator
+  do_gcomp <- "gcomp" %in% estimator
+  do_tmle <- "tmle" %in% estimator
+  need_g <- do_ipw || do_tmle
+  need_outcome <- do_gcomp || do_tmle
+
+  # --- Detect existing inference method if not specified ---
+  # IPW accepts: ic, bootstrap, sandwich, none
+  # TMLE accepts: eif, bootstrap, none
+  # Detect separately per estimator type to avoid cross-contamination
+  if (is.null(inference)) {
+    # Look for IPW-type inference first, then TMLE-type
+    ipw_results <- Filter(function(r) identical(r$estimator, "ipw"), obj$results)
+    tmle_results <- Filter(function(r) identical(r$estimator, "tmle"), obj$results)
+    if (length(ipw_results) > 0) {
+      ipw_inf <- ipw_results[[1]]$inference
+      if (is.null(ipw_inf)) ipw_inf <- "ic"
+    } else {
+      ipw_inf <- "ic"
+    }
+    if (length(tmle_results) > 0) {
+      tmle_inf <- tmle_results[[1]]$inference
+      if (is.null(tmle_inf)) tmle_inf <- "eif"
+    } else {
+      tmle_inf <- "eif"
+    }
+    inference <- ipw_inf
+  } else {
+    ipw_inf <- inference
+    tmle_inf <- if (inference %in% c("ic", "sandwich")) "eif" else inference
+  }
+
+  # --- Find a donor regime for reusing fits ---
+  donor <- NULL
+  if (reuse_nuisance) {
+    available <- names(obj$fits$treatment)
+    if (length(available) == 0) available <- names(obj$fits$censoring)
+    if (length(available) == 0) available <- names(obj$fits$observation)
+    if (length(available) > 0) donor <- available[1]
+  }
+
+  # --- Validate learners against donor fits if user explicitly provided them ---
+  if (learners_provided && !is.null(donor)) {
+    # Treatment
+    donor_trt <- obj$fits$treatment[[donor]]
+    if (!is.null(donor_trt) && !identical(donor_trt$learners, lrn_treatment)) {
+      stop(sprintf(
+        "Learner mismatch for treatment model: existing fit uses [%s] but learners specifies [%s]. ",
+        paste(donor_trt$learners %||% "NULL (glm)", collapse = ", "),
+        paste(lrn_treatment %||% "NULL (glm)", collapse = ", ")),
+        "Use the same learners as the original longy() call, or set reuse_nuisance=FALSE to refit.",
+        call. = FALSE)
+    }
+    # Censoring (check first cause's learners)
+    donor_cens <- obj$fits$censoring[[donor]]
+    if (!is.null(donor_cens) && length(donor_cens) > 0) {
+      donor_cens_lrn <- donor_cens[[1]]$learners
+      if (!identical(donor_cens_lrn, lrn_censoring)) {
+        stop(sprintf(
+          "Learner mismatch for censoring model: existing fit uses [%s] but learners specifies [%s]. ",
+          paste(donor_cens_lrn %||% "NULL (glm)", collapse = ", "),
+          paste(lrn_censoring %||% "NULL (glm)", collapse = ", ")),
+          "Use the same learners as the original longy() call, or set reuse_nuisance=FALSE to refit.",
+          call. = FALSE)
+      }
+    }
+    # Observation
+    donor_obs <- obj$fits$observation[[donor]]
+    if (!is.null(donor_obs)) {
+      if (!identical(donor_obs$learners, lrn_observation)) {
+        stop(sprintf(
+          "Learner mismatch for observation model: existing fit uses [%s] but learners specifies [%s]. ",
+          paste(donor_obs$learners %||% "NULL (glm)", collapse = ", "),
+          paste(lrn_observation %||% "NULL (glm)", collapse = ", ")),
+          "Use the same learners as the original longy() call, or set reuse_nuisance=FALSE to refit.",
+          call. = FALSE)
+      }
+    }
+    # Outcome (if an outcome donor exists)
+    donor_out_check <- NULL
+    for (rn in names(obj$fits$outcome)) {
+      if (!is.null(obj$fits$outcome[[rn]])) {
+        donor_out_check <- obj$fits$outcome[[rn]]
+        break
+      }
+    }
+    if (!is.null(donor_out_check) &&
+        !identical(donor_out_check$learners, lrn_outcome)) {
+      stop(sprintf(
+        "Learner mismatch for outcome model: existing fit uses [%s] but learners specifies [%s]. ",
+        paste(donor_out_check$learners %||% "NULL (glm)", collapse = ", "),
+        paste(lrn_outcome %||% "NULL (glm)", collapse = ", ")),
+        "Use the same learners as the original longy() call, or set reuse_nuisance=FALSE to refit.",
+        call. = FALSE)
+    }
+  }
+
+  # --- Unadjusted (always) ---
+  if (verbose) .vmsg("add_regime '%s': computing unadjusted estimate...", name)
+  obj <- estimate_unadjusted(obj, regime = name, times = times,
+                              ci_level = ci_level)
+
+  # --- Nuisance models: g_A, g_C, g_R ---
+  if (need_g) {
+
+    # Treatment (g_A)
+    if (!is.null(donor) && reuse_nuisance) {
+      donor_trt <- obj$fits$treatment[[donor]]
+      if (!is.null(donor_trt) && identical(donor_trt$risk_set, "all")) {
+        if (verbose) .vmsg("  Reusing treatment model from regime '%s'", donor)
+        obj$fits$treatment[[name]] <- donor_trt
+        obj$fits$treatment[[name]]$regime <- name
+      } else {
+        # risk_set was "followers" — must refit using donor's params
+        if (verbose) .vmsg("  Fitting treatment model (risk_set = 'followers')...")
+        covs <- if (!is.null(donor_trt)) donor_trt$covariates else covariates
+        lrn <- if (!is.null(donor_trt)) donor_trt$learners else
+                 if (learners_provided) lrn_treatment else NULL
+        bnd <- if (!is.null(donor_trt)) donor_trt$bounds else c(0.005, 0.995)
+        obj <- fit_treatment(obj, regime = name, covariates = covs,
+                             learners = lrn, bounds = bnd,
+                             sl_control = if (!is.null(donor_trt)) donor_trt$sl_control else list(),
+                             adaptive_cv = if (!is.null(donor_trt)) donor_trt$adaptive_cv else TRUE,
+                             use_ffSL = if (!is.null(donor_trt)) isTRUE(donor_trt$use_ffSL) else FALSE,
+                             times = times, parallel = parallel,
+                             verbose = verbose, risk_set = "followers")
+      }
+    } else {
+      # No donor — fit from scratch using user-provided learners
+      if (verbose) .vmsg("  No existing fits to reuse, fitting treatment model...")
+      lrn <- if (learners_provided) lrn_treatment else NULL
+      obj <- fit_treatment(obj, regime = name, covariates = covariates,
+                           learners = lrn, times = times,
+                           parallel = parallel, verbose = verbose)
+    }
+
+    # Censoring (g_C) — always regime-independent
+    if (!is.null(donor) && reuse_nuisance &&
+        !is.null(obj$fits$censoring[[donor]])) {
+      if (verbose) .vmsg("  Reusing censoring model from regime '%s'", donor)
+      obj$fits$censoring[[name]] <- obj$fits$censoring[[donor]]
+    } else {
+      if (verbose) .vmsg("  Fitting censoring model...")
+      lrn <- if (learners_provided) lrn_censoring else NULL
+      obj <- fit_censoring(obj, regime = name, covariates = covariates,
+                           learners = lrn, times = times,
+                           parallel = parallel, verbose = verbose)
+    }
+
+    # Observation (g_R) — always regime-independent
+    if (!is.null(donor) && reuse_nuisance &&
+        !is.null(obj$fits$observation[[donor]])) {
+      if (verbose) .vmsg("  Reusing observation model from regime '%s'", donor)
+      obj$fits$observation[[name]] <- obj$fits$observation[[donor]]
+      obj$fits$observation[[name]]$regime <- name
+    } else {
+      if (verbose) .vmsg("  Fitting observation model...")
+      lrn <- if (learners_provided) lrn_observation else NULL
+      obj <- fit_observation(obj, regime = name, covariates = covariates,
+                             learners = lrn, times = times,
+                             parallel = parallel, verbose = verbose)
+    }
+  }
+
+  # --- IPW: weights + estimate ---
+  if (do_ipw) {
+    if (verbose) .vmsg("  Computing weights and estimating (IPW)...")
+    obj <- compute_weights(obj, regime = name, stabilized = stabilized,
+                           truncation = truncation,
+                           truncation_quantile = truncation_quantile)
+    obj <- estimate_ipw(obj, regime = name, times = times,
+                        inference = ipw_inf, ci_level = ci_level,
+                        n_boot = n_boot, cluster = cluster)
+  }
+
+  # --- Outcome model (G-comp / TMLE) ---
+  if (need_outcome) {
+    # Extract fitting params from an existing outcome fit if available
+    donor_out <- NULL
+    for (rn in names(obj$fits$outcome)) {
+      if (!is.null(obj$fits$outcome[[rn]])) {
+        donor_out <- obj$fits$outcome[[rn]]
+        break
+      }
+    }
+    out_covs <- if (!is.null(donor_out)) donor_out$covariates else covariates
+    out_lrn <- if (!is.null(donor_out)) donor_out$learners else
+                 if (learners_provided) lrn_outcome else NULL
+    out_bnd <- if (!is.null(donor_out)) donor_out$bounds else c(0.005, 0.995)
+    out_sl <- if (!is.null(donor_out)) donor_out$sl_control else list()
+    out_acv <- if (!is.null(donor_out)) isTRUE(donor_out$adaptive_cv) else TRUE
+    out_ffsl <- if (!is.null(donor_out)) isTRUE(donor_out$use_ffSL) else FALSE
+
+    outcome_metadata_only <- isTRUE(obj$crossfit$enabled) && do_tmle && !do_gcomp
+
+    if (verbose) .vmsg("  Fitting outcome model%s...",
+                        if (outcome_metadata_only) " (metadata only)" else "")
+    obj <- fit_outcome(obj, regime = name, covariates = out_covs,
+                       learners = out_lrn, bounds = out_bnd,
+                       sl_control = out_sl, adaptive_cv = out_acv,
+                       times = times, use_ffSL = out_ffsl,
+                       parallel = parallel, risk_set = risk_set_outcome,
+                       verbose = verbose, metadata_only = outcome_metadata_only)
+  }
+
+  # --- G-comp estimate ---
+  if (do_gcomp) {
+    if (verbose) .vmsg("  Estimating (G-comp)...")
+    obj <- estimate_gcomp(obj, regime = name, times = times,
+                          ci_level = ci_level, n_boot = n_boot,
+                          verbose = verbose)
+  }
+
+  # --- TMLE estimate ---
+  if (do_tmle) {
+    if (n_boot == 0L) tmle_inf <- "eif"
+    if (tmle_inf %in% c("none", "ic", "sandwich")) tmle_inf <- "eif"
+
+    if (verbose) .vmsg("  Estimating (TMLE)...")
+    obj <- estimate_tmle(obj, regime = name, times = times,
+                         inference = tmle_inf, ci_level = ci_level,
+                         n_boot = n_boot, g_bounds = g_bounds,
+                         outcome_range = outcome_range,
+                         risk_set = risk_set_outcome,
+                         parallel = parallel, verbose = verbose)
+  }
+
+  if (verbose) .vmsg("add_regime '%s': done.", name)
   obj
 }
 

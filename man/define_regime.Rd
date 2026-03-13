@@ -8,6 +8,7 @@ define_regime(
   obj,
   name,
   static = NULL,
+  shifted = NULL,
   dynamic = NULL,
   stochastic = NULL,
   description = NULL
@@ -18,7 +19,24 @@ define_regime(
 
 \item{name}{Character. Name for this regime (must be unique).}
 
-\item{static}{Integer (0 or 1). For static regimes: always treat (1) or never treat (0).}
+\item{static}{Treatment regime specification (one of three forms):
+\describe{
+\item{Scalar 0/1}{Constant regime — same treatment at every time point.
+E.g., \code{static = 1L} (always treat).}
+\item{Named numeric vector}{Time-varying regime — names are time values
+(as character), values are 0/1. E.g.,
+\code{static = c("1" = 1, "2" = 1, "3" = 0)}.
+All time values present in the data must have a defined value.}
+\item{Function}{A function \code{f(time_values)} receiving a numeric
+vector of time points, returning a 0/1 integer vector of the same
+length. E.g., \code{static = function(t) as.integer(t <= 3)}.}
+}}
+
+\item{shifted}{Character. Column name in \code{obj$data} containing
+pre-computed counterfactual treatment values (0/1) for each subject-time
+row. This is the most flexible option — compute the regime however you
+want, store it in a column, and point longy at it. Internally handled
+like a dynamic regime (consistency tracked per subject).}
 
 \item{dynamic}{A function \code{f(data_row)} returning 0 or 1. For dynamic regimes.}
 
@@ -33,13 +51,74 @@ Modified \code{longy_data} object with the regime added.
 Adds a treatment regime (static, dynamic, or stochastic) to a \code{longy_data} object.
 }
 \details{
-Exactly one of \code{static}, \code{dynamic}, or \code{stochastic} must be provided.
+Exactly one of \code{static}, \code{dynamic}, or \code{stochastic} must be
+provided.
+
+\strong{Static regimes} assign treatment based only on time — the same
+sequence for every subject. They can be constant (always/never treat) or
+time-varying (treat for the first K periods, then stop). Three input forms
+are supported:
+\itemize{
+\item \strong{Scalar}: \code{static = 1L} — treat at every time point.
+\item \strong{Named vector}: \code{static = c("0" = 1, "1" = 1, "2" = 0)}
+— names must match the time values in your data (as character strings).
+Every time value must be covered.
+\item \strong{Function}: \code{static = function(t) as.integer(t <= 5)}
+— receives a numeric vector of time points, returns 0/1 integer vector.
+Convenient when there are many time points.
+}
+
+\strong{Shifted (pre-computed) regimes} are the most flexible option. The
+user pre-computes the counterfactual treatment assignment as a 0/1 column
+in the data, then points longy at it. This is useful for complex rules that
+depend on subject history, multiple covariates, or external logic. Internally
+handled like a dynamic regime.
+
+\strong{Dynamic regimes} assign treatment based on a subject's covariates
+at each time point. The function receives a single-row data.table and must
+return 0 or 1.
+
+\strong{Stochastic regimes} specify a probability of treatment. The function
+receives a single-row data.table and must return a value between 0 and 1.
 }
 \examples{
 \dontrun{
+# --- Static: constant ---
+# Always treat / never treat
 obj <- obj |>
-  define_regime(name = "always_treat", static = 1L) |>
-  define_regime(name = "never_treat", static = 0L)
+  define_regime(name = "always", static = 1L) |>
+  define_regime(name = "never",  static = 0L)
+
+# --- Static: time-varying (named vector) ---
+# Treat for 6 months, then stop (time values 0-11)
+obj <- define_regime(obj, name = "six_months",
+  static = c("0"=1, "1"=1, "2"=1, "3"=1, "4"=1, "5"=1,
+             "6"=0, "7"=0, "8"=0, "9"=0, "10"=0, "11"=0))
+
+# --- Static: time-varying (function) ---
+# Same regime, but cleaner when there are many time points
+obj <- define_regime(obj, name = "six_months_fn",
+  static = function(t) as.integer(t <= 5))
+
+# Treat only at even-numbered visits
+obj <- define_regime(obj, name = "alternating",
+  static = function(t) as.integer(t \%\% 2 == 0))
+
+# --- Shifted (pre-computed) ---
+# Compute the regime yourself, store in a column, point longy at it.
+# Useful for complex rules that are hard to express as a function.
+my_data$A_cf <- ifelse(my_data$time <= 5 & my_data$L1 > 0, 1L, 0L)
+obj <- define_regime(obj, name = "custom_rule", shifted = "A_cf")
+
+# --- Dynamic ---
+# Treat if a covariate exceeds a threshold
+obj <- define_regime(obj, name = "treat_high_bp",
+  dynamic = function(row) as.integer(row[["blood_pressure"]] > 140))
+
+# --- Stochastic ---
+# 70\% probability of treatment at every time point
+obj <- define_regime(obj, name = "prob70",
+  stochastic = function(row) 0.7)
 }
 
 }

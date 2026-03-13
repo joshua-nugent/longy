@@ -18,7 +18,8 @@ fit_outcome(
   parallel = FALSE,
   risk_set = c("all", "followers"),
   verbose = TRUE,
-  refit = FALSE
+  refit = FALSE,
+  metadata_only = FALSE
 )
 }
 \arguments{
@@ -70,6 +71,12 @@ for all subjects at the earliest time.}
 
 \item{refit}{Logical. If FALSE (default), errors when outcome is already
 fitted for the requested regime(s). Set to TRUE to re-fit.}
+
+\item{metadata_only}{Logical. If TRUE, stores only the metadata that
+\code{estimate_tmle()} needs (covariates, learners, bounds, use_ffSL)
+without running the expensive backward regression. Used when cross-fitting
+is enabled and only TMLE is requested (since \code{.cf_estimate_tmle()}
+re-does the entire backward pass with cross-fitting). Default FALSE.}
 }
 \value{
 Modified \code{longy_data} object with outcome fits stored in

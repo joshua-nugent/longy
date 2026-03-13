@@ -117,10 +117,14 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
       shift_iso <- estimates$estimate - raw_est
       estimates$ci_lower <- estimates$ci_lower + shift_iso
       estimates$ci_upper <- estimates$ci_upper + shift_iso
-      # Clamp CIs to [0, 1] for survival/binary outcomes
-      estimates$ci_lower <- pmax(estimates$ci_lower, 0)
-      estimates$ci_upper <- pmin(estimates$ci_upper, 1)
     }
+  }
+
+  # Clamp CIs to [0, 1] for binary/survival outcomes
+  if (nodes$outcome_type %in% c("binary", "survival") &&
+      "ci_lower" %in% names(estimates)) {
+    estimates$ci_lower <- pmax(estimates$ci_lower, 0)
+    estimates$ci_upper <- pmin(estimates$ci_upper, 1)
   }
 
   result <- list(

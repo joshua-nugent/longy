@@ -275,6 +275,8 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       learners = learners,
       bounds = bounds,
       use_ffSL = use_ffSL,
+      sl_control = sl_control,
+      adaptive_cv = adaptive_cv,
       sl_info = sl_info
     )
   }
