@@ -53,6 +53,12 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
   }
 
   z <- stats::qnorm(1 - (1 - ci_level) / 2)
+  has_sw <- !is.null(nodes$sampling_weights)
+
+  if (has_sw) {
+    warning("Unadjusted estimates use sampling_weights as survey weights for the crude mean. ",
+            "No causal adjustment is applied.", call. = FALSE)
+  }
 
   est_list <- vector("list", length(eval_times))
   for (k in seq_along(eval_times)) {
@@ -71,27 +77,46 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
     }
 
     # Require non-NA outcome
-    yi <- dt_t[[y_col]][keep]
-    yi <- yi[!is.na(yi)]
+    yi_full <- dt_t[[y_col]][keep]
+    not_na <- !is.na(yi_full)
+    yi <- yi_full[not_na]
     n <- length(yi)
 
+    # Extract aligned sampling weights
+    sw_i <- NULL
+    if (has_sw) {
+      sw_i <- dt_t[[nodes$sampling_weights]][keep][not_na]
+    }
+
     if (n > 0) {
-      psi_hat <- mean(yi)
-      # SE: binomial/survival -> sqrt(p(1-p)/n), continuous -> sd/sqrt(n)
-      if (nodes$outcome_type %in% c("binary", "survival")) {
-        se <- sqrt(psi_hat * (1 - psi_hat) / n)
+      psi_hat <- if (!is.null(sw_i)) stats::weighted.mean(yi, sw_i) else mean(yi)
+      # SE: use Kish's effective sample size when sampling weights are present
+      if (!is.null(sw_i)) {
+        n_eff <- sum(sw_i)^2 / sum(sw_i^2)
+        if (nodes$outcome_type %in% c("binary", "survival")) {
+          se <- sqrt(psi_hat * (1 - psi_hat) / n_eff)
+        } else {
+          w_var <- sum(sw_i * (yi - psi_hat)^2) / sum(sw_i)
+          se <- sqrt(w_var / n_eff)
+        }
       } else {
-        se <- stats::sd(yi) / sqrt(n)
+        n_eff <- n
+        if (nodes$outcome_type %in% c("binary", "survival")) {
+          se <- sqrt(psi_hat * (1 - psi_hat) / n)
+        } else {
+          se <- stats::sd(yi) / sqrt(n)
+        }
       }
     } else {
       psi_hat <- NA_real_
       se <- NA_real_
+      n_eff <- 0
     }
 
     est_list[[k]] <- data.table::data.table(
       time = tt,
       estimate = psi_hat,
-      n_effective = as.numeric(n),
+      n_effective = as.numeric(n_eff),
       n_at_risk = n,
       se = se,
       ci_lower = psi_hat - z * se,

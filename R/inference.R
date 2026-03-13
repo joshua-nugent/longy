@@ -375,9 +375,24 @@
 
     pred_dt <- boot_obj$fits$outcome[[regime]]$predictions
     if (is.null(pred_dt)) return(rep(NA_real_, length(times)))
+    # Extract per-subject sampling weights from bootstrap data
+    boot_sw_dt <- NULL
+    boot_id_col <- nodes$id
+    if (!is.null(nodes$sampling_weights)) {
+      boot_sw_dt <- unique(boot_obj$data[, c(boot_id_col, nodes$sampling_weights), with = FALSE])
+    }
     vapply(times, function(tt) {
       q_t <- pred_dt[pred_dt$.target_time == tt, ]
-      if (nrow(q_t) > 0) mean(q_t$.Q_hat) else NA_real_
+      if (nrow(q_t) > 0) {
+        if (!is.null(boot_sw_dt)) {
+          q_sw <- merge(q_t, boot_sw_dt, by = boot_id_col, all.x = TRUE)
+          sw_vals <- q_sw[[nodes$sampling_weights]]
+          sw_vals[is.na(sw_vals)] <- 1
+          stats::weighted.mean(q_t$.Q_hat, sw_vals)
+        } else {
+          mean(q_t$.Q_hat)
+        }
+      } else NA_real_
     }, numeric(1))
   }
 

@@ -546,9 +546,16 @@ NULL
                             family, learners, cv_folds = 10L,
                             sl_fn = "SuperLearner", sl_control = list(),
                             min_obs = 50L,
-                            regime_cf = NULL) {
+                            regime_cf = NULL,
+                            sampling_weights = NULL) {
   n_risk <- nrow(X_risk)
   Q_bar <- rep(NA_real_, n_risk)
+
+  # Sampling weights for subjects with Q (aligned with Y_train_all)
+  sw_Q_all <- NULL
+  if (!is.null(sampling_weights)) {
+    sw_Q_all <- sampling_weights[which(has_Q)]
+  }
 
   for (k in seq_len(n_folds)) {
     val_idx <- which(folds_risk == k)
@@ -562,7 +569,10 @@ NULL
 
     if (length(train_Q_idx) == 0) {
       # Fall back to overall mean of all subjects with Q
-      Q_bar[val_idx] <- mean(Y_train_all)
+      marg <- if (!is.null(sw_Q_all)) {
+        stats::weighted.mean(Y_train_all, sw_Q_all)
+      } else mean(Y_train_all)
+      Q_bar[val_idx] <- marg
       next
     }
 
@@ -577,9 +587,13 @@ NULL
     train_Q_mask <- folds_risk[all_Q_idx] != k
     Y_k <- Y_train_all[train_Q_mask]
     X_k <- X_risk[all_Q_idx[train_Q_mask], , drop = FALSE]
+    ow_k <- if (!is.null(sw_Q_all)) sw_Q_all[train_Q_mask] else NULL
 
     if (length(Y_k) < 2) {
-      Q_bar[val_idx] <- mean(Y_train_all)
+      marg <- if (!is.null(sw_Q_all)) {
+        stats::weighted.mean(Y_train_all, sw_Q_all)
+      } else mean(Y_train_all)
+      Q_bar[val_idx] <- marg
       next
     }
 
@@ -597,11 +611,13 @@ NULL
       ctx <- sprintf("CF Q-step, fold=%d/%d, n_train=%d", k, n_folds, length(Y_k))
       fit <- .safe_sl(Y = Y_k, X = X_k, family = family,
                       learners = learners, cv_folds = cv_folds,
+                      obs_weights = ow_k,
                       sl_control = sl_control,
                       use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
       preds <- .predict_from_fit(fit, X_val_cf)
     } else {
-      preds <- rep(mean(Y_k), length(val_idx))
+      marg <- if (!is.null(ow_k)) stats::weighted.mean(Y_k, ow_k) else mean(Y_k)
+      preds <- rep(marg, length(val_idx))
     }
 
     Q_bar[val_idx] <- preds
@@ -828,6 +844,12 @@ NULL
         X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])
         folds_risk <- dt_t[[fold_col]][at_risk]
 
+        # Sampling weights for at-risk subjects
+        ow_risk <- NULL
+        if (!is.null(nodes$sampling_weights)) {
+          ow_risk <- dt_t[[nodes$sampling_weights]][at_risk]
+        }
+
         # Cross-fitted Q_bar
         Y_train_all <- Q_at_t[has_Q]
 
@@ -866,7 +888,8 @@ NULL
           sl_fn = sl_fn,
           sl_control = sl_control,
           min_obs = min_obs,
-          regime_cf = regime_cf
+          regime_cf = regime_cf,
+          sampling_weights = ow_risk
         )
 
         # Bound Q_bar
@@ -902,7 +925,8 @@ NULL
                                  pseudo_outcome = pseudo_out,
                                  g_cum = g_denom,
                                  in_fluctuation_set = in_fluct,
-                                 bounds = c(eps, 1 - eps))
+                                 bounds = c(eps, 1 - eps),
+                                 sampling_weights = ow_risk)
         Q_star <- fluct$Q_star
         fluct_epsilon <- fluct$epsilon
       } # end if (n_train > 0)
@@ -1036,7 +1060,19 @@ NULL
       next
     }
 
-    psi_scaled <- mean(Q_star_0$.Q_star)
+    if (!is.null(nodes$sampling_weights)) {
+      dt_earliest <- dt[dt[[time_col]] == earliest_t, ]
+      sw_merge <- data.table::data.table(
+        .tmp_id = dt_earliest[[id_col]],
+        .sw = dt_earliest[[nodes$sampling_weights]]
+      )
+      data.table::setnames(sw_merge, ".tmp_id", id_col)
+      Q_star_0_sw <- merge(Q_star_0, sw_merge, by = id_col, all.x = TRUE)
+      Q_star_0_sw[is.na(.sw), .sw := 1]
+      psi_scaled <- stats::weighted.mean(Q_star_0_sw$.Q_star, Q_star_0_sw$.sw)
+    } else {
+      psi_scaled <- mean(Q_star_0$.Q_star)
+    }
     psi_hat <- if (!is_binary) psi_scaled * y_range_width + y_min else psi_scaled
     n_at_risk <- nrow(Q_star_0)
 

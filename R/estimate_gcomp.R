@@ -81,13 +81,28 @@ estimate_gcomp <- function(obj, regime = NULL, times = NULL,
            call. = FALSE)
   }
 
+  # Extract per-subject sampling weights (once, outside loop)
+  sw_dt <- NULL
+  if (!is.null(nodes$sampling_weights)) {
+    sw_dt <- unique(obj$data[, c(id_col, nodes$sampling_weights), with = FALSE])
+  }
+
   # Point estimates: mean(Q_hat(t)) for each time
   est_list <- vector("list", length(times))
   for (k in seq_along(times)) {
     tt <- times[k]
     q_t <- pred_dt[pred_dt$.target_time == tt, ]
     n_at_risk <- nrow(q_t)
-    psi_hat <- if (n_at_risk > 0) mean(q_t$.Q_hat) else NA_real_
+    psi_hat <- if (n_at_risk > 0) {
+      if (!is.null(sw_dt)) {
+        q_sw <- merge(q_t, sw_dt, by = id_col, all.x = TRUE)
+        sw_vals <- q_sw[[nodes$sampling_weights]]
+        sw_vals[is.na(sw_vals)] <- 1
+        stats::weighted.mean(q_t$.Q_hat, sw_vals)
+      } else {
+        mean(q_t$.Q_hat)
+      }
+    } else NA_real_
 
     est_list[[k]] <- data.table::data.table(
       time = tt,

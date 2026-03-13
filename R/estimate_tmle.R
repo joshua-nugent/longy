@@ -281,6 +281,13 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]
 
+        # Extract sampling weights for at-risk training subjects
+        ow <- NULL
+        if (!is.null(nodes$sampling_weights)) {
+          ow_risk <- dt_t[[nodes$sampling_weights]][at_risk]
+          ow <- ow_risk[has_Q]
+        }
+
         # TMLE Q-models always use quasibinomial: predictions feed into
         # qlogis(Q_bar) for fluctuation, so they MUST be in (0,1).
         # gaussian can produce predictions outside [0,1] that clip to
@@ -299,6 +306,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
           fit <- .safe_sl(Y = Y_train, X = X_train,
                           family = step_family,
                           learners = learners, cv_folds = cv_folds,
+                          obs_weights = ow,
                           sl_control = sl_control,
                           use_ffSL = worker_ffSL, context = ctx,
                           verbose = task_verbose)
@@ -320,7 +328,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
           Q_bar <- .predict_from_fit(fit, X_cf)
         } else {
-          Q_bar <- rep(mean(Y_train), n_at_risk)
+          marg <- if (!is.null(ow)) stats::weighted.mean(Y_train, ow) else mean(Y_train)
+          Q_bar <- rep(marg, n_at_risk)
           method <- "marginal"
         }
 
@@ -359,11 +368,18 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         # Pseudo-outcome: Q values for at-risk subjects
         pseudo_out <- dt_t$.longy_Q[at_risk]
 
+        # Sampling weights for at-risk subjects (for fluctuation weighting)
+        sw_at_risk <- NULL
+        if (!is.null(nodes$sampling_weights)) {
+          sw_at_risk <- dt_t[[nodes$sampling_weights]][at_risk]
+        }
+
         fluct <- .tmle_fluctuate(Q_bar = Q_bar,
                                  pseudo_outcome = pseudo_out,
                                  g_cum = g_denom,
                                  in_fluctuation_set = in_fluct,
-                                 bounds = c(eps, 1 - eps))
+                                 bounds = c(eps, 1 - eps),
+                                 sampling_weights = sw_at_risk)
         Q_star <- fluct$Q_star
         fluct_epsilon <- fluct$epsilon
       }
@@ -490,7 +506,20 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     }
 
     # Back-transform if continuous
-    psi_scaled <- mean(Q_star_0$.Q_star)
+    if (!is.null(nodes$sampling_weights)) {
+      # Weighted mean of Q*_0 using sampling weights
+      dt_earliest <- dt[dt[[time_col]] == earliest_t, ]
+      sw_merge <- data.table::data.table(
+        .tmp_id = dt_earliest[[id_col]],
+        .sw = dt_earliest[[nodes$sampling_weights]]
+      )
+      data.table::setnames(sw_merge, ".tmp_id", id_col)
+      Q_star_0_sw <- merge(Q_star_0, sw_merge, by = id_col, all.x = TRUE)
+      Q_star_0_sw[is.na(.sw), .sw := 1]
+      psi_scaled <- stats::weighted.mean(Q_star_0_sw$.Q_star, Q_star_0_sw$.sw)
+    } else {
+      psi_scaled <- mean(Q_star_0$.Q_star)
+    }
     psi_hat <- if (!is_binary) psi_scaled * y_range_width + y_min else psi_scaled
     n_at_risk <- nrow(Q_star_0)
 
@@ -682,7 +711,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 #'   epsilon (the fluctuation coefficient).
 #' @noRd
 .tmle_fluctuate <- function(Q_bar, pseudo_outcome, g_cum,
-                            in_fluctuation_set, bounds) {
+                            in_fluctuation_set, bounds,
+                            sampling_weights = NULL) {
   n <- length(Q_bar)
 
   # Subjects in fluctuation set with non-missing pseudo-outcome
@@ -707,7 +737,11 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
   offset_vals <- stats::qlogis(Q_bar[in_set])
   y_vals <- pseudo_outcome[in_set]
-  w_vals <- 1 / g_cum[in_set]
+  w_vals <- if (!is.null(sampling_weights)) {
+    sampling_weights[in_set] / g_cum[in_set]
+  } else {
+    1 / g_cum[in_set]
+  }
 
   # Bound weights to prevent Inf
   w_vals[!is.finite(w_vals)] <- max(w_vals[is.finite(w_vals)], na.rm = TRUE)
@@ -889,7 +923,14 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       # scaled outcome. For EIF, subjects with NA Y contribute 0.
       aug_dt[is.na(.Y_T), .indicator := FALSE]
 
-      aug_dt[, .H := ifelse(.indicator, 1 / (.g_cum * .g_r), 0)]
+      # Sampling weights multiply clever covariate (matches ltmle)
+      if (!is.null(nodes$sampling_weights)) {
+        aug_dt[, .sw := dt_s[[nodes$sampling_weights]]]
+        aug_dt[is.na(.sw), .sw := 1]
+      } else {
+        aug_dt[, .sw := 1]
+      }
+      aug_dt[, .H := ifelse(.indicator, .sw / (.g_cum * .g_r), 0)]
       aug_dt[, .aug := .H * (.Y_T - .Q_star)]
 
       # Add to augmentation vector
@@ -928,9 +969,16 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       aug_dt[is.na(.Q_star), .Q_star := 0]          # avoid NaN in arithmetic
       aug_dt[is.na(.Q_star_next), .Q_star_next := 0]
 
+      # Sampling weights multiply clever covariate (matches ltmle)
+      if (!is.null(nodes$sampling_weights)) {
+        aug_dt[, .sw := dt_s[[nodes$sampling_weights]]]
+        aug_dt[is.na(.sw), .sw := 1]
+      } else {
+        aug_dt[, .sw := 1]
+      }
       # At intermediate times (s < target_t), g_r does NOT enter the EIF.
       # Pseudo-outcomes are model predictions, not observed data.
-      aug_dt[, .H := ifelse(.indicator, 1 / .g_cum, 0)]
+      aug_dt[, .H := ifelse(.indicator, .sw / .g_cum, 0)]
       aug_dt[, .aug := .H * (.Q_star_next - .Q_star)]
 
       match_idx <- match(aug_dt[[id_col]], all_ids)
@@ -940,9 +988,18 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     }
   }
 
-  # D_i = (Q*_0 - psi) + augmentation
+  # D_i = sw_i * (Q*_0 - psi) + augmentation
+  # Sampling weights multiply the initial term (matches ltmle's FinalizeIC)
   Q_star_0_vals <- subj_dt$.Q_star_0
-  initial_term <- Q_star_0_vals - psi_hat
+  if (!is.null(nodes$sampling_weights)) {
+    sw_dt <- unique(dt[, c(id_col, nodes$sampling_weights), with = FALSE])
+    subj_dt <- merge(subj_dt, sw_dt, by = id_col, all.x = TRUE)
+    sw_vals <- subj_dt[[nodes$sampling_weights]]
+    sw_vals[is.na(sw_vals)] <- 1
+    initial_term <- sw_vals * (Q_star_0_vals - psi_hat)
+  } else {
+    initial_term <- Q_star_0_vals - psi_hat
+  }
   D_i <- initial_term + augmentation
 
   # Attach decomposition as attributes for diagnostics
