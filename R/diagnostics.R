@@ -358,6 +358,92 @@ sl_diagnostics <- function(obj, regime = NULL, model = "all") {
   data.table::rbindlist(rows)
 }
 
+#' Learner Prediction Clipping Diagnostics
+#'
+#' Returns a summary of prediction clipping that occurred during model fitting.
+#' When SuperLearner uses learner adaptations (e.g. gaussian-family wrappers for
+#' quasibinomial outcomes), predictions may be clipped to \code{[0.005, 0.995]}.
+#' This function reports how often clipping occurred, by model type and time point.
+#'
+#' @param obj A \code{longy_data} object with model fits.
+#' @param regime Character. Regime name. Defaults to the first available.
+#' @param model Character. Which model(s) to include: \code{"all"} (default),
+#'   \code{"treatment"}, \code{"censoring"}, \code{"observation"}, or
+#'   \code{"outcome"}.
+#'
+#' @return A data.table with columns: \code{model}, \code{submodel},
+#'   \code{time}, \code{learner}, \code{n_clipped}, \code{n_total},
+#'   \code{pct_clipped}, \code{bounds}. Returns an empty data.table
+#'   (invisibly) if no clipping was recorded.
+#' @export
+clip_diagnostics <- function(obj, regime = NULL, model = "all") {
+  obj <- .as_longy_data(obj)
+
+  model <- match.arg(model, c("all", "treatment", "censoring",
+                               "observation", "outcome"))
+  include <- if (model == "all") {
+    c("treatment", "censoring", "observation", "outcome")
+  } else {
+    model
+  }
+
+  # Resolve regime: default to first available
+  if (is.null(regime)) {
+    available <- names(obj$fits$treatment)
+    if (length(available) == 0) available <- names(obj$fits$outcome)
+    if (length(available) == 0) available <- names(obj$fits$observation)
+    regime <- available[1]
+  }
+
+  rows <- list()
+
+  .extract_clip <- function(sl_info, model_name, submodel = NA_character_) {
+    if (is.null(sl_info)) return()
+    for (entry in sl_info) {
+      if (is.null(entry$clip_log)) next
+      for (cl in entry$clip_log) {
+        rows[[length(rows) + 1L]] <<- list(
+          model = model_name,
+          submodel = submodel,
+          time = entry$time,
+          learner = cl$learner,
+          n_clipped = cl$n_clipped,
+          n_total = cl$n_total,
+          pct_clipped = round(100 * cl$n_clipped / cl$n_total, 1),
+          bounds = paste0("[", cl$bounds[1], ", ", cl$bounds[2], "]")
+        )
+      }
+    }
+  }
+
+  if (!is.na(regime) && !is.null(regime)) {
+    if ("treatment" %in% include)
+      .extract_clip(obj$fits$treatment[[regime]]$sl_info, "treatment")
+
+    if ("censoring" %in% include) {
+      cens_fits <- obj$fits$censoring[[regime]]
+      for (cvar in names(cens_fits))
+        .extract_clip(cens_fits[[cvar]]$sl_info, "censoring", cvar)
+    }
+
+    if ("observation" %in% include)
+      .extract_clip(obj$fits$observation[[regime]]$sl_info, "observation")
+
+    if ("outcome" %in% include)
+      .extract_clip(obj$fits$outcome[[regime]]$sl_info, "outcome")
+  }
+
+  if (length(rows) == 0) {
+    return(invisible(data.table::data.table(
+      model = character(), submodel = character(), time = integer(),
+      learner = character(), n_clipped = integer(), n_total = integer(),
+      pct_clipped = numeric(), bounds = character()
+    )))
+  }
+
+  data.table::rbindlist(rows)
+}
+
 #' Plot SuperLearner Diagnostics
 #'
 #' Visualizes SuperLearner fit information across time points and nuisance

@@ -126,7 +126,8 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
 
     n_risk <- sum(still_in)
     if (n_risk == 0) {
-      return(list(result = NULL, sl_info = NULL, n_marginal = 0L))
+      return(list(result = NULL, sl_info = NULL, n_marginal = 0L,
+                  marginal_reason = NULL))
     }
 
     lag_covs <- .get_lag_covariates(nodes, i)
@@ -141,6 +142,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     }
 
     task_n_marginal <- 0L
+    task_marginal_reason <- NULL
     n_minority <- min(sum(Y == 1), sum(Y == 0))
     minority_rate <- min(mean(Y), 1 - mean(Y))
     rare_events <- n_minority < min_events && minority_rate < 0.01
@@ -161,31 +163,22 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       method <- fit$method
       sl_risk <- fit$sl_risk
       sl_coef <- fit$sl_coef
+      sl_clip_log <- fit$clip_log
     } else {
       marg <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
       p_r <- .bound(rep(marg, n_risk), bounds[1], bounds[2])
       method <- "marginal"
       sl_risk <- NULL
       sl_coef <- NULL
+      sl_clip_log <- NULL
       task_n_marginal <- 1L
+      # Record reason for marginal fallback (summarized after loop)
       if (length(unique(Y)) <= 1) {
-        if (mean(Y) == 1) {
-          warning(sprintf(
-            "g_R at time %d: all subjects observed (obs_rate=1.000). Using marginal.",
-            tt), call. = FALSE)
-        } else {
-          warning(sprintf(
-            "g_R at time %d: no subjects observed (obs_rate=0.000). Using marginal.",
-            tt), call. = FALSE)
-        }
+        task_marginal_reason <- "constant"
       } else if (rare_events) {
-        warning(sprintf(
-          "g_R at time %d: only %d minority-class events (rate=%.3f, min_events=%d). Using marginal.",
-          tt, n_minority, minority_rate, min_events), call. = FALSE)
+        task_marginal_reason <- "minority-class"
       } else {
-        warning(sprintf(
-          "g_R at time %d: only %d at risk (min_obs=%d). Using marginal (=%.3f). Consider reducing min_obs.",
-          tt, n_risk, min_obs, marg), call. = FALSE)
+        task_marginal_reason <- "low_n"
       }
     }
 
@@ -202,7 +195,8 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     )
 
     sl_info_entry <- list(time = tt, method = method,
-                          sl_risk = sl_risk, sl_coef = sl_coef)
+                          sl_risk = sl_risk, sl_coef = sl_coef,
+                          clip_log = sl_clip_log)
 
     if (!parallel && verbose) {
       .vmsg("  g_R time %d: n_risk=%d, marg=%.3f, method=%s",
@@ -211,7 +205,8 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     }
 
     list(result = result_dt, sl_info = sl_info_entry,
-         n_marginal = task_n_marginal)
+         n_marginal = task_n_marginal,
+         marginal_reason = task_marginal_reason)
   }
 
   # Strip obj from closure to avoid serializing the full longy_data object
@@ -235,6 +230,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
   results <- lapply(task_results, `[[`, "result")
   sl_info <- lapply(task_results, `[[`, "sl_info")
   n_marginal <- sum(vapply(task_results, function(x) x$n_marginal, integer(1)))
+  marginal_reasons <- unlist(lapply(task_results, `[[`, "marginal_reason"))
 
   non_null <- !vapply(results, is.null, logical(1))
   n_fitted <- sum(non_null)
@@ -243,10 +239,14 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
             call. = FALSE)
     results <- data.table::data.table()
   } else {
-    if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
+    # Single summary warning for all marginal fallbacks
+    if (n_marginal > 0) {
+      reason_tbl <- table(marginal_reasons)
+      reason_str <- paste(sprintf("%s(%d)", names(reason_tbl), reason_tbl),
+                          collapse = ", ")
       warning(sprintf(
-        "g_R: marginal fallback used at %d/%d time points. Model may be unreliable.",
-        n_marginal, n_fitted), call. = FALSE)
+        "g_R: marginal fallback at %d/%d time points [%s]. Run sl_diagnostics() for details.",
+        n_marginal, n_fitted, reason_str), call. = FALSE)
     }
     results <- data.table::rbindlist(results[non_null])
     data.table::setnames(results, ".id", nodes$id)

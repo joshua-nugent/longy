@@ -306,39 +306,31 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     w[, .final_weight := pmin(.final_weight, q_val)]
   }
 
-  # --- ESS and extreme weight diagnostics ---
+  # --- ESS and extreme weight diagnostics (single consolidated warning) ---
   finite_w <- w$.final_weight[is.finite(w$.final_weight)]
   if (length(finite_w) > 0) {
     n_obs <- length(finite_w)
     ess_total <- .ess(finite_w)
     ess_pct <- 100 * ess_total / n_obs
-    if (ess_pct < 10) {
-      warning(sprintf(
-        "ESS=%.0f is <10%% of n=%d. Weights are highly variable. Consider truncation or truncation_quantile.",
-        ess_total, n_obs), call. = FALSE)
-    } else if (ess_pct < 25) {
-      warning(sprintf(
-        "ESS=%.0f is %.0f%% of n=%d. Weights are moderately variable.",
-        ess_total, ess_pct, n_obs), call. = FALSE)
-    }
-
     max_w <- max(finite_w)
     mean_w <- mean(finite_w)
-    if (mean_w > 0 && max_w > 20 * mean_w) {
-      warning(sprintf(
-        "Maximum weight (%.1f) is %.0fx the mean. Consider truncation_quantile to cap.",
-        max_w, max_w / mean_w), call. = FALSE)
-    }
 
     # Per-time-point ESS check
     time_ess <- w[is.finite(.final_weight),
                   list(.ess = .ess(.final_weight), .n = .N), by = ".time"]
     time_ess[, .ess_pct := 100 * .ess / .n]
     low_ess_times <- time_ess[.ess_pct < 15, .time]
-    if (length(low_ess_times) > 0) {
-      warning(sprintf(
-        "Low ESS (<15%% of n) at time point(s): %s.",
-        paste(low_ess_times, collapse = ", ")), call. = FALSE)
+
+    # Build single warning from all diagnostics
+    if (ess_pct < 25) {
+      parts <- sprintf("ESS=%.0f (%.0f%% of n=%d)", ess_total, ess_pct, n_obs)
+      if (mean_w > 0 && max_w > 20 * mean_w)
+        parts <- c(parts, sprintf("max weight %.0fx mean", max_w / mean_w))
+      if (length(low_ess_times) > 0)
+        parts <- c(parts, sprintf("worst at time(s) %s",
+                                  paste(utils::head(low_ess_times, 3), collapse = ", ")))
+      warning(paste0(paste(parts, collapse = "; "),
+                     ". Consider truncation_quantile."), call. = FALSE)
     }
   }
 

@@ -399,6 +399,9 @@ as_longy_data <- function(obj) {
     # When Y is continuous [0,1] (quasibinomial), some learners crash or
     # misbehave. Swap them for gaussian-family wrappers that truncate
     # predictions to the bounds after fitting.
+    # Clipping stats are accumulated in clip_log (accessible via sl_diagnostics)
+    clip_log <- list()
+
     if (is_quasi) {
       q_lo <- 0.005
       q_hi <- 0.995
@@ -410,8 +413,9 @@ as_longy_data <- function(obj) {
                                            obsWeights = obsWeights, id = id, ...)
           n_clip <- sum(out$pred < q_lo | out$pred > q_hi)
           if (n_clip > 0) {
-            message(sprintf("SL.xgboost.reg: %d/%d predictions clipped to [%s, %s].",
-                            n_clip, length(out$pred), q_lo, q_hi))
+            clip_log[[length(clip_log) + 1L]] <<- list(
+              learner = "SL.xgboost.reg", n_clipped = n_clip,
+              n_total = length(out$pred), bounds = c(q_lo, q_hi))
           }
           out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
           out
@@ -429,8 +433,9 @@ as_longy_data <- function(obj) {
                                             obsWeights = obsWeights, id = id, ...)
             n_clip <- sum(out$pred < q_lo | out$pred > q_hi)
             if (n_clip > 0) {
-              message(sprintf("SL.glmnet.reg: %d/%d predictions clipped to [%s, %s].",
-                              n_clip, length(out$pred), q_lo, q_hi))
+              clip_log[[length(clip_log) + 1L]] <<- list(
+                learner = "SL.glmnet.reg", n_clipped = n_clip,
+                n_total = length(out$pred), bounds = c(q_lo, q_hi))
             }
             out$pred <- pmin(pmax(out$pred, q_lo), q_hi)
             out
@@ -474,8 +479,9 @@ as_longy_data <- function(obj) {
         if (!is.null(clip_bounds)) {
           n_clip <- sum(pred < clip_bounds[1] | pred > clip_bounds[2])
           if (n_clip > 0) {
-            message(sprintf("SL.ranger.longy: %d/%d predictions clipped to [%s, %s].",
-                            n_clip, length(pred), clip_bounds[1], clip_bounds[2]))
+            clip_log[[length(clip_log) + 1L]] <<- list(
+              learner = "SL.ranger.longy", n_clipped = n_clip,
+              n_total = length(pred), bounds = c(clip_bounds[1], clip_bounds[2]))
           }
           pred <- pmin(pmax(pred, clip_bounds[1]), clip_bounds[2])
         }
@@ -571,9 +577,8 @@ as_longy_data <- function(obj) {
           if (n_failed >= n_total * 0.5) {
             warning(paste0(msg, "\n    SL is relying heavily on survivors."),
                     call. = FALSE)
-          } else {
-            message(msg)
           }
+          # <50% failures: SL handles gracefully, info available via sl_diagnostics()
         }
 
         list(
@@ -581,7 +586,8 @@ as_longy_data <- function(obj) {
           fit = sl_fit,
           method = "SuperLearner",
           sl_risk = sl_fit$cvRisk,
-          sl_coef = sl_fit$coef
+          sl_coef = sl_fit$coef,
+          clip_log = if (length(clip_log) > 0) clip_log else NULL
         )
       },
       warning = function(w) {

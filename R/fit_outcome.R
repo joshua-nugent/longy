@@ -270,6 +270,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       method <- "none"
       sl_risk <- NULL
       sl_coef <- NULL
+      sl_clip_log <- NULL
       n_train <- 0L
       n_clipped_lower <- 0L
       n_clipped_upper <- 0L
@@ -329,6 +330,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
         method <- fit$method
         sl_risk <- fit$sl_risk
         sl_coef <- fit$sl_coef
+        sl_clip_log <- fit$clip_log
 
         X_cf <- X_risk
         if (a_col %in% all_covs) {
@@ -384,6 +386,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                                   method = method,
                                   family = step_family$family,
                                   sl_risk = sl_risk, sl_coef = sl_coef,
+                                  clip_log = sl_clip_log,
                                   n_risk = n_at_risk, n_train = n_train,
                                   n_clipped_lower = n_clipped_lower,
                                   n_clipped_upper = n_clipped_upper,

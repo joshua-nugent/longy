@@ -190,10 +190,10 @@ test_that("fit_observation constant R=1 warns appropriately", {
   obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
 
-  # Should warn about constant observation with distinct message for all-observed
+  # Should warn about marginal fallback (constant outcome summarized as "constant")
   expect_warning(
     obj <- fit_observation(obj, regime = "always", verbose = FALSE),
-    "all subjects observed"
+    "marginal fallback"
   )
 
   # All predictions should use marginal method

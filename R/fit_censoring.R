@@ -135,7 +135,8 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
     n_risk <- sum(still_in)
     if (n_risk == 0) {
-      return(list(cvar = cvar, result = NULL, sl_info = NULL, n_marginal = 0L))
+      return(list(cvar = cvar, result = NULL, sl_info = NULL, n_marginal = 0L,
+                  marginal_reason = NULL))
     }
 
     lag_covs <- .get_lag_covariates(nodes, i)
@@ -151,6 +152,7 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     }
 
     task_n_marginal <- 0L
+    task_marginal_reason <- NULL
     n_minority <- min(sum(Y == 1), sum(Y == 0))
     minority_rate <- min(mean(Y), 1 - mean(Y))
     rare_events <- n_minority < min_events && minority_rate < 0.01
@@ -172,32 +174,22 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       method <- fit$method
       sl_risk <- fit$sl_risk
       sl_coef <- fit$sl_coef
+      sl_clip_log <- fit$clip_log
     } else {
       marg <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
       p_c <- .bound(rep(marg, n_risk), bounds[1], bounds[2])
       method <- "marginal"
       sl_risk <- NULL
       sl_coef <- NULL
+      sl_clip_log <- NULL
       task_n_marginal <- 1L
+      # Record reason for marginal fallback (summarized after loop)
       if (length(unique(Y)) <= 1) {
-        if (mean(Y) == 1) {
-          warning(sprintf(
-            "g_C(%s) at time %d: no censoring events (all uncensored). Using marginal.",
-            cvar, tt), call. = FALSE)
-        } else {
-          warning(sprintf(
-            "g_C(%s) at time %d: all subjects censored. Using marginal.",
-            cvar, tt), call. = FALSE)
-        }
+        task_marginal_reason <- "constant"
       } else if (rare_events) {
-        warning(sprintf(
-          "g_C(%s) at time %d: only %d minority-class events (rate=%.3f, min_events=%d). Using marginal.",
-          cvar, tt, n_minority, minority_rate, min_events), call. = FALSE)
+        task_marginal_reason <- "minority-class"
       } else {
-        cens_rate <- 1 - mean(Y)
-        warning(sprintf(
-          "g_C(%s) at time %d: only %d at risk, censoring_rate=%.3f. Using marginal.",
-          cvar, tt, n_risk, cens_rate), call. = FALSE)
+        task_marginal_reason <- "low_n"
       }
     }
 
@@ -214,7 +206,8 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     )
 
     sl_info_entry <- list(time = tt, method = method,
-                          sl_risk = sl_risk, sl_coef = sl_coef)
+                          sl_risk = sl_risk, sl_coef = sl_coef,
+                          clip_log = sl_clip_log)
 
     if (!parallel && verbose) {
       .vmsg("    g_C(%s) time %d: n_risk=%d, marg_uncens=%.3f, method=%s",
@@ -224,7 +217,8 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     }
 
     list(cvar = cvar, result = result_dt, sl_info = sl_info_entry,
-         n_marginal = task_n_marginal)
+         n_marginal = task_n_marginal,
+         marginal_reason = task_marginal_reason)
   }
 
   # Strip obj from closure to avoid serializing the full longy_data object
@@ -251,6 +245,7 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     results <- lapply(cvar_tasks, `[[`, "result")
     sl_info <- lapply(cvar_tasks, `[[`, "sl_info")
     n_marginal <- sum(vapply(cvar_tasks, function(x) x$n_marginal, integer(1)))
+    marginal_reasons <- unlist(lapply(cvar_tasks, `[[`, "marginal_reason"))
 
     non_null <- !vapply(results, is.null, logical(1))
     n_fitted <- sum(non_null)
@@ -259,10 +254,13 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
         "No observations at risk for any time point in censoring (g_C) model for '%s'.",
         cvar), call. = FALSE)
       next
-    } else if (n_marginal > 0 && n_marginal >= n_fitted * 0.5) {
+    } else if (n_marginal > 0) {
+      reason_tbl <- table(marginal_reasons)
+      reason_str <- paste(sprintf("%s(%d)", names(reason_tbl), reason_tbl),
+                          collapse = ", ")
       warning(sprintf(
-        "g_C(%s): marginal fallback used at %d/%d time points. Model may be unreliable.",
-        cvar, n_marginal, n_fitted), call. = FALSE)
+        "g_C(%s): marginal fallback at %d/%d time points [%s]. Run sl_diagnostics() for details.",
+        cvar, n_marginal, n_fitted, reason_str), call. = FALSE)
     }
     results <- data.table::rbindlist(results[non_null])
     data.table::setnames(results, ".id", nodes$id)

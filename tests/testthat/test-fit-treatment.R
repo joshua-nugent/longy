@@ -170,7 +170,7 @@ test_that("fit_treatment uses marginal for rare events with large dataset", {
   expect_warning(
     obj <- fit_treatment(obj, regime = "always", min_events = 20L,
                          verbose = FALSE),
-    "minority-class events"
+    "minority-class"
   )
   t0 <- obj$fits$treatment[["always"]]$predictions[obj$fits$treatment[["always"]]$predictions$.time == 0, ]
   expect_equal(unique(t0$.method), "marginal")

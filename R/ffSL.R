@@ -20,7 +20,7 @@
                   control = list(), cvControl = list(), obsWeights = NULL,
                   env = parent.frame()) {
 
-  if (verbose) message("Running Future Factorial Super Learner")
+  if (verbose) .vmsg("Running Future Factorial Super Learner")
 
   time_start <- proc.time()
 
@@ -59,7 +59,7 @@
   call <- match.call(expand.dots = TRUE)
 
   if (!inherits(X, 'data.frame') && verbose) {
-    message('X is not a data frame. Check the algorithms in SL.library to make sure they are compatible with non data.frame inputs')
+    .vmsg('X is not a data frame. Check the algorithms in SL.library to make sure they are compatible with non data.frame inputs')
   }
 
   varNames <- colnames(X)
@@ -102,7 +102,6 @@
   if (is.function(family))
     family <- family()
   if (is.null(family$family)) {
-    print(family)
     stop("'family' not recognized")
   }
 
@@ -181,11 +180,7 @@
         newX = tempValid[, whichScreen, drop = FALSE],
         family = family, id = tempId, obsWeights = tempObsWeights
       )),
-      error = function(e) {
-        message(sprintf("ffSL: %s failed in CV fold %d: %s",
-                        libraryNames[alg_idx], fold_idx, e$message))
-        NULL
-      }
+      error = function(e) NULL
     )
 
     if (is.null(testAlg)) {
@@ -194,7 +189,7 @@
       pred <- testAlg$pred
     }
 
-    if (verbose) message(paste("CV fold", fold_idx, "-", libraryNames[alg_idx]))
+    if (verbose) .vmsg("CV fold %d - %s", fold_idx, libraryNames[alg_idx])
 
     list(fold_idx = fold_idx, alg_idx = alg_idx, valid = valid, pred = pred)
   }
@@ -296,11 +291,7 @@
           newX = newX[, whichScreen[lib$rowScreen[index], ], drop = FALSE],
           family = family, id = id, obsWeights = obsWeights
         )),
-        error = function(e) {
-          message(sprintf("ffSL: %s failed on full data: %s",
-                          libraryNames[index], e$message))
-          NULL
-        }
+        error = function(e) NULL
       )
       if (is.null(testAlg)) {
         out$pred <- rep.int(NA, times = nrow(newX))
@@ -311,7 +302,7 @@
         }
       }
       if (verbose) {
-        message(paste("full", libraryNames[index]))
+        .vmsg("full %s", libraryNames[index])
       }
       invisible(out)
     }
