@@ -27,7 +27,6 @@
 #' @param min_events Integer. Minimum minority-class events required to fit a
 #'   model. When the minority class count is below this AND the minority rate
 #'   is below 0.01, marginal fallback is used. Default 20.
-#' @param bounds Numeric(2). Prediction bounds.
 #' @param times Numeric vector. If provided, only fit through `max(times)`.
 #' @param use_ffSL Logical. If TRUE, use future-factorial SuperLearner.
 #'   Default FALSE. Forced to FALSE inside parallel workers.
@@ -42,7 +41,6 @@
 fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                             sl_control = list(), adaptive_cv = TRUE,
                             min_obs = 50L, min_events = 20L,
-                            bounds = c(0.005, 0.995),
                             times = NULL, use_ffSL = FALSE,
                             parallel = FALSE,
                             verbose = TRUE, refit = FALSE) {
@@ -80,7 +78,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
                                 learners = learners, sl_control = sl_control,
                                 adaptive_cv = adaptive_cv, min_obs = min_obs,
                                 min_events = min_events,
-                                bounds = bounds, times = times, sl_fn = sl_fn_cf,
+                                times = times, sl_fn = sl_fn_cf,
                                 verbose = verbose)
     fit_result <- obj$fits$observation[[regime[1]]]
   } else {
@@ -159,14 +157,14 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
                       sl_control = sl_control,
                       use_ffSL = worker_ffSL, context = ctx,
                       verbose = !parallel && verbose)
-      p_r <- .bound(fit$predictions, bounds[1], bounds[2])
+      p_r <- fit$predictions
       method <- fit$method
       sl_risk <- fit$sl_risk
       sl_coef <- fit$sl_coef
       sl_clip_log <- fit$clip_log
     } else {
       marg <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
-      p_r <- .bound(rep(marg, n_risk), bounds[1], bounds[2])
+      p_r <- rep(marg, n_risk)
       method <- "marginal"
       sl_risk <- NULL
       sl_coef <- NULL
@@ -214,7 +212,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     one_timepoint <- .clean_closure(one_timepoint, c(
       "time_vals", "dt", "nodes", "parallel",
       "learners", "adaptive_cv", "worker_ffSL", "verbose",
-      "bounds", "min_obs", "min_events", "covariates", "sl_control"
+      "min_obs", "min_events", "covariates", "sl_control"
     ))
   }
 
@@ -258,7 +256,6 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     predictions = results,
     covariates = covariates,
     learners = learners,
-    bounds = bounds,
     use_ffSL = use_ffSL,
     sl_control = sl_control,
     adaptive_cv = adaptive_cv,

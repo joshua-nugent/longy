@@ -155,13 +155,23 @@ Results stored as `obj$results$<regime>_<estimator>`:
 
 ## Weight computation (critical logic)
 
+Predicted probabilities are stored unbounded by `fit_treatment`, `fit_censoring`,
+and `fit_observation`. Bounding happens in `compute_weights()`, which bounds the
+**product** of raw probabilities (g_a * g_c * g_r) before computing weights.
+The bounding adjustment is absorbed into the AC (absorbing) component so that
+observation (intermittent) remains point-in-time.
+
 ```
-sw_a(t) = marginal_a / p_a(t)          # treatment
-sw_c(t) = marginal_c / p_c(t)          # censoring (per cause)
-sw_ac(t) = sw_a(t) * sw_c(t)           # combined point-in-time
-csw_ac(t) = cumprod(sw_ac) over time   # CUMULATED (absorbing)
-sw_r(t) = marginal_r / p_r(t)          # observation (NOT cumulated)
-final(t) = csw_ac(t) * sw_r(t)         # total weight
+g_a(t)      = P(A=d(t)|past)           # from fit_treatment (raw, unbounded)
+g_c(t)      = P(C=0|past)              # from fit_censoring (raw, unbounded)
+g_r(t)      = P(R=1|past)              # from fit_observation (raw, unbounded)
+g_product(t) = g_a * g_c * g_r         # combined point-in-time probability
+g_bounded(t) = bound(g_product, bounds) # bounded to prevent extreme weights
+g_ac(t)     = g_bounded(t) / g_r(t)    # bounded AC component (absorbs adjustment)
+sw_ac(t)    = (marg_a * marg_c) / g_ac  # stabilized AC weight
+csw_ac(t)   = cumprod(sw_ac) over time  # CUMULATED (absorbing)
+sw_r(t)     = marg_r / g_r(t)          # observation (NOT cumulated)
+final(t)    = csw_ac(t) * sw_r(t)      # total weight
 ```
 
 ## TMLE algorithm (critical logic)

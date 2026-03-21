@@ -26,7 +26,6 @@
 #' @param min_events Integer. Minimum minority-class events required to fit a
 #'   model. When the minority class count is below this AND the minority rate
 #'   is below 0.01, marginal fallback is used. Default 20.
-#' @param bounds Numeric vector of length 2. Bounds for predicted probabilities.
 #' @param times Numeric vector. If provided, only fit models through
 #'   `max(times)`. Saves computation when estimation is only needed at
 #'   early time points.
@@ -50,7 +49,6 @@
 fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                           sl_control = list(), adaptive_cv = TRUE,
                           min_obs = 50L, min_events = 20L,
-                          bounds = c(0.005, 0.995),
                           times = NULL, use_ffSL = FALSE,
                           parallel = FALSE,
                           verbose = TRUE, refit = FALSE,
@@ -86,7 +84,7 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                               learners = learners, sl_control = sl_control,
                               adaptive_cv = adaptive_cv, min_obs = min_obs,
                               min_events = min_events,
-                              bounds = bounds, times = times, sl_fn = sl_fn_cf,
+                              times = times, sl_fn = sl_fn_cf,
                               verbose = verbose, risk_set = risk_set)
     fit_result <- obj$fits$treatment[[fit_rname]]
   } else {
@@ -179,14 +177,14 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                       sl_control = sl_control,
                       use_ffSL = worker_ffSL, context = ctx,
                       verbose = !parallel && verbose)
-      p_a <- .bound(fit$predictions, bounds[1], bounds[2])
+      p_a <- fit$predictions
       method <- fit$method
       sl_risk <- fit$sl_risk
       sl_coef <- fit$sl_coef
       sl_clip_log <- fit$clip_log
     } else {
       marg <- if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y)
-      p_a <- .bound(rep(marg, n_risk), bounds[1], bounds[2])
+      p_a <- rep(marg, n_risk)
       method <- "marginal"
       sl_risk <- NULL
       sl_coef <- NULL
@@ -242,7 +240,7 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     one_timepoint <- .clean_closure(one_timepoint, c(
       "time_vals", "dt", "nodes", "risk_set", "parallel",
       "learners", "adaptive_cv", "worker_ffSL", "verbose",
-      "bounds", "min_obs", "min_events", "fit_rname", "covariates",
+      "min_obs", "min_events", "fit_rname", "covariates",
       "sl_control"
     ))
   }
@@ -293,7 +291,6 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     predictions = results,
     covariates = covariates,
     learners = learners,
-    bounds = bounds,
     use_ffSL = use_ffSL,
     sl_control = sl_control,
     adaptive_cv = adaptive_cv,

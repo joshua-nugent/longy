@@ -74,7 +74,11 @@
 #' @param min_events Integer. Minimum minority-class events required to fit a
 #'   model. When the minority class count is below this AND the minority rate
 #'   is below 0.01, marginal fallback is used. Default 20.
-#' @param bounds Numeric(2). Prediction probability bounds.
+#' @param bounds Numeric(2). Bounds for the point-in-time product of predicted
+#'   probabilities (g_a * g_c * g_r) in \code{compute_weights()}. Prevents
+#'   extreme IPW weights from near-positivity violations. Default
+#'   \code{c(0.005, 0.995)}. Set to NULL to skip bounding. For TMLE, use
+#'   \code{g_bounds} instead.
 #' @param risk_set_treatment Character. Which subjects form the risk set for
 #'   treatment model fitting. \code{"all"} (default) uses all uncensored
 #'   subjects (fit once, share across regimes). \code{"followers"} restricts to
@@ -345,7 +349,6 @@ longy <- function(data,
                            learners = learners_treatment, sl_control = sl_control,
                            adaptive_cv = adaptive_cv,
                            min_obs = min_obs, min_events = min_events,
-                           bounds = bounds,
                            times = times, use_ffSL = use_ffSL,
                            parallel = parallel,
                            verbose = verbose, risk_set = risk_set_treatment)
@@ -356,7 +359,6 @@ longy <- function(data,
                            learners = learners_censoring, sl_control = sl_control,
                            adaptive_cv = adaptive_cv,
                            min_obs = min_obs, min_events = min_events,
-                           bounds = bounds,
                            times = times, use_ffSL = use_ffSL,
                            parallel = parallel,
                            verbose = verbose)
@@ -367,7 +369,6 @@ longy <- function(data,
                              learners = learners_observation, sl_control = sl_control,
                              adaptive_cv = adaptive_cv,
                              min_obs = min_obs, min_events = min_events,
-                             bounds = bounds,
                              times = times, use_ffSL = use_ffSL,
                              parallel = parallel,
                              verbose = verbose)
@@ -380,6 +381,7 @@ longy <- function(data,
                         cur_step + 1L, n_steps)
     obj <- compute_weights(obj, regime = regime_names,
                              stabilized = stabilized,
+                             bounds = bounds,
                              truncation = truncation,
                              truncation_quantile = truncation_quantile)
 
@@ -737,9 +739,8 @@ add_regime <- function(obj, name, static = NULL, shifted = NULL,
         covs <- if (!is.null(donor_trt)) donor_trt$covariates else covariates
         lrn <- if (!is.null(donor_trt)) donor_trt$learners else
                  if (learners_provided) lrn_treatment else NULL
-        bnd <- if (!is.null(donor_trt)) donor_trt$bounds else c(0.005, 0.995)
         obj <- fit_treatment(obj, regime = name, covariates = covs,
-                             learners = lrn, bounds = bnd,
+                             learners = lrn,
                              sl_control = if (!is.null(donor_trt)) donor_trt$sl_control else list(),
                              adaptive_cv = if (!is.null(donor_trt)) donor_trt$adaptive_cv else TRUE,
                              use_ffSL = if (!is.null(donor_trt)) isTRUE(donor_trt$use_ffSL) else FALSE,

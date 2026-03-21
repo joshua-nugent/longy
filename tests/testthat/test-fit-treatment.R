@@ -12,7 +12,7 @@ test_that("fit_treatment runs without error on basic data", {
   expect_true(nrow(obj$fits$treatment[["always"]]$predictions) > 0)
 })
 
-test_that("fit_treatment predictions are bounded", {
+test_that("fit_treatment stores raw (unbounded) predictions", {
   d <- simulate_test_data(n = 80, K = 4)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -20,12 +20,12 @@ test_that("fit_treatment predictions are bounded", {
                     verbose = FALSE)
   obj <- define_regime(obj, "always", static = 1L)
 
-  bounds <- c(0.01, 0.99)
-  obj <- fit_treatment(obj, regime = "always", bounds = bounds, verbose = FALSE)
+  obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
 
   preds <- obj$fits$treatment[["always"]]$predictions$.p_a
-  expect_true(all(preds >= bounds[1]))
-  expect_true(all(preds <= bounds[2]))
+  # Predictions are raw (not bounded at fit time); bounding happens in compute_weights
+  expect_true(all(preds >= 0))
+  expect_true(all(preds <= 1))
 })
 
 test_that("fit_treatment uses correct risk set", {

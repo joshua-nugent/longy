@@ -55,7 +55,7 @@ test_that("fit_observation skips when observation=NULL", {
   expect_null(obj$fits$observation[["always"]])
 })
 
-test_that("fit_observation predictions are bounded", {
+test_that("fit_observation stores raw (unbounded) predictions", {
   d <- simulate_test_data(n = 80, K = 4)
   obj <- longy_data(d, id = "id", time = "time", outcome = "Y",
                     treatment = "A", censoring = "C", observation = "R",
@@ -65,12 +65,12 @@ test_that("fit_observation predictions are bounded", {
   obj <- fit_treatment(obj, regime = "always", verbose = FALSE)
   obj <- fit_censoring(obj, regime = "always", verbose = FALSE)
 
-  bounds <- c(0.01, 0.99)
-  obj <- fit_observation(obj, regime = "always", bounds = bounds, verbose = FALSE)
+  obj <- fit_observation(obj, regime = "always", verbose = FALSE)
 
   preds <- obj$fits$observation[["always"]]$predictions$.p_r
-  expect_true(all(preds >= bounds[1]))
-  expect_true(all(preds <= bounds[2]))
+  # Predictions are raw (not bounded at fit time); bounding happens in compute_weights
+  expect_true(all(preds >= 0))
+  expect_true(all(preds <= 1))
 })
 
 test_that("fit_observation works with SuperLearner library", {

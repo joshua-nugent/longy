@@ -25,7 +25,6 @@ NULL
 .cf_fit_treatment <- function(obj, regime, covariates = NULL, learners = NULL,
                                sl_control = list(), adaptive_cv = TRUE,
                                min_obs = 50L, min_events = 20L,
-                               bounds = c(0.005, 0.995),
                                times = NULL, sl_fn = "SuperLearner",
                                verbose = TRUE, risk_set = "all") {
   reg <- obj$regimes[[regime]]
@@ -136,7 +135,7 @@ NULL
         preds_val <- rep(marg_train, length(val_idx))
       }
 
-      p_a[val_idx] <- .bound(preds_val, bounds[1], bounds[2])
+      p_a[val_idx] <- preds_val
     }
 
     results[[i]] <- data.table::data.table(
@@ -174,7 +173,6 @@ NULL
     predictions = results,
     covariates = covariates,
     learners = learners,
-    bounds = bounds,
     use_ffSL = identical(sl_fn, "ffSL"),
     sl_info = list(),
     crossfit = TRUE,
@@ -195,7 +193,6 @@ NULL
 .cf_fit_censoring <- function(obj, regime, covariates = NULL, learners = NULL,
                                sl_control = list(), adaptive_cv = TRUE,
                                min_obs = 50L, min_events = 20L,
-                               bounds = c(0.005, 0.995),
                                times = NULL, sl_fn = "SuperLearner",
                                verbose = TRUE) {
   nodes <- obj$nodes
@@ -308,7 +305,7 @@ NULL
           preds_val <- rep(marg_train, length(val_idx))
         }
 
-        p_c[val_idx] <- .bound(preds_val, bounds[1], bounds[2])
+        p_c[val_idx] <- preds_val
       }
 
       results[[i]] <- data.table::data.table(
@@ -342,7 +339,6 @@ NULL
       predictions = results,
       covariates = covariates,
       learners = learners,
-      bounds = bounds,
       use_ffSL = identical(sl_fn, "ffSL"),
       sl_info = list(),
       crossfit = TRUE
@@ -363,7 +359,6 @@ NULL
 .cf_fit_observation <- function(obj, regime, covariates = NULL, learners = NULL,
                                  sl_control = list(), adaptive_cv = TRUE,
                                  min_obs = 50L, min_events = 20L,
-                                 bounds = c(0.005, 0.995),
                                  times = NULL, sl_fn = "SuperLearner",
                                  verbose = TRUE) {
   nodes <- obj$nodes
@@ -472,7 +467,7 @@ NULL
         preds_val <- rep(marg_train, length(val_idx))
       }
 
-      p_r[val_idx] <- .bound(preds_val, bounds[1], bounds[2])
+      p_r[val_idx] <- preds_val
     }
 
     results[[i]] <- data.table::data.table(
@@ -505,7 +500,6 @@ NULL
     predictions = results,
     covariates = covariates,
     learners = learners,
-    bounds = bounds,
     use_ffSL = identical(sl_fn, "ffSL"),
     sl_info = list(),
     crossfit = TRUE

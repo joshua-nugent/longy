@@ -178,7 +178,6 @@
       b_obj <- fit_treatment(b_obj, regime = regime,
                              covariates = trt_fit$covariates,
                              learners = trt_fit$learners,
-                             bounds = trt_fit$bounds,
                              sl_control = if (!is.null(trt_fit$sl_control)) trt_fit$sl_control else list(),
                              adaptive_cv = if (!is.null(trt_fit$adaptive_cv)) trt_fit$adaptive_cv else TRUE,
                              risk_set = if (!is.null(trt_fit$risk_set)) trt_fit$risk_set else "all",
@@ -188,12 +187,11 @@
       if (length(cens_fits) > 0) {
         cov_c <- cens_fits[[1]]$covariates
         lrn_c <- cens_fits[[1]]$learners
-        bnd_c <- cens_fits[[1]]$bounds
         slc_c <- if (!is.null(cens_fits[[1]]$sl_control)) cens_fits[[1]]$sl_control else list()
         acv_c <- if (!is.null(cens_fits[[1]]$adaptive_cv)) cens_fits[[1]]$adaptive_cv else TRUE
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, sl_control = slc_c,
+                               sl_control = slc_c,
                                adaptive_cv = acv_c, use_ffSL = FALSE,
                                verbose = FALSE)
       }
@@ -202,7 +200,6 @@
         b_obj <- fit_observation(b_obj, regime = regime,
                                  covariates = obs_fit$covariates,
                                  learners = obs_fit$learners,
-                                 bounds = obs_fit$bounds,
                                  sl_control = if (!is.null(obs_fit$sl_control)) obs_fit$sl_control else list(),
                                  adaptive_cv = if (!is.null(obs_fit$adaptive_cv)) obs_fit$adaptive_cv else TRUE,
                                  use_ffSL = FALSE,
@@ -210,6 +207,7 @@
       }
       b_obj <- compute_weights(b_obj, regime = regime,
                                stabilized = obj$weights[[regime]]$stabilized,
+                               bounds = obj$weights[[regime]]$bounds,
                                truncation = obj$weights[[regime]]$truncation,
                                truncation_quantile = obj$weights[[regime]]$truncation_quantile)
       b_obj
@@ -490,7 +488,6 @@
       b_obj <- fit_treatment(b_obj, regime = regime,
                              covariates = obj$fits$treatment[[regime]]$covariates,
                              learners = obj$fits$treatment[[regime]]$learners,
-                             bounds = obj$fits$treatment[[regime]]$bounds,
                              use_ffSL = FALSE,
                              verbose = FALSE)
 
@@ -499,10 +496,9 @@
       if (length(cens_fits_tmle) > 0) {
         cov_c <- cens_fits_tmle[[1]]$covariates
         lrn_c <- cens_fits_tmle[[1]]$learners
-        bnd_c <- cens_fits_tmle[[1]]$bounds
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
-                               bounds = bnd_c, use_ffSL = FALSE,
+                               use_ffSL = FALSE,
                                verbose = FALSE)
       }
 

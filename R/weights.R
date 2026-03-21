@@ -155,9 +155,15 @@
 #' are cumulated (absorbing processes); observation weights are point-in-time
 #' (intermittent process).
 #'
-#' Weight truncation is controlled via \code{truncation} (hard cap) and
-#' \code{truncation_quantile} (percentile-based cap), which bound the final
-#' stabilized weight directly. For TMLE, use \code{g_bounds} in
+#' Before computing weights, the point-in-time product of all raw predicted
+#' probabilities (g_a * g_c * g_r) is bounded to \code{bounds}. This prevents
+#' extreme weights from near-positivity violations. The bounding adjustment is
+#' absorbed into the treatment-censoring (absorbing) component so that the
+#' cumulation/non-cumulation distinction is preserved.
+#'
+#' Additional weight truncation is available via \code{truncation} (hard cap)
+#' and \code{truncation_quantile} (percentile-based cap), which bound the
+#' final stabilized weight directly. For TMLE, use \code{g_bounds} in
 #' \code{\link{estimate_tmle}()} instead — it bounds the unstabilized
 #' cumulative propensity score used in the clever covariate denominator.
 #'
@@ -165,15 +171,20 @@
 #'   models already fit.
 #' @param regime Character. Name of the regime.
 #' @param stabilized Logical. Use stabilized weights (numerator = marginal probability).
-#' @param truncation Numeric. Hard upper bound for weights. NULL for no truncation.
-#' @param truncation_quantile Numeric in (0,1). Truncate at this quantile.
-#'   Applied after `truncation` if both specified.
+#' @param bounds Numeric(2). Bounds for the point-in-time product of predicted
+#'   probabilities (g_a * g_c * g_r) before computing weights. Default
+#'   \code{c(0.005, 0.995)}. Set to NULL to skip bounding.
+#' @param truncation Numeric. Hard upper bound for final weights. NULL for no
+#'   truncation.
+#' @param truncation_quantile Numeric in (0,1). Truncate final weights at this
+#'   quantile. Applied after \code{truncation} if both specified.
 #' @param recompute Logical. If FALSE (default), errors when weights are already
 #'   computed for the requested regime(s). Set to TRUE to re-compute.
 #'
 #' @return Modified `longy_data` object with weights stored.
 #' @export
 compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
+                            bounds = c(0.005, 0.995),
                             truncation = NULL, truncation_quantile = NULL,
                             recompute = FALSE) {
   obj <- .as_longy_data(obj)
@@ -196,33 +207,30 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
 
   nodes <- obj$nodes
   reg <- obj$regimes[[rname]]
+  id_col <- nodes$id
 
-  # --- Treatment weights ---
+  # --- Treatment component: extract g_a and marginal ---
   gA <- obj$fits$treatment[[rname]]$predictions
   if (reg$type == "static") {
-    # Resolve regime value d(t), filter to followers, compute weights
     gA_work <- data.table::copy(gA)
     gA_work[, .d := .resolve_static_at_time(reg$value, .time)]
     gA_follow <- gA_work[.treatment == .d]
-    # g_a = P(A = d(t) | past); marg_g_a = marginal P(A = d(t))
-    gA_follow[, .sw_a := {
-      g_a <- ifelse(.d == 1L, .p_a, 1 - .p_a)
-      if (stabilized) {
-        marg_g_a <- ifelse(.d == 1L, .marg_a, 1 - .marg_a)
-        marg_g_a / g_a
-      } else {
-        1 / g_a
-      }
-    }]
+    gA_follow[, .g_a := ifelse(.d == 1L, .p_a, 1 - .p_a)]
+    gA_follow[, .marg_g_a := ifelse(.d == 1L, .marg_a, 1 - .marg_a)]
+    if (stabilized) {
+      gA_follow[, .sw_a := .marg_g_a / .g_a]
+    } else {
+      gA_follow[, .sw_a := 1 / .g_a]
+    }
     gA_follow[, .d := NULL]
   } else {
-    # Dynamic/stochastic: all rows are "followers" (consistency built into risk set)
     gA_follow <- data.table::copy(gA)
+    gA_follow[, .g_a := .p_a]
+    gA_follow[, .marg_g_a := .marg_a]
     gA_follow[, .sw_a := if (stabilized) .marg_a / .p_a else 1 / .p_a]
   }
 
-  id_col <- nodes$id
-  w <- gA_follow[, c(id_col, ".time", ".sw_a"), with = FALSE]
+  w <- gA_follow[, c(id_col, ".time", ".g_a", ".marg_g_a", ".sw_a"), with = FALSE]
 
   # For static regimes: enforce cumulative consistency — subjects contribute
   # at time t only if they followed the regime at ALL times 0..t
@@ -230,7 +238,7 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     w <- .enforce_regime_consistency(w, id_col, ".time", obj$meta$time_values)
   }
 
-  # --- Censoring weights ---
+  # --- Censoring component: extract g_c and marginal ---
   cens_fits <- obj$fits$censoring[[rname]]
   if (length(cens_fits) > 0) {
     for (cvar in names(cens_fits)) {
@@ -239,26 +247,27 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
       gC_uncens <- gC[gC$.censored == 0L, ]
       gC_uncens[, .sw_c := if (stabilized) .marg_c / .p_c else 1 / .p_c]
 
-      cw <- gC_uncens[, c(id_col, ".time", ".sw_c"), with = FALSE]
-      data.table::setnames(cw, ".sw_c", paste0(".sw_c_", cvar))
+      cw <- gC_uncens[, c(id_col, ".time", ".p_c", ".marg_c", ".sw_c"), with = FALSE]
+      data.table::setnames(cw, c(".p_c", ".marg_c", ".sw_c"),
+                           c(paste0(".g_c_", cvar), paste0(".marg_c_", cvar),
+                             paste0(".sw_c_", cvar)))
       w <- merge(w, cw, by = c(id_col, ".time"), all = FALSE)
     }
 
-    # Combined censoring weight (product of all sources)
+    # Combined censoring (product of all sources)
+    c_g_cols <- paste0(".g_c_", names(cens_fits))
+    c_m_cols <- paste0(".marg_c_", names(cens_fits))
     c_sw_cols <- paste0(".sw_c_", names(cens_fits))
+    w[, .g_c := Reduce(`*`, .SD), .SDcols = c_g_cols]
+    w[, .marg_g_c := Reduce(`*`, .SD), .SDcols = c_m_cols]
     w[, .sw_c := Reduce(`*`, .SD), .SDcols = c_sw_cols]
   } else {
+    w[, .g_c := 1]
+    w[, .marg_g_c := 1]
     w[, .sw_c := 1]
   }
 
-  # Combined A*C point-in-time weight
-  w[, .sw_ac := .sw_a * .sw_c]
-
-  # Cumulative A*C weight (absorbing processes)
-  data.table::setkeyv(w, c(id_col, ".time"))
-  w[, .csw_ac := cumprod(.sw_ac), by = c(id_col)]
-
-  # --- Observation weights (point-in-time, NOT cumulated) ---
+  # --- Observation component: extract g_r and marginal ---
   obs_fit <- obj$fits$observation[[rname]]
   if (!is.null(obs_fit)) {
     gR <- obs_fit$predictions
@@ -266,11 +275,43 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     gR_obs <- gR[gR$.observed == 1L, ]
     gR_obs[, .sw_r := if (stabilized) .marg_r / .p_r else 1 / .p_r]
 
-    rw <- gR_obs[, c(id_col, ".time", ".sw_r"), with = FALSE]
-    w <- merge(w, rw, by = c(id_col, ".time"), all = FALSE)
+    rw <- gR_obs[, c(id_col, ".time", ".p_r", ".marg_r", ".sw_r"), with = FALSE]
+    data.table::setnames(rw, c(".p_r", ".marg_r"), c(".g_r", ".marg_g_r"))
+    w <- merge(w, rw, by = c(id_col, ".time"), all.x = TRUE)
+    w[is.na(.g_r), .g_r := 1]
+    w[is.na(.marg_g_r), .marg_g_r := 1]
+    w[is.na(.sw_r), .sw_r := 1]
   } else {
+    w[, .g_r := 1]
+    w[, .marg_g_r := 1]
     w[, .sw_r := 1]
   }
+
+  # --- Bound the product of raw probabilities ---
+  # Compute point-in-time product of all components, then bound.
+  # The bounding adjustment is absorbed into the AC (absorbing) component
+  # so that observation (intermittent) remains point-in-time.
+  w[, .g_product := .g_a * .g_c * .g_r]
+  if (!is.null(bounds)) {
+    w[, .g_product_bounded := pmax(pmin(.g_product, bounds[2]), bounds[1])]
+  } else {
+    w[, .g_product_bounded := .g_product]
+  }
+  # Derive bounded AC component: absorb all bounding into the absorbing part
+  w[, .g_ac := ifelse(.g_r > 0, .g_product_bounded / .g_r, .g_product_bounded)]
+
+  # --- Combined AC weight from bounded product ---
+  # .sw_a and .sw_c remain from raw probabilities (for diagnostics).
+  # .sw_ac reflects the bounded product.
+  if (stabilized) {
+    w[, .sw_ac := (.marg_g_a * .marg_g_c) / .g_ac]
+  } else {
+    w[, .sw_ac := 1 / .g_ac]
+  }
+
+  # Cumulative A*C weight (absorbing processes)
+  data.table::setkeyv(w, c(id_col, ".time"))
+  w[, .csw_ac := cumprod(.sw_ac), by = c(id_col)]
 
   # Final weight: cumulative A*C * point-in-time R
   w[, .final_weight := .csw_ac * .sw_r]
@@ -338,6 +379,7 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     regime = rname,
     weights_dt = w,
     stabilized = stabilized,
+    bounds = bounds,
     truncation = truncation,
     truncation_quantile = truncation_quantile
   )
