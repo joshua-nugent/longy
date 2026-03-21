@@ -168,7 +168,7 @@
         outcome = nodes$outcome, treatment = nodes$treatment,
         censoring = cens_col, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
-        sampling_weights = nodes$sampling_weights,
+        cluster = nodes$cluster, sampling_weights = nodes$sampling_weights,
         outcome_type = nodes$outcome_type,
         competing = nodes$competing, verbose = FALSE
       )
@@ -350,7 +350,7 @@
         outcome = nodes$outcome, treatment = nodes$treatment,
         censoring = cens_col, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
-        sampling_weights = nodes$sampling_weights,
+        cluster = nodes$cluster, sampling_weights = nodes$sampling_weights,
         outcome_type = nodes$outcome_type,
         competing = nodes$competing, verbose = FALSE
       )
@@ -477,7 +477,7 @@
         outcome = nodes$outcome, treatment = nodes$treatment,
         censoring = cens_col, observation = nodes$observation,
         baseline = nodes$baseline, timevarying = nodes$timevarying,
-        sampling_weights = nodes$sampling_weights,
+        cluster = nodes$cluster, sampling_weights = nodes$sampling_weights,
         outcome_type = nodes$outcome_type,
         competing = nodes$competing, verbose = FALSE
       )

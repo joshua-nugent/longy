@@ -32,6 +32,15 @@
 #'   automatically.
 #' @param baseline Character vector. Column names for time-invariant covariates.
 #' @param timevarying Character vector. Column names for time-varying covariates.
+#' @param cluster Character. Column name for a clustering/grouping variable
+#'   (e.g., household, site, clinic). When specified, all observations within
+#'   a cluster are kept in the same CV fold — both for SuperLearner internal
+#'   cross-validation and for cross-fitting. This prevents overly optimistic
+#'   risk estimates when within-cluster observations are correlated. Inference
+#'   functions (\code{estimate_ipw}, etc.) also use the cluster for
+#'   cluster-robust standard errors when available. Must be constant within
+#'   subject (each subject belongs to exactly one cluster). NULL if no
+#'   clustering.
 #' @param sampling_weights Character. Column name for external sampling/survey
 #'   weights (e.g., to generalize from the study to a target population). Must
 #'   be non-negative (zero allowed to exclude subjects) and constant within
@@ -69,7 +78,7 @@
 #'       \code{outcome}, \code{treatment}, \code{censoring} (internal binary
 #'       column names or NULL), \code{censoring_col} (original column name or
 #'       NULL), \code{censoring_levels} (cause labels or NULL),
-#'       \code{observation}, \code{sampling_weights}, \code{baseline},
+#'       \code{observation}, \code{cluster}, \code{sampling_weights}, \code{baseline},
 #'       \code{timevarying}, \code{outcome_type}, \code{competing}.}
 #'     \item{regimes}{Initially empty list; populated by
 #'       \code{\link{define_regime}}.}
@@ -115,6 +124,7 @@ longy_data <- function(data,
                        observation = NULL,
                        baseline = character(0),
                        timevarying = character(0),
+                       cluster = NULL,
                        sampling_weights = NULL,
                        outcome_type = "binary",
                        competing = NULL,
@@ -129,7 +139,7 @@ longy_data <- function(data,
 
   # --- Validate column existence ---
   all_nodes <- c(id, time, outcome, treatment, censoring, observation,
-                 baseline, timevarying, sampling_weights, competing)
+                 baseline, timevarying, cluster, sampling_weights, competing)
   missing_cols <- setdiff(all_nodes, names(dt))
   if (length(missing_cols) > 0) {
     stop(sprintf("Column(s) not found in data: %s",
@@ -352,6 +362,23 @@ longy_data <- function(data,
     }
   }
 
+  # --- Validate cluster column ---
+  if (!is.null(cluster)) {
+    if (any(is.na(dt[[cluster]]))) {
+      stop(sprintf("Cluster column '%s' must not contain NAs.", cluster),
+           call. = FALSE)
+    }
+    # Must be constant within subject
+    cl_unique <- dt[, list(nu = data.table::uniqueN(get(cluster))),
+                    by = c(id)]
+    if (any(cl_unique$nu > 1)) {
+      bad_n <- sum(cl_unique$nu > 1)
+      stop(sprintf(
+        "Cluster column '%s' varies within %d subject(s). Each subject must belong to exactly one cluster.",
+        cluster, bad_n), call. = FALSE)
+    }
+  }
+
   # --- Validate binary outcome values ---
   if (outcome_type == "binary") {
     y_vals <- dt[[outcome]]
@@ -559,6 +586,7 @@ longy_data <- function(data,
     censoring_col = censoring_col,
     censoring_levels = censoring_levels,
     observation = observation,
+    cluster = cluster,
     sampling_weights = sampling_weights,
     baseline = baseline,
     timevarying = timevarying,
@@ -662,15 +690,37 @@ set_crossfit <- function(obj, n_folds = 5L, fold_column = NULL, seed = NULL) {
       fold_id = fold_column
     )
   } else {
-    # Create folds at subject level
-    ids <- unique(obj$data[[id_col]])
-    n <- length(ids)
-    if (!is.null(seed)) set.seed(seed)
-    folds <- sample(rep(seq_len(n_folds), length.out = n))
-    fold_dt <- data.table::data.table(V1 = ids, .longy_fold = folds)
-    data.table::setnames(fold_dt, "V1", id_col)
-
-    obj$data[fold_dt, .longy_fold := i..longy_fold, on = id_col]
+    # Create folds — at cluster level if clustering is present,
+    # otherwise at subject level
+    if (!is.null(obj$nodes$cluster)) {
+      cl_col <- obj$nodes$cluster
+      # Map each subject to their cluster
+      id_cl <- unique(obj$data[, c(id_col, cl_col), with = FALSE])
+      clusters <- unique(id_cl[[cl_col]])
+      n_cl <- length(clusters)
+      if (n_folds > n_cl) {
+        warning(sprintf(
+          "n_folds (%d) > number of clusters (%d); reducing to %d folds.",
+          n_folds, n_cl, n_cl), call. = FALSE)
+        n_folds <- n_cl
+      }
+      if (!is.null(seed)) set.seed(seed)
+      cl_folds <- sample(rep(seq_len(n_folds), length.out = n_cl))
+      cl_fold_dt <- data.table::data.table(V1 = clusters, .longy_fold = cl_folds)
+      data.table::setnames(cl_fold_dt, "V1", cl_col)
+      # Merge cluster-level folds to subject-level, then to data
+      id_cl[cl_fold_dt, .longy_fold := i..longy_fold, on = cl_col]
+      obj$data[id_cl, .longy_fold := i..longy_fold,
+               on = c(id_col, cl_col)]
+    } else {
+      ids <- unique(obj$data[[id_col]])
+      n <- length(ids)
+      if (!is.null(seed)) set.seed(seed)
+      folds <- sample(rep(seq_len(n_folds), length.out = n))
+      fold_dt <- data.table::data.table(V1 = ids, .longy_fold = folds)
+      data.table::setnames(fold_dt, "V1", id_col)
+      obj$data[fold_dt, .longy_fold := i..longy_fold, on = id_col]
+    }
 
     obj$crossfit <- list(
       enabled = TRUE,

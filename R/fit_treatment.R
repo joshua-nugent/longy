@@ -159,6 +159,12 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       ow <- dt_t[[nodes$sampling_weights]][still_in]
     }
 
+    # Extract cluster IDs for at-risk subjects (NULL if none)
+    cl <- NULL
+    if (!is.null(nodes$cluster)) {
+      cl <- dt_t[[nodes$cluster]][still_in]
+    }
+
     # Fit model or use marginal
     n_minority <- min(sum(Y == 1), sum(Y == 0))
     minority_rate <- min(mean(Y), 1 - mean(Y))
@@ -174,7 +180,7 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       ctx <- sprintf("g_A, time=%d, n=%d, event_rate=%.3f", tt, n_risk, mean(Y))
       fit <- .safe_sl(Y = Y, X = X, learners = learners,
                       cv_folds = cv_folds, obs_weights = ow,
-                      sl_control = sl_control,
+                      cluster_ids = cl, sl_control = sl_control,
                       use_ffSL = worker_ffSL, context = ctx,
                       verbose = !parallel && verbose)
       p_a <- fit$predictions

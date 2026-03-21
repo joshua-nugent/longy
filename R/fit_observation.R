@@ -139,6 +139,12 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       ow <- dt_t[[nodes$sampling_weights]][still_in]
     }
 
+    # Extract cluster IDs for at-risk subjects (NULL if none)
+    cl <- NULL
+    if (!is.null(nodes$cluster)) {
+      cl <- dt_t[[nodes$cluster]][still_in]
+    }
+
     task_n_marginal <- 0L
     task_marginal_reason <- NULL
     n_minority <- min(sum(Y == 1), sum(Y == 0))
@@ -154,7 +160,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
       }
       fit <- .safe_sl(Y = Y, X = X, learners = learners,
                       cv_folds = cv_folds, obs_weights = ow,
-                      sl_control = sl_control,
+                      cluster_ids = cl, sl_control = sl_control,
                       use_ffSL = worker_ffSL, context = ctx,
                       verbose = !parallel && verbose)
       p_r <- fit$predictions

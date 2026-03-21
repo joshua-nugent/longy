@@ -57,7 +57,10 @@
 #'   Ignored for G-comp (always bootstrap).
 #' @param ci_level Numeric. Confidence level.
 #' @param n_boot Integer. Bootstrap replicates.
-#' @param cluster Character. Cluster column for robust SEs (IPW only).
+#' @param cluster Character. Column name for a clustering/grouping variable.
+#'   When specified, cluster-aware CV folds are used in SuperLearner and
+#'   cross-fitting, and cluster-robust SEs are computed for IPW inference.
+#'   See \code{\link{longy_data}} for details. NULL if no clustering.
 #' @param times Numeric vector. Time points for estimation. NULL = all.
 #' @param sl_control List. Additional arguments passed to SuperLearner in all
 #'   nuisance models. Elements named \code{cvControl} are merged with the
@@ -292,7 +295,7 @@ longy <- function(data,
     outcome = outcome, treatment = treatment,
     censoring = censoring, observation = observation,
     baseline = baseline, timevarying = timevarying,
-    sampling_weights = sampling_weights,
+    cluster = cluster, sampling_weights = sampling_weights,
     outcome_type = outcome_type, competing = competing,
     k = k, verbose = verbose
   )

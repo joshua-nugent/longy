@@ -277,10 +277,7 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
 
     rw <- gR_obs[, c(id_col, ".time", ".p_r", ".marg_r", ".sw_r"), with = FALSE]
     data.table::setnames(rw, c(".p_r", ".marg_r"), c(".g_r", ".marg_g_r"))
-    w <- merge(w, rw, by = c(id_col, ".time"), all.x = TRUE)
-    w[is.na(.g_r), .g_r := 1]
-    w[is.na(.marg_g_r), .marg_g_r := 1]
-    w[is.na(.sw_r), .sw_r := 1]
+    w <- merge(w, rw, by = c(id_col, ".time"), all = FALSE)
   } else {
     w[, .g_r := 1]
     w[, .marg_g_r := 1]

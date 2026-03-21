@@ -314,6 +314,12 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
           ow <- ow_risk[has_Q]
         }
 
+        cl <- NULL
+        if (!is.null(nodes$cluster)) {
+          cl_risk <- dt_w[[nodes$cluster]][risk_rows]
+          cl <- cl_risk[has_Q]
+        }
+
         if (n_train >= min_obs && length(unique(Y_train)) > 1) {
         cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
         if (adaptive_cv) {
@@ -324,7 +330,8 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
                        rname, target_t, tt, n_train, mean(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, family = step_family,
                         learners = learners, cv_folds = cv_folds,
-                        obs_weights = ow, sl_control = sl_control,
+                        obs_weights = ow, cluster_ids = cl,
+                        sl_control = sl_control,
                         use_ffSL = worker_ffSL,
                         context = ctx, verbose = worker_verbose)
         method <- fit$method

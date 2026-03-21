@@ -88,6 +88,12 @@ NULL
       ow_risk <- dt_t[[nodes$sampling_weights]][still_in]
     }
 
+    # Cluster IDs for at-risk subjects
+    cl_risk <- NULL
+    if (!is.null(nodes$cluster)) {
+      cl_risk <- dt_t[[nodes$cluster]][still_in]
+    }
+
     # Marginal rate from FULL risk set (population constant)
     marg_a <- if (!is.null(ow_risk)) {
       stats::weighted.mean(Y_risk, ow_risk)
@@ -109,6 +115,7 @@ NULL
       X_val <- X_risk[val_idx, , drop = FALSE]
 
       ow_train <- if (!is.null(ow_risk)) ow_risk[train_idx] else NULL
+      cl_train <- if (!is.null(cl_risk)) cl_risk[train_idx] else NULL
 
       n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
       minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
@@ -123,7 +130,7 @@ NULL
                        tt, k, n_folds, length(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow_train,
-                        sl_control = sl_control,
+                        cluster_ids = cl_train, sl_control = sl_control,
                         use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
@@ -260,6 +267,11 @@ NULL
         ow_risk <- dt_t[[nodes$sampling_weights]][still_in]
       }
 
+      cl_risk <- NULL
+      if (!is.null(nodes$cluster)) {
+        cl_risk <- dt_t[[nodes$cluster]][still_in]
+      }
+
       marg_c <- if (!is.null(ow_risk)) {
         stats::weighted.mean(Y_risk, ow_risk)
       } else {
@@ -279,6 +291,7 @@ NULL
         X_val <- X_risk[val_idx, , drop = FALSE]
 
         ow_train <- if (!is.null(ow_risk)) ow_risk[train_idx] else NULL
+        cl_train <- if (!is.null(cl_risk)) cl_risk[train_idx] else NULL
 
         n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
         minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
@@ -293,7 +306,7 @@ NULL
                          cvar, tt, k, n_folds, length(Y_train))
           fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                           cv_folds = cv_folds, obs_weights = ow_train,
-                          sl_control = sl_control,
+                          cluster_ids = cl_train, sl_control = sl_control,
                           use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
           preds_val <- .predict_from_fit(fit, X_val)
         } else {
@@ -422,6 +435,11 @@ NULL
       ow_risk <- dt_t[[nodes$sampling_weights]][still_in]
     }
 
+    cl_risk <- NULL
+    if (!is.null(nodes$cluster)) {
+      cl_risk <- dt_t[[nodes$cluster]][still_in]
+    }
+
     marg_r <- if (!is.null(ow_risk)) {
       stats::weighted.mean(Y_risk, ow_risk)
     } else {
@@ -441,6 +459,7 @@ NULL
       X_val <- X_risk[val_idx, , drop = FALSE]
 
       ow_train <- if (!is.null(ow_risk)) ow_risk[train_idx] else NULL
+      cl_train <- if (!is.null(cl_risk)) cl_risk[train_idx] else NULL
 
       n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
       minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
@@ -455,7 +474,7 @@ NULL
                        tt, k, n_folds, length(Y_train))
         fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
                         cv_folds = cv_folds, obs_weights = ow_train,
-                        sl_control = sl_control,
+                        cluster_ids = cl_train, sl_control = sl_control,
                         use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
@@ -541,7 +560,8 @@ NULL
                             sl_fn = "SuperLearner", sl_control = list(),
                             min_obs = 50L,
                             regime_cf = NULL,
-                            sampling_weights = NULL) {
+                            sampling_weights = NULL,
+                            cluster_ids = NULL) {
   n_risk <- nrow(X_risk)
   Q_bar <- rep(NA_real_, n_risk)
 
@@ -549,6 +569,12 @@ NULL
   sw_Q_all <- NULL
   if (!is.null(sampling_weights)) {
     sw_Q_all <- sampling_weights[which(has_Q)]
+  }
+
+  # Cluster IDs for subjects with Q (aligned with Y_train_all)
+  cl_Q_all <- NULL
+  if (!is.null(cluster_ids)) {
+    cl_Q_all <- cluster_ids[which(has_Q)]
   }
 
   for (k in seq_len(n_folds)) {
@@ -582,6 +608,7 @@ NULL
     Y_k <- Y_train_all[train_Q_mask]
     X_k <- X_risk[all_Q_idx[train_Q_mask], , drop = FALSE]
     ow_k <- if (!is.null(sw_Q_all)) sw_Q_all[train_Q_mask] else NULL
+    cl_k <- if (!is.null(cl_Q_all)) cl_Q_all[train_Q_mask] else NULL
 
     if (length(Y_k) < 2) {
       marg <- if (!is.null(sw_Q_all)) {
@@ -605,7 +632,7 @@ NULL
       ctx <- sprintf("CF Q-step, fold=%d/%d, n_train=%d", k, n_folds, length(Y_k))
       fit <- .safe_sl(Y = Y_k, X = X_k, family = family,
                       learners = learners, cv_folds = cv_folds,
-                      obs_weights = ow_k,
+                      obs_weights = ow_k, cluster_ids = cl_k,
                       sl_control = sl_control,
                       use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
       preds <- .predict_from_fit(fit, X_val_cf)
@@ -844,6 +871,12 @@ NULL
           ow_risk <- dt_t[[nodes$sampling_weights]][at_risk]
         }
 
+        # Cluster IDs for at-risk subjects
+        cl_risk <- NULL
+        if (!is.null(nodes$cluster)) {
+          cl_risk <- dt_t[[nodes$cluster]][at_risk]
+        }
+
         # Cross-fitted Q_bar
         Y_train_all <- Q_at_t[has_Q]
 
@@ -883,7 +916,8 @@ NULL
           sl_control = sl_control,
           min_obs = min_obs,
           regime_cf = regime_cf,
-          sampling_weights = ow_risk
+          sampling_weights = ow_risk,
+          cluster_ids = cl_risk
         )
 
         # Bound Q_bar
@@ -986,12 +1020,14 @@ NULL
           Y_all <- Q_at_t[has_Q]
           X_all <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])[all_Q_idx, , drop = FALSE]
 
+          cl_all <- if (!is.null(cl_risk)) cl_risk[all_Q_idx] else NULL
           if (length(Y_all) >= min_obs && length(unique(Y_all)) > 1) {
             cens_cv <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
             cens_fit <- .safe_sl(Y = Y_all, X = X_all,
                                  family = step_family,
                                  learners = learners,
                                  cv_folds = min(cens_cv, length(Y_all)),
+                                 cluster_ids = cl_all,
                                  sl_control = sl_control,
                                  use_ffSL = identical(sl_fn, "ffSL"),
                                  context = "CF newly-censored Q",

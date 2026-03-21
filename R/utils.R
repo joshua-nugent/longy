@@ -1,6 +1,31 @@
 # Internal utility functions for longy
 # None of these are exported
 
+#' Generate cluster-aware CV fold assignments
+#'
+#' Creates a \code{validRows} list suitable for SuperLearner's
+#' \code{cvControl}. All observations sharing a cluster ID are placed in the
+#' same validation fold.
+#'
+#' @param cluster_ids Vector of cluster identifiers (one per observation,
+#'   same length as Y).
+#' @param n_folds Integer. Number of CV folds.
+#' @return A list of length \code{n_folds}, each element an integer vector of
+#'   row indices for that fold's validation set.
+#' @noRd
+.cluster_cv_folds <- function(cluster_ids, n_folds) {
+  unique_clusters <- unique(cluster_ids)
+  n_cl <- length(unique_clusters)
+  if (n_folds > n_cl) n_folds <- n_cl
+  # Assign each cluster to a fold
+  cl_folds <- sample(rep(seq_len(n_folds), length.out = n_cl))
+  names(cl_folds) <- unique_clusters
+  # Map observations to their cluster's fold
+  obs_folds <- cl_folds[as.character(cluster_ids)]
+  # Build validRows list (row indices per fold)
+  lapply(seq_len(n_folds), function(k) which(obs_folds == k))
+}
+
 #' Get lag covariate column names for a given time index
 #'
 #' Returns the \code{.longy_lag_*} column names to append to the covariate
@@ -361,6 +386,7 @@ as_longy_data <- function(obj) {
 .safe_sl <- function(Y, X, family = stats::binomial(),
                      learners = c("SL.glm", "SL.mean"),
                      cv_folds = 10L, obs_weights = NULL,
+                     cluster_ids = NULL,
                      sl_control = list(),
                      use_ffSL = FALSE,
                      context = "", verbose = FALSE) {
@@ -526,10 +552,15 @@ as_longy_data <- function(obj) {
     fit <- tryCatch(
       withCallingHandlers(
       {
+        # Build cvControl with cluster-aware fold assignment
+        cv_ctrl <- list(V = cv_folds)
+        if (!is.null(cluster_ids)) {
+          cv_ctrl$validRows <- .cluster_cv_folds(cluster_ids, cv_folds)
+        }
         sl_args <- list(
           Y = Y, X = X, family = sl_family,
           SL.library = learners,
-          cvControl = list(V = cv_folds),
+          cvControl = cv_ctrl,
           env = sl_env
         )
         if (!is.null(obs_weights)) {

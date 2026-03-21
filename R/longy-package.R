@@ -9,7 +9,7 @@ utils::globalVariables(c(
   ".longy_regime_consist", ".longy_cum_consist",
   ".longy_uncens", ".longy_cum_uncens",
   ".longy_consist_prev", ".longy_uncens_prev",
-  ".longy_check_surv", ".longy_check_comp", ".longy_fold",
+  ".longy_check_surv", ".longy_check_comp", ".longy_fold", "i..longy_fold",
   ".longy_first_competing", "i..longy_first_competing",
   ".sw_a", ".sw_c", ".sw_ac", ".csw_ac", ".sw_r", ".final_weight",
   ".marg_a", ".marg_c", ".marg_r",

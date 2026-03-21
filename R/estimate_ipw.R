@@ -26,7 +26,9 @@
 #'   `"bootstrap"`, `"sandwich"`, or `"none"` (point estimates only).
 #' @param ci_level Numeric. Confidence level (default 0.95).
 #' @param n_boot Integer. Number of bootstrap replicates (only for `"bootstrap"`).
-#' @param cluster Character. Column name for clustered standard errors.
+#' @param cluster Character. Column name for clustered standard errors. If
+#'   NULL (default), uses \code{nodes$cluster} from the \code{longy_data}
+#'   object when available.
 #' @param stabilized Logical. Use stabilized weights? Only applies when
 #'   weights are auto-computed (ignored if weights already exist). Default TRUE.
 #' @param truncation Numeric(2) or NULL. Hard bounds for weight truncation,
@@ -58,6 +60,11 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
          "regime-follower risk set, losing their known Y=0 contribution. ",
          "Use estimate_gcomp() or estimate_tmle() instead.",
          call. = FALSE)
+
+  # Default cluster from nodes if not explicitly provided
+  if (is.null(cluster) && !is.null(obj$nodes$cluster)) {
+    cluster <- obj$nodes$cluster
+  }
 
   # Validate cluster column exists in data
   if (!is.null(cluster) && !cluster %in% names(obj$data))

@@ -288,6 +288,13 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
           ow <- ow_risk[has_Q]
         }
 
+        # Extract cluster IDs for at-risk training subjects
+        cl <- NULL
+        if (!is.null(nodes$cluster)) {
+          cl_risk <- dt_t[[nodes$cluster]][at_risk]
+          cl <- cl_risk[has_Q]
+        }
+
         # TMLE Q-models always use quasibinomial: predictions feed into
         # qlogis(Q_bar) for fluctuation, so they MUST be in (0,1).
         # gaussian can produce predictions outside [0,1] that clip to
@@ -306,7 +313,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
           fit <- .safe_sl(Y = Y_train, X = X_train,
                           family = step_family,
                           learners = learners, cv_folds = cv_folds,
-                          obs_weights = ow,
+                          obs_weights = ow, cluster_ids = cl,
                           sl_control = sl_control,
                           use_ffSL = worker_ffSL, context = ctx,
                           verbose = task_verbose)

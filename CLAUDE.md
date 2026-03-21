@@ -92,7 +92,7 @@ list(
                     censoring,         # char vector of internal binary col names (e.g. ".cens_censored")
                     censoring_col,     # original column name (e.g. "C"), or NULL
                     censoring_levels,  # non-"uncensored" levels (e.g. c("death","ltfu")), or NULL
-                    observation, sampling_weights,
+                    observation, cluster, sampling_weights,
                     baseline, timevarying, outcome_type, competing,
                     lag_vars,          # char vector of columns with lag columns created
                     lag_k),            # integer or Inf — lag depth
