@@ -13,7 +13,6 @@ fit_treatment(
   adaptive_cv = TRUE,
   min_obs = 50L,
   min_events = 20L,
-  bounds = c(0.005, 0.995),
   times = NULL,
   use_ffSL = FALSE,
   parallel = FALSE,
@@ -52,8 +51,6 @@ threshold, uses marginal mean.}
 \item{min_events}{Integer. Minimum minority-class events required to fit a
 model. When the minority class count is below this AND the minority rate
 is below 0.01, marginal fallback is used. Default 20.}
-
-\item{bounds}{Numeric vector of length 2. Bounds for predicted probabilities.}
 
 \item{times}{Numeric vector. If provided, only fit models through
 \code{max(times)}. Saves computation when estimation is only needed at

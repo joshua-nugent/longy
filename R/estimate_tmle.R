@@ -537,8 +537,9 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       n_at_risk = n_at_risk
     )
 
-    # EIF inference
+    # EIF computation (always compute when eif inference; store for contrasts)
     eif_info <- NULL
+    ic_dt_target <- NULL
     if (inference == "eif") {
       D_i <- .compute_tmle_eif(
         Q_star_list = Q_star_list,
@@ -561,6 +562,15 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
         if (!is.null(init_raw)) init_raw <- init_raw * y_range_width
         if (!is.null(aug_raw)) aug_raw <- aug_raw * y_range_width
       }
+
+      # Store per-subject ICs for contrast inference
+      all_ids_eif <- unique(dt[[id_col]])
+      ic_dt_target <- data.table::data.table(
+        .id = all_ids_eif,
+        .time = target_t,
+        .ic = as.numeric(D_i)
+      )
+      data.table::setnames(ic_dt_target, ".id", id_col)
 
       n_i <- length(D_i)
       if (n_i >= 2 && stats::var(D_i) > 0) {
@@ -594,7 +604,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       est_row[, ci_upper := if (is.na(se)) NA_real_ else psi_hat + z * se]
     }
 
-    list(est_row = est_row, step_info = step_info, eif_info = eif_info)
+    list(est_row = est_row, step_info = step_info, eif_info = eif_info,
+         ic_dt = ic_dt_target)
   }
 
   # Strip obj from closure to avoid serializing the full longy_data object
@@ -623,6 +634,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
                            recursive = FALSE)
   eif_info_list <- Filter(Negate(is.null),
                           lapply(task_results, `[[`, "eif_info"))
+  ic_dt_list <- Filter(Negate(is.null),
+                        lapply(task_results, `[[`, "ic_dt"))
 
   estimates <- data.table::rbindlist(est_list, fill = TRUE)
 
@@ -684,13 +697,21 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
     tmle_info$eif <- data.table::rbindlist(eif_info_list)
   }
 
+  # Collect per-subject ICs across target times
+  ic_dt <- if (length(ic_dt_list) > 0) {
+    data.table::rbindlist(ic_dt_list)
+  } else {
+    NULL
+  }
+
   result <- list(
     estimates = estimates,
     regime = rname,
     estimator = "tmle",
     inference = inference,
     ci_level = ci_level,
-    tmle_info = tmle_info
+    tmle_info = tmle_info,
+    ic = ic_dt
   )
   class(result) <- "longy_result"
   obj$results[[paste0(rname, "_tmle")]] <- result

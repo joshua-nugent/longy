@@ -41,6 +41,7 @@ longy(
   cross_fit_seed = NULL,
   sl_control = list(),
   use_ffSL = FALSE,
+  contrast = FALSE,
   parallel = FALSE,
   k = 0,
   verbose = TRUE
@@ -123,7 +124,10 @@ Ignored for G-comp (always bootstrap).}
 
 \item{n_boot}{Integer. Bootstrap replicates.}
 
-\item{cluster}{Character. Cluster column for robust SEs (IPW only).}
+\item{cluster}{Character. Column name for a clustering/grouping variable.
+When specified, cluster-aware CV folds are used in SuperLearner and
+cross-fitting, and cluster-robust SEs are computed for IPW inference.
+See \code{\link{longy_data}} for details. NULL if no clustering.}
 
 \item{times}{Numeric vector. Time points for estimation. NULL = all.}
 
@@ -138,7 +142,11 @@ Cannot be TRUE when \code{sl_control$cvControl$V} is specified.}
 model. When the minority class count is below this AND the minority rate
 is below 0.01, marginal fallback is used. Default 20.}
 
-\item{bounds}{Numeric(2). Prediction probability bounds.}
+\item{bounds}{Numeric(2). Bounds for the point-in-time product of predicted
+probabilities (g_a * g_c * g_r) in \code{compute_weights()}. Prevents
+extreme IPW weights from near-positivity violations. Default
+\code{c(0.005, 0.995)}. Set to NULL to skip bounding. For TMLE, use
+\code{g_bounds} instead.}
 
 \item{risk_set_treatment}{Character. Which subjects form the risk set for
 treatment model fitting. \code{"all"} (default) uses all uncensored
@@ -180,6 +188,10 @@ to SuperLearner. Default \code{list()}.}
 (parallelizes fold x algorithm combinations via \code{future.apply}).
 Default FALSE. Forced to FALSE inside parallel workers to prevent
 nested parallelism.}
+
+\item{contrast}{Logical. If TRUE and \code{length(regimes) >= 2}, auto-compute
+pairwise risk-difference contrasts (delta-method SEs when ICs are available).
+Stored in \code{obj$contrasts}. Default FALSE.}
 
 \item{parallel}{Logical. If TRUE and a non-sequential \code{future::plan()}
 is active, dispatches time-point models in parallel via

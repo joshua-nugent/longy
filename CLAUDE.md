@@ -8,7 +8,7 @@ estimators with IC/EIF/bootstrap/sandwich inference, plus cross-fitting (CV-TMLE
 
 ## Architecture
 
-- **S3 classes**: `longy_data` (single accumulating pipeline object), `longy_result` (lightweight result)
+- **S3 classes**: `longy_data` (pipeline object), `longy_result` (estimation result), `longy_contrast` (treatment effect contrast), `longy_influence_diag` (influence/weight diagnostics)
 - **Plain functions** internally (no R6)
 - **data.table** internally for performance; accept data.frame at boundary
 - **SuperLearner** for ML with glm fallback (SuperLearner is in Suggests, not Imports)
@@ -129,13 +129,14 @@ Results stored as `obj$results$<regime>_<estimator>`:
 | R/fit_outcome.R | Outcome models via sequential regression (G-comp/TMLE) |
 | R/weights.R | `compute_weights()` + `.compute_cumulative_g()` shared helper |
 | R/estimate_ipw.R | `estimate_ipw()` — IPW estimator (not supported with competing risks) |
+| R/contrast.R | `contrast()` — treatment effect contrasts between regimes + `longy_contrast` S3 class |
 | R/longy_result.R | `print/summary/plot.longy_result` + `.estimator_label()` for all estimators |
 | R/estimate_gcomp.R | `estimate_gcomp()` — G-comp estimator + bootstrap |
 | R/estimate_tmle.R | `estimate_tmle()` — TMLE estimator + EIF inference |
 | R/estimate_unadjusted.R | `estimate_unadjusted()` — naive means among regime-followers (reference) |
 | R/learner-adaptations.R | Docs + wrapper functions for SL learner compatibility (SL.xgboost.reg, SL.glmnet.reg, SL.ranger.longy) |
 | R/inference.R | IC-based + bootstrap inference (IPW, G-comp, TMLE) |
-| R/diagnostics.R | Weight & positivity diagnostics |
+| R/diagnostics.R | `weight_diagnostics()`, `positivity_diagnostics()`, `prediction_diagnostics()`, `sl_diagnostics()`, `clip_diagnostics()`, `tmle_diagnostics()`, `influence_diagnostics()`, `plot_sl_diagnostics()`, `plot_influence_diagnostics()`, `longy_influence_diag` S3 class |
 | R/crossfit.R | Cross-fitting: `.cf_fit_treatment/censoring/observation()`, `.cf_estimate_tmle()` |
 | R/longy.R | High-level `longy()` wrapper + `results()` accessor + `plot.longy_data` |
 | R/ffSL.R | Future-factorial SuperLearner (parallel CV via `future.apply`) |
@@ -190,6 +191,53 @@ For each target time T:
 5. EIF: D_i = (Q*_0 - psi) + sum_s H_s * (Q*_{s+1} - Q*_s)
 ```
 
+## Contrasts
+
+`contrast()` is a standalone function that computes treatment effect contrasts
+between two regimes. It returns a `longy_contrast` S3 object with
+`print`/`summary`/`plot` methods.
+
+```r
+contrast(obj, regime = c("always", "never"))
+contrast(obj, regime = "always", ref = "never")  # lmtp-style ref argument
+contrast(obj, regime = c("always", "never"), scale = "ratio", estimator = "tmle")
+```
+
+### Signature
+
+`contrast(obj, regime, ref = NULL, estimator = NULL, scale = c("difference", "ratio", "odds_ratio"), ci_level = 0.95)`
+
+- `regime`: length-2 character vector (regime1 vs regime2), or length-1 when `ref` is provided
+- `ref`: reference regime name (alternative to passing two names in `regime`)
+- `estimator`: auto-detected if NULL (prefers tmle > ipw > gcomp > unadjusted)
+- `scale`: `"difference"` (default), `"ratio"`, or `"odds_ratio"`
+
+### Per-subject influence curves
+
+Delta-method inference requires per-subject ICs stored on each `longy_result$ic`
+(a `data.table` with columns: id, `.time`, `.ic`):
+
+- **IPW**: ICs computed during `estimate_ipw(inference = "ic")` — full-population
+  vector with 0 for subjects not at risk. Formula:
+  `IC_i = N * w_i * (Y_i - psi) / sum(w)`
+- **TMLE**: EIF values stored during `estimate_tmle(inference = "eif")` —
+  one value per subject per target time
+- **G-comp**: No ICs available (bootstrap only) — `contrast()` returns point
+  estimates with a message, SEs are NA
+
+### Delta method by scale
+
+- **Difference**: `IC_contrast = IC_1 - IC_0`, `SE = sd(IC_contrast) / sqrt(n)`
+- **Ratio**: `IC_ratio = (IC_1 * psi_0 - IC_0 * psi_1) / psi_0^2`
+- **Odds ratio**: Delta method on log-odds scale, CIs exponentiated
+
+### Auto-contrast via longy()
+
+`longy(..., contrast = TRUE)` auto-computes pairwise contrasts for all regime
+pairs and estimators. These are stored in `obj$contrasts` (a list keyed as
+`{r1}_vs_{r2}_{estimator}`). Note: the `contrasts` field is only created by
+`longy()` — it is not part of the `longy_data()` constructor.
+
 ## Cross-fitting
 
 - Enabled via `longy(..., cross_fit = 5)` or `set_crossfit(obj, n_folds = 5)`
@@ -202,16 +250,19 @@ For each target time T:
 
 ## Open design decisions
 
-- **Continuous outcome scaling**: longy currently uses gaussian (no scaling) for
-  continuous outcomes. lmtp scales to [0,1] but still uses gaussian for Q-models
-  (binomial only for TMLE fluctuation). ltmle/stremr scale to [0,1] with
-  quasibinomial throughout. Revisit whether to adopt lmtp's hybrid approach
-  (scale + gaussian). See `notes/continuous_outcome_scaling.md` for full comparison.
+- **Continuous outcome scaling**: longy currently scales continuous Y to [0,1]
+  and uses quasibinomial throughout the TMLE backward pass (both Q-model fitting
+  and fluctuation). This matches ltmle/stremr's approach. An alternative is
+  lmtp's hybrid approach (scale to [0,1] but use gaussian for Q-models, binomial
+  only for the fluctuation step). See `notes/continuous_outcome_scaling.md` for
+  full comparison.
 
 ## TODO
 
-- **Continuous outcome scaling**: Decide whether to scale Y to [0,1] for
-  continuous outcomes (see Open design decisions above).
+- **Continuous outcome scaling**: Revisit whether the current approach
+  (scale + quasibinomial throughout) is optimal, or whether lmtp's hybrid
+  approach (scale + gaussian Q-models, binomial fluctuation only) would be
+  preferable. See Open design decisions above.
 
 ## See also
 

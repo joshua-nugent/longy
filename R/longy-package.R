@@ -30,6 +30,8 @@ utils::globalVariables(c(
   ".Q_star", ".Q_star_0", ".Q_star_next",
   ".H", ".aug", ".indicator", ".Y_T",
   ".tmp_order",
+  # contrast IC columns
+  ".ic", ".ic_1", ".ic_2",
   # ggplot2 aes variables
   "time", "estimate", "ci_lower", "ci_upper", "regime", "estimator_label",
   # plot_sl_diagnostics variables

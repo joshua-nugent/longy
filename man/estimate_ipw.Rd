@@ -34,7 +34,9 @@ estimates at all time points with data.}
 
 \item{n_boot}{Integer. Number of bootstrap replicates (only for \code{"bootstrap"}).}
 
-\item{cluster}{Character. Column name for clustered standard errors.}
+\item{cluster}{Character. Column name for clustered standard errors. If
+NULL (default), uses \code{nodes$cluster} from the \code{longy_data}
+object when available.}
 
 \item{stabilized}{Logical. Use stabilized weights? Only applies when
 weights are auto-computed (ignored if weights already exist). Default TRUE.}

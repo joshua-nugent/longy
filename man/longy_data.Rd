@@ -14,6 +14,7 @@ longy_data(
   observation = NULL,
   baseline = character(0),
   timevarying = character(0),
+  cluster = NULL,
   sampling_weights = NULL,
   outcome_type = "binary",
   competing = NULL,
@@ -60,6 +61,16 @@ automatically.}
 
 \item{timevarying}{Character vector. Column names for time-varying covariates.}
 
+\item{cluster}{Character. Column name for a clustering/grouping variable
+(e.g., household, site, clinic). When specified, all observations within
+a cluster are kept in the same CV fold — both for SuperLearner internal
+cross-validation and for cross-fitting. This prevents overly optimistic
+risk estimates when within-cluster observations are correlated. Inference
+functions (\code{estimate_ipw}, etc.) also use the cluster for
+cluster-robust standard errors when available. Must be constant within
+subject (each subject belongs to exactly one cluster). NULL if no
+clustering.}
+
 \item{sampling_weights}{Character. Column name for external sampling/survey
 weights (e.g., to generalize from the study to a target population). Must
 be non-negative (zero allowed to exclude subjects) and constant within
@@ -102,7 +113,7 @@ internal columns created during validation (e.g. \code{.cens_*},
 \code{outcome}, \code{treatment}, \code{censoring} (internal binary
 column names or NULL), \code{censoring_col} (original column name or
 NULL), \code{censoring_levels} (cause labels or NULL),
-\code{observation}, \code{sampling_weights}, \code{baseline},
+\code{observation}, \code{cluster}, \code{sampling_weights}, \code{baseline},
 \code{timevarying}, \code{outcome_type}, \code{competing}.}
 \item{regimes}{Initially empty list; populated by
 \code{\link{define_regime}}.}

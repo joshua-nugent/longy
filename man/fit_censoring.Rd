@@ -13,7 +13,6 @@ fit_censoring(
   adaptive_cv = TRUE,
   min_obs = 50L,
   min_events = 20L,
-  bounds = c(0.005, 0.995),
   times = NULL,
   use_ffSL = FALSE,
   parallel = FALSE,
@@ -46,8 +45,6 @@ CV folds are chosen automatically. When FALSE, uses
 \item{min_events}{Integer. Minimum minority-class events required to fit a
 model. When the minority class count is below this AND the minority rate
 is below 0.01, marginal fallback is used. Default 20.}
-
-\item{bounds}{Numeric(2). Prediction bounds.}
 
 \item{times}{Numeric vector. If provided, only fit through \code{max(times)}.}
 

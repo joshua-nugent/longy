@@ -8,6 +8,7 @@ compute_weights(
   obj,
   regime = NULL,
   stabilized = TRUE,
+  bounds = c(0.005, 0.995),
   truncation = NULL,
   truncation_quantile = NULL,
   recompute = FALSE
@@ -21,10 +22,15 @@ models already fit.}
 
 \item{stabilized}{Logical. Use stabilized weights (numerator = marginal probability).}
 
-\item{truncation}{Numeric. Hard upper bound for weights. NULL for no truncation.}
+\item{bounds}{Numeric(2). Bounds for the point-in-time product of predicted
+probabilities (g_a * g_c * g_r) before computing weights. Default
+\code{c(0.005, 0.995)}. Set to NULL to skip bounding.}
 
-\item{truncation_quantile}{Numeric in (0,1). Truncate at this quantile.
-Applied after \code{truncation} if both specified.}
+\item{truncation}{Numeric. Hard upper bound for final weights. NULL for no
+truncation.}
+
+\item{truncation_quantile}{Numeric in (0,1). Truncate final weights at this
+quantile. Applied after \code{truncation} if both specified.}
 
 \item{recompute}{Logical. If FALSE (default), errors when weights are already
 computed for the requested regime(s). Set to TRUE to re-compute.}
@@ -39,9 +45,15 @@ are cumulated (absorbing processes); observation weights are point-in-time
 (intermittent process).
 }
 \details{
-Weight truncation is controlled via \code{truncation} (hard cap) and
-\code{truncation_quantile} (percentile-based cap), which bound the final
-stabilized weight directly. For TMLE, use \code{g_bounds} in
+Before computing weights, the point-in-time product of all raw predicted
+probabilities (g_a * g_c * g_r) is bounded to \code{bounds}. This prevents
+extreme weights from near-positivity violations. The bounding adjustment is
+absorbed into the treatment-censoring (absorbing) component so that the
+cumulation/non-cumulation distinction is preserved.
+
+Additional weight truncation is available via \code{truncation} (hard cap)
+and \code{truncation_quantile} (percentile-based cap), which bound the
+final stabilized weight directly. For TMLE, use \code{g_bounds} in
 \code{\link{estimate_tmle}()} instead — it bounds the unstabilized
 cumulative propensity score used in the clever covariate denominator.
 }

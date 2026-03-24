@@ -117,9 +117,14 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
   merge_cols <- unique(c(id_col, nodes$outcome))
   if (!is.null(cluster)) merge_cols <- unique(c(merge_cols, cluster))
 
+  # Full baseline population size (IC denominator)
+  N <- obj$meta$n_subjects
+  all_ids <- unique(obj$data[[id_col]])
+
   # Point estimates (also collect merged data for IC inference)
   est_list <- vector("list", length(times))
   merged_list <- vector("list", length(times))
+  ic_list <- vector("list", length(times))
   for (k in seq_along(times)) {
     tt <- times[k]
     w_t <- w_dt[list(tt), on = ".time", nomatch = NULL]
@@ -169,8 +174,29 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
       n_effective = n_eff,
       n_at_risk = n_at_risk
     )
+
+    # Compute per-subject ICs for contrast inference
+    # IC_i = N * w_i * (Y_i - psi) / sum(w) for at-risk; 0 otherwise
+    if (n_at_risk >= 2 && sum(wi) > 0 && !is.na(psi_hat)) {
+      IC_at_risk <- N * wi * (yi - psi_hat) / sum(wi)
+      # Build full-population IC vector (0 for not-at-risk)
+      ic_vec <- rep(0, N)
+      names(ic_vec) <- as.character(all_ids)
+      ic_vec[as.character(merged[[id_col]])] <- IC_at_risk
+      ic_list[[k]] <- data.table::data.table(
+        .id = all_ids,
+        .time = tt,
+        .ic = ic_vec
+      )
+      data.table::setnames(ic_list[[k]], ".id", id_col)
+    }
   }
   estimates <- data.table::rbindlist(est_list)
+  ic_dt <- if (length(Filter(Negate(is.null), ic_list)) > 0) {
+    data.table::rbindlist(Filter(Negate(is.null), ic_list))
+  } else {
+    NULL
+  }
 
   # Inference (computed on raw/unsmoothed estimates)
   if (inference == "ic") {
@@ -213,7 +239,8 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
     regime = rname,
     estimator = "ipw",
     inference = inference,
-    ci_level = ci_level
+    ci_level = ci_level,
+    ic = ic_dt
   )
   class(result) <- "longy_result"
   obj$results[[paste0(rname, "_ipw")]] <- result

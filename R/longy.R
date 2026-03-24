@@ -108,6 +108,9 @@
 #'   (parallelizes fold x algorithm combinations via \code{future.apply}).
 #'   Default FALSE. Forced to FALSE inside parallel workers to prevent
 #'   nested parallelism.
+#' @param contrast Logical. If TRUE and \code{length(regimes) >= 2}, auto-compute
+#'   pairwise risk-difference contrasts (delta-method SEs when ICs are available).
+#'   Stored in \code{obj$contrasts}. Default FALSE.
 #' @param parallel Logical. If TRUE and a non-sequential \code{future::plan()}
 #'   is active, dispatches time-point models in parallel via
 #'   \code{future.apply::future_lapply()}. Default FALSE.
@@ -219,6 +222,7 @@ longy <- function(data,
                   cross_fit_seed = NULL,
                   sl_control = list(),
                   use_ffSL = FALSE,
+                  contrast = FALSE,
                   parallel = FALSE,
                   k = 0,
                   verbose = TRUE) {
@@ -450,6 +454,26 @@ longy <- function(data,
                          parallel = parallel,
                          verbose = verbose)
     cur_step <- cur_step + 1L
+  }
+
+  # --- Auto-compute pairwise contrasts ---
+  if (isTRUE(contrast) && length(regime_names) >= 2) {
+    obj$contrasts <- list()
+    pairs <- utils::combn(regime_names, 2, simplify = FALSE)
+    for (est in estimator) {
+      for (pair in pairs) {
+        ctr <- tryCatch(
+          contrast(obj, regime = pair, estimator = est, ci_level = ci_level),
+          error = function(e) NULL
+        )
+        if (!is.null(ctr)) {
+          ctr_key <- sprintf("%s_vs_%s_%s", pair[1], pair[2], est)
+          obj$contrasts[[ctr_key]] <- ctr
+        }
+      }
+    }
+    if (verbose && length(obj$contrasts) > 0)
+      .vmsg("Computed %d pairwise contrast(s).", length(obj$contrasts))
   }
 
   obj
