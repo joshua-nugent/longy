@@ -22,7 +22,7 @@ utils::globalVariables(c(
   # .compute_cumulative_g / compute_weights columns
   ".g_a", ".g_c", ".g_point", ".g_cum", ".g_r",
   ".marg_g_a", ".marg_g_c", ".marg_g_r",
-  ".g_product", ".g_product_bounded", ".g_ac",
+  ".g_ac", ".g_cum_ac", ".marg_cum_ac",
   ".d",
   # Auto-detected observation column
   ".obs",

@@ -77,11 +77,11 @@
 #' @param min_events Integer. Minimum minority-class events required to fit a
 #'   model. When the minority class count is below this AND the minority rate
 #'   is below 0.01, marginal fallback is used. Default 20.
-#' @param bounds Numeric(2). Bounds for the point-in-time product of predicted
-#'   probabilities (g_a * g_c * g_r) in \code{compute_weights()}. Prevents
-#'   extreme IPW weights from near-positivity violations. Default
-#'   \code{c(0.005, 0.995)}. Set to NULL to skip bounding. For TMLE, use
-#'   \code{g_bounds} instead.
+#' @param bounds Numeric(2). Bounds for the unstabilized cumulative
+#'   treatment-censoring product (cumprod of g_a * g_c) in
+#'   \code{compute_weights()}. Prevents extreme IPW weights from
+#'   near-positivity violations. Default \code{c(0.01, 1)}. Set to NULL to
+#'   skip bounding. For TMLE, use \code{g_bounds} instead.
 #' @param risk_set_treatment Character. Which subjects form the risk set for
 #'   treatment model fitting. \code{"all"} (default) uses all uncensored
 #'   subjects (fit once, share across regimes). \code{"followers"} restricts to
@@ -213,7 +213,7 @@ longy <- function(data,
                   adaptive_cv = TRUE,
                   min_obs = 50L,
                   min_events = 20L,
-                  bounds = c(0.005, 0.995),
+                  bounds = c(0.01, 1),
                   risk_set_treatment = "all",
                   risk_set_outcome = "all",
                   g_bounds = c(0.01, 1),
@@ -419,7 +419,7 @@ longy <- function(data,
     obj <- fit_outcome(obj, regime = regime_names, covariates = covariates,
                          learners = learners_outcome, sl_control = sl_control,
                          adaptive_cv = adaptive_cv,
-                         min_obs = min_obs, bounds = bounds,
+                         min_obs = min_obs,
                          times = times, use_ffSL = use_ffSL,
                          parallel = outcome_parallel,
                          risk_set = risk_set_outcome,

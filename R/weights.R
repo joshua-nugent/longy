@@ -155,11 +155,11 @@
 #' are cumulated (absorbing processes); observation weights are point-in-time
 #' (intermittent process).
 #'
-#' Before computing weights, the point-in-time product of all raw predicted
-#' probabilities (g_a * g_c * g_r) is bounded to \code{bounds}. This prevents
-#' extreme weights from near-positivity violations. The bounding adjustment is
-#' absorbed into the treatment-censoring (absorbing) component so that the
-#' cumulation/non-cumulation distinction is preserved.
+#' The unstabilized cumulative treatment-censoring product
+#' (cumprod of g_a * g_c) is bounded to \code{bounds} after cumulation.
+#' This directly prevents extreme weights from near-positivity violations
+#' that compound over time. Observation weights (intermittent, not cumulated)
+#' are applied separately as point-in-time multipliers.
 #'
 #' Additional weight truncation is available via \code{truncation} (hard cap)
 #' and \code{truncation_quantile} (percentile-based cap), which bound the
@@ -171,9 +171,9 @@
 #'   models already fit.
 #' @param regime Character. Name of the regime.
 #' @param stabilized Logical. Use stabilized weights (numerator = marginal probability).
-#' @param bounds Numeric(2). Bounds for the point-in-time product of predicted
-#'   probabilities (g_a * g_c * g_r) before computing weights. Default
-#'   \code{c(0.005, 0.995)}. Set to NULL to skip bounding.
+#' @param bounds Numeric(2). Bounds for the unstabilized cumulative
+#'   treatment-censoring product (cumprod of g_a * g_c) after cumulation.
+#'   Default \code{c(0.01, 1)}. Set to NULL to skip bounding.
 #' @param truncation Numeric. Hard upper bound for final weights. NULL for no
 #'   truncation.
 #' @param truncation_quantile Numeric in (0,1). Truncate final weights at this
@@ -184,7 +184,7 @@
 #' @return Modified `longy_data` object with weights stored.
 #' @export
 compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
-                            bounds = c(0.005, 0.995),
+                            bounds = c(0.01, 1),
                             truncation = NULL, truncation_quantile = NULL,
                             recompute = FALSE) {
   obj <- .as_longy_data(obj)
@@ -284,31 +284,34 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     w[, .sw_r := 1]
   }
 
-  # --- Bound the product of raw probabilities ---
-  # Compute point-in-time product of all components, then bound.
-  # The bounding adjustment is absorbed into the AC (absorbing) component
-  # so that observation (intermittent) remains point-in-time.
-  w[, .g_product := .g_a * .g_c * .g_r]
-  if (!is.null(bounds)) {
-    w[, .g_product_bounded := pmax(pmin(.g_product, bounds[2]), bounds[1])]
-  } else {
-    w[, .g_product_bounded := .g_product]
-  }
-  # Derive bounded AC component: absorb all bounding into the absorbing part
-  w[, .g_ac := ifelse(.g_r > 0, .g_product_bounded / .g_r, .g_product_bounded)]
-
-  # --- Combined AC weight from bounded product ---
-  # .sw_a and .sw_c remain from raw probabilities (for diagnostics).
-  # .sw_ac reflects the bounded product.
-  if (stabilized) {
-    w[, .sw_ac := (.marg_g_a * .marg_g_c) / .g_ac]
-  } else {
-    w[, .sw_ac := 1 / .g_ac]
-  }
-
-  # Cumulative A*C weight (absorbing processes)
+  # --- Cumulate AC component, then bound ---
+  # Compute raw point-in-time AC product, cumulate, then bound the cumulative
+  # value. This directly prevents extreme weights from compounding over time.
+  # Observation weights (intermittent) are applied separately, not cumulated.
+  w[, .g_ac := .g_a * .g_c]
   data.table::setkeyv(w, c(id_col, ".time"))
-  w[, .csw_ac := cumprod(.sw_ac), by = c(id_col)]
+  w[, .g_cum_ac := cumprod(.g_ac), by = c(id_col)]
+
+  if (!is.null(bounds)) {
+    n_trunc <- sum(w$.g_cum_ac < bounds[1])
+    if (n_trunc > 0) {
+      pct <- 100 * n_trunc / nrow(w)
+      warning(sprintf(
+        "Positivity: %d subject-time obs (%.1f%%) had cumulative g truncated to bounds[1]=%.4f.",
+        n_trunc, pct, bounds[1]), call. = FALSE)
+    }
+    w[, .g_cum_ac := pmax(pmin(.g_cum_ac, bounds[2]), bounds[1])]
+  }
+
+  # --- Stabilized cumulative AC weight ---
+  # .sw_a and .sw_c remain from raw probabilities (for diagnostics).
+  # .csw_ac is derived from the bounded cumulative product.
+  if (stabilized) {
+    w[, .marg_cum_ac := cumprod(.marg_g_a * .marg_g_c), by = c(id_col)]
+    w[, .csw_ac := .marg_cum_ac / .g_cum_ac]
+  } else {
+    w[, .csw_ac := 1 / .g_cum_ac]
+  }
 
   # Final weight: cumulative A*C * point-in-time R
   w[, .final_weight := .csw_ac * .sw_r]

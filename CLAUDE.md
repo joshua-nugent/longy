@@ -158,19 +158,18 @@ Results stored as `obj$results$<regime>_<estimator>`:
 
 Predicted probabilities are stored unbounded by `fit_treatment`, `fit_censoring`,
 and `fit_observation`. Bounding happens in `compute_weights()`, which bounds the
-**product** of raw probabilities (g_a * g_c * g_r) before computing weights.
-The bounding adjustment is absorbed into the AC (absorbing) component so that
-observation (intermittent) remains point-in-time.
+**cumulative** AC product (cumprod of g_a * g_c) after cumulation. This directly
+prevents extreme weights that compound over time. Observation weights (intermittent)
+are applied separately as point-in-time multipliers.
 
 ```
 g_a(t)      = P(A=d(t)|past)           # from fit_treatment (raw, unbounded)
 g_c(t)      = P(C=0|past)              # from fit_censoring (raw, unbounded)
 g_r(t)      = P(R=1|past)              # from fit_observation (raw, unbounded)
-g_product(t) = g_a * g_c * g_r         # combined point-in-time probability
-g_bounded(t) = bound(g_product, bounds) # bounded to prevent extreme weights
-g_ac(t)     = g_bounded(t) / g_r(t)    # bounded AC component (absorbs adjustment)
-sw_ac(t)    = (marg_a * marg_c) / g_ac  # stabilized AC weight
-csw_ac(t)   = cumprod(sw_ac) over time  # CUMULATED (absorbing)
+g_ac(t)     = g_a * g_c                # point-in-time AC product (unbounded)
+g_cum_ac(t) = cumprod(g_ac) over time  # cumulative AC product
+g_cum_ac(t) = bound(g_cum_ac, bounds)  # bounded AFTER cumulation (default [0.01, 1])
+csw_ac(t)   = marg_cum_ac / g_cum_ac   # stabilized cumulative AC weight
 sw_r(t)     = marg_r / g_r(t)          # observation (NOT cumulated)
 final(t)    = csw_ac(t) * sw_r(t)      # total weight
 ```
