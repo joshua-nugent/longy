@@ -526,6 +526,8 @@ longy <- function(data,
 #'   models. Used when fitting from scratch (no donor available). NULL uses
 #'   all baseline + timevarying. Ignored when reusing donor fits.
 #' @param stabilized Logical. Use stabilized weights (IPW only). Default TRUE.
+#' @param bounds Numeric(2) or NULL. Bounds for the cumulative AC product
+#'   (IPW only). Default \code{c(0.01, 1)}.
 #' @param truncation Numeric. Weight truncation cap (IPW only).
 #' @param truncation_quantile Numeric. Quantile-based weight truncation (IPW only).
 #' @param inference Character. Inference method. If NULL (default), matches
@@ -603,6 +605,7 @@ add_regime <- function(obj, name, static = NULL, shifted = NULL,
                        stabilized = TRUE,
                        stabilization = "marginal",
                        numerator_learners = NULL,
+                       bounds = c(0.01, 1),
                        truncation = NULL,
                        truncation_quantile = NULL,
                        inference = NULL,
@@ -832,6 +835,7 @@ add_regime <- function(obj, name, static = NULL, shifted = NULL,
     obj <- compute_weights(obj, regime = name, stabilized = stabilized,
                            stabilization = stabilization,
                            numerator_learners = numerator_learners,
+                           bounds = bounds,
                            truncation = truncation,
                            truncation_quantile = truncation_quantile,
                            verbose = verbose)

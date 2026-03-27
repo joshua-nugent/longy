@@ -517,27 +517,12 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     w[, .sw_c := 1]
   }
 
-  # --- Observation component: extract g_r and marginal ---
-  obs_fit <- obj$fits$observation[[rname]]
-  if (!is.null(obs_fit)) {
-    gR <- obs_fit$predictions
-    # Keep observed rows (observed == 1)
-    gR_obs <- gR[gR$.observed == 1L, ]
-    gR_obs[, .sw_r := if (stabilized) .marg_r / .p_r else 1 / .p_r]
-
-    rw <- gR_obs[, c(id_col, ".time", ".p_r", ".marg_r", ".sw_r"), with = FALSE]
-    data.table::setnames(rw, c(".p_r", ".marg_r"), c(".g_r", ".marg_g_r"))
-    w <- merge(w, rw, by = c(id_col, ".time"), all = FALSE)
-  } else {
-    w[, .g_r := 1]
-    w[, .marg_g_r := 1]
-    w[, .sw_r := 1]
-  }
-
   # --- Cumulate AC component, then bound ---
   # Compute raw point-in-time AC product, cumulate, then bound the cumulative
-  # value. This directly prevents extreme weights from compounding over time.
-  # Observation weights (intermittent) are applied separately, not cumulated.
+  # value BEFORE merging observation weights. This ensures the cumulative product
+  # includes all time points (even unobserved ones), since observation (R) is
+  # intermittent — a subject unobserved at time t still contributed g_a(t)*g_c(t)
+  # to the cumulative denominator. Observation weights are point-in-time only.
   w[, .g_ac := .g_a * .g_c]
   data.table::setkeyv(w, c(id_col, ".time"))
   w[, .g_cum_ac := cumprod(.g_ac), by = c(id_col)]
@@ -597,7 +582,9 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
           nc_col <- data.table::copy(nc[, c(id_col, ".time", ".p_num"), with = FALSE])
           data.table::setnames(nc_col, ".p_num", ".p_num_c")
           w <- merge(w, nc_col, by = c(id_col, ".time"), all.x = TRUE)
-          w[is.na(.p_num_c), .p_num_c := 1]
+          # Defensive: fall back to marginal P(C=1) so 1-.p_num_c = marginal P(C=0)
+          marg_c_col <- paste0(".marg_c_", cvar)
+          w[is.na(.p_num_c), .p_num_c := 1 - get(marg_c_col)]
           w[, .num_g_c := .num_g_c * (1 - .p_num_c)]
           w[, .p_num_c := NULL]
         }
@@ -617,6 +604,26 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     }
   } else {
     w[, .csw_ac := 1 / .g_cum_ac]
+  }
+
+  # --- Observation component: extract g_r and marginal ---
+  # Merged AFTER cumulation so the cumulative AC product includes all time points,
+  # even those where the subject was unobserved (R=0). The inner join restricts
+  # the final weight table to observed subject-times only.
+  obs_fit <- obj$fits$observation[[rname]]
+  if (!is.null(obs_fit)) {
+    gR <- obs_fit$predictions
+    # Keep observed rows (observed == 1)
+    gR_obs <- gR[gR$.observed == 1L, ]
+    gR_obs[, .sw_r := if (stabilized) .marg_r / .p_r else 1 / .p_r]
+
+    rw <- gR_obs[, c(id_col, ".time", ".p_r", ".marg_r", ".sw_r"), with = FALSE]
+    data.table::setnames(rw, c(".p_r", ".marg_r"), c(".g_r", ".marg_g_r"))
+    w <- merge(w, rw, by = c(id_col, ".time"), all = FALSE)
+  } else {
+    w[, .g_r := 1]
+    w[, .marg_g_r := 1]
+    w[, .sw_r := 1]
   }
 
   # Final weight: cumulative A*C * point-in-time R

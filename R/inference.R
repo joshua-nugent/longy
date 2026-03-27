@@ -51,8 +51,8 @@
   # Subjects not at risk at time t contribute IC=0. The weights already
 
   # account for censoring/dropout, so dividing by N (not n_t) avoids
-  # double-counting attrition. Matches Lunceford & Davidian (2004),
-  # Hernán & Robins Ch 12, and ltmle's implementation.
+  # double-counting attrition. This is the Hajek (self-normalized) IC:
+  # IC_i = N * w_i * (Y_i - psi) / sum(w). See Hernán & Robins Ch 12.
   N <- obj$meta$n_subjects
 
   results <- vector("list", nrow(estimates))

@@ -31,6 +31,17 @@
 #'   object when available.
 #' @param stabilized Logical. Use stabilized weights? Only applies when
 #'   weights are auto-computed (ignored if weights already exist). Default TRUE.
+#' @param stabilization Character. Controls the numerator of stabilized IPW
+#'   weights. \code{"marginal"} (default) uses unconditional marginal rates.
+#'   \code{"baseline"} fits models using only baseline covariates. Only applies
+#'   when weights are auto-computed.
+#' @param numerator_learners Character vector. SuperLearner library for
+#'   baseline numerator models. Default \code{NULL} uses \code{"SL.glm"}.
+#'   Only applies when \code{stabilization = "baseline"} and weights are
+#'   auto-computed.
+#' @param bounds Numeric(2) or NULL. Bounds for the cumulative AC product
+#'   (cumprod of g_a * g_c), passed to \code{\link{compute_weights}()}.
+#'   Default \code{c(0.01, 1)}. Only applies when weights are auto-computed.
 #' @param truncation Numeric(2) or NULL. Hard bounds for weight truncation,
 #'   passed to \code{\link{compute_weights}()}. Only applies when weights are
 #'   auto-computed.
@@ -44,7 +55,11 @@
 #' @export
 estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
                          ci_level = 0.95, n_boot = 200L, cluster = NULL,
-                         stabilized = TRUE, truncation = NULL,
+                         stabilized = TRUE,
+                         stabilization = c("marginal", "baseline"),
+                         numerator_learners = NULL,
+                         bounds = c(0.01, 1),
+                         truncation = NULL,
                          truncation_quantile = NULL) {
   obj <- .as_longy_data(obj)
   regime <- .resolve_regimes(obj, regime)
@@ -87,6 +102,9 @@ estimate_ipw <- function(obj, regime = NULL, times = NULL, inference = "ic",
         rname), call. = FALSE)
     }
     obj <- compute_weights(obj, regime = rname, stabilized = stabilized,
+                            stabilization = match.arg(stabilization),
+                            numerator_learners = numerator_learners,
+                            bounds = bounds,
                             truncation = truncation,
                             truncation_quantile = truncation_quantile,
                             recompute = TRUE)
