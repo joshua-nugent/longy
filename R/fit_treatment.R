@@ -43,6 +43,13 @@
 #'   model fitting. \code{"all"} (default) uses all uncensored subjects
 #'   (fit once, share across regimes). \code{"followers"} restricts to
 #'   regime-followers at each time, fitting separate models per regime.
+#' @param fit_numerator Logical. If TRUE, also fits baseline-only numerator
+#'   models for use with baseline-stabilized weights
+#'   (\code{stabilization = "baseline"} in \code{\link{compute_weights}}).
+#'   Default FALSE.
+#' @param numerator_learners Character vector. SuperLearner library for
+#'   baseline numerator models. Default \code{NULL} uses \code{"SL.glm"}.
+#'   Ignored when \code{fit_numerator = FALSE}.
 #'
 #' @return Modified `longy_data` object with treatment fits stored.
 #' @export
@@ -52,7 +59,9 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                           times = NULL, use_ffSL = FALSE,
                           parallel = FALSE,
                           verbose = TRUE, refit = FALSE,
-                          risk_set = c("all", "followers")) {
+                          risk_set = c("all", "followers"),
+                          fit_numerator = FALSE,
+                          numerator_learners = NULL) {
   obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "treatment")
   regime <- .resolve_regimes(obj, regime)
@@ -318,6 +327,16 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
   } else {
     obj$fits$treatment[[fit_rname]] <- fit_result
     obj$fits$treatment[[fit_rname]]$regime <- fit_rname
+  }
+
+  # Fit baseline numerator models if requested
+  if (fit_numerator) {
+    num_regimes <- if (risk_set == "all") regime else fit_rname
+    for (nr in num_regimes) {
+      obj <- .fit_baseline_numerator(obj, nr, "treatment",
+                                      learners = numerator_learners,
+                                      verbose = verbose)
+    }
   }
 
   } # end for fit_rname

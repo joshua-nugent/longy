@@ -23,6 +23,7 @@ utils::globalVariables(c(
   ".g_a", ".g_c", ".g_point", ".g_cum", ".g_r",
   ".marg_g_a", ".marg_g_c", ".marg_g_r",
   ".g_ac", ".g_cum_ac", ".marg_cum_ac",
+  ".p_num", ".p_num_c", ".num_g_a", ".num_g_c", ".num_cum_ac", ".d_num",
   ".d",
   # Auto-detected observation column
   ".obs",

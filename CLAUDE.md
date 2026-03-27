@@ -37,6 +37,8 @@ estimators with IC/EIF/bootstrap/sandwich inference, plus cross-fitting (CV-TMLE
 - `parallel`: Dispatch time-point models in parallel via `future.apply`
 - `k`: Lag depth for covariate history (default `0`)
 - `min_obs`, `min_events`, `adaptive_cv`: Model fitting controls
+- `stabilization`: `"marginal"` (default) or `"baseline"` — numerator type for stabilized IPW weights
+- `numerator_learners`: SL library for baseline numerator models (default `"SL.glm"`)
 
 ## DAG ordering assumption
 
@@ -169,9 +171,14 @@ g_r(t)      = P(R=1|past)              # from fit_observation (raw, unbounded)
 g_ac(t)     = g_a * g_c                # point-in-time AC product (unbounded)
 g_cum_ac(t) = cumprod(g_ac) over time  # cumulative AC product
 g_cum_ac(t) = bound(g_cum_ac, bounds)  # bounded AFTER cumulation (default [0.01, 1])
-csw_ac(t)   = marg_cum_ac / g_cum_ac   # stabilized cumulative AC weight
+num_ac(t)   = cumprod(num_a * num_c)   # numerator cumulative product (see below)
+csw_ac(t)   = num_ac / g_cum_ac        # stabilized cumulative AC weight
 sw_r(t)     = marg_r / g_r(t)          # observation (NOT cumulated)
 final(t)    = csw_ac(t) * sw_r(t)      # total weight
+
+# Numerator (controlled by stabilization parameter):
+# "marginal" (default): num_a = P(A=d(t)), num_c = P(C=0)    (unconditional)
+# "baseline":           num_a = P(A=d(t)|baseline), num_c = P(C=0|baseline)
 ```
 
 ## TMLE algorithm (critical logic)

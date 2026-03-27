@@ -207,9 +207,12 @@
       }
       b_obj <- compute_weights(b_obj, regime = regime,
                                stabilized = obj$weights[[regime]]$stabilized,
+                               stabilization = obj$weights[[regime]]$stabilization %||% "marginal",
+                               numerator_learners = obj$weights[[regime]]$numerator_learners,
                                bounds = obj$weights[[regime]]$bounds,
                                truncation = obj$weights[[regime]]$truncation,
-                               truncation_quantile = obj$weights[[regime]]$truncation_quantile)
+                               truncation_quantile = obj$weights[[regime]]$truncation_quantile,
+                               verbose = FALSE)
       b_obj
     }, error = function(e) NULL)
 

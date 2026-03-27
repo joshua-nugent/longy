@@ -82,6 +82,14 @@
 #'   \code{compute_weights()}. Prevents extreme IPW weights from
 #'   near-positivity violations. Default \code{c(0.01, 1)}. Set to NULL to
 #'   skip bounding. For TMLE, use \code{g_bounds} instead.
+#' @param stabilization Character. Controls the numerator of stabilized IPW
+#'   weights. \code{"marginal"} (default) uses unconditional marginal rates.
+#'   \code{"baseline"} fits models using only baseline covariates, which can
+#'   reduce weight variability. Ignored when \code{stabilized = FALSE} or for
+#'   TMLE/G-comp estimators.
+#' @param numerator_learners Character vector. SuperLearner library for
+#'   baseline numerator models when \code{stabilization = "baseline"}.
+#'   Default \code{NULL} uses \code{"SL.glm"}.
 #' @param risk_set_treatment Character. Which subjects form the risk set for
 #'   treatment model fitting. \code{"all"} (default) uses all uncensored
 #'   subjects (fit once, share across regimes). \code{"followers"} restricts to
@@ -214,6 +222,8 @@ longy <- function(data,
                   min_obs = 50L,
                   min_events = 20L,
                   bounds = c(0.01, 1),
+                  stabilization = "marginal",
+                  numerator_learners = NULL,
                   risk_set_treatment = "all",
                   risk_set_outcome = "all",
                   g_bounds = c(0.01, 1),
@@ -388,9 +398,12 @@ longy <- function(data,
                         cur_step + 1L, n_steps)
     obj <- compute_weights(obj, regime = regime_names,
                              stabilized = stabilized,
+                             stabilization = stabilization,
+                             numerator_learners = numerator_learners,
                              bounds = bounds,
                              truncation = truncation,
-                             truncation_quantile = truncation_quantile)
+                             truncation_quantile = truncation_quantile,
+                             verbose = verbose)
 
     obj <- estimate_ipw(obj, regime = regime_names, times = times,
                         inference = inference, ci_level = ci_level,
@@ -588,6 +601,8 @@ add_regime <- function(obj, name, static = NULL, shifted = NULL,
                        learners,
                        covariates = NULL,
                        stabilized = TRUE,
+                       stabilization = "marginal",
+                       numerator_learners = NULL,
                        truncation = NULL,
                        truncation_quantile = NULL,
                        inference = NULL,
@@ -815,8 +830,11 @@ add_regime <- function(obj, name, static = NULL, shifted = NULL,
   if (do_ipw) {
     if (verbose) .vmsg("  Computing weights and estimating (IPW)...")
     obj <- compute_weights(obj, regime = name, stabilized = stabilized,
+                           stabilization = stabilization,
+                           numerator_learners = numerator_learners,
                            truncation = truncation,
-                           truncation_quantile = truncation_quantile)
+                           truncation_quantile = truncation_quantile,
+                           verbose = verbose)
     obj <- estimate_ipw(obj, regime = name, times = times,
                         inference = ipw_inf, ci_level = ci_level,
                         n_boot = n_boot, cluster = cluster)

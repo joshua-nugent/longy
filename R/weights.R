@@ -148,6 +148,242 @@
   g_dt
 }
 
+#' Fit Baseline-Only Numerator Models
+#'
+#' Fits models using only baseline covariates for use as the numerator in
+#' baseline-stabilized IPW weights. Called from \code{fit_treatment()},
+#' \code{fit_censoring()}, or on-demand from \code{compute_weights()}.
+#'
+#' The risk set at each time point matches the denominator model exactly:
+#' the helper reads existing denominator predictions to identify which
+#' (id, time) pairs were at risk, then joins back to \code{obj$data} to
+#' obtain baseline covariates.
+#'
+#' @param obj A \code{longy_data} object with denominator models already fit.
+#' @param regime Character. Name of the regime.
+#' @param model_type Character. \code{"treatment"} or \code{"censoring"}.
+#' @param learners Character vector. SuperLearner library for numerator models.
+#'   Default \code{NULL} uses \code{"SL.glm"} only.
+#' @param verbose Logical. Print progress.
+#'
+#' @return Modified \code{obj} with numerator fits stored in
+#'   \code{obj$fits$numerator$treatment[[regime]]} or
+#'   \code{obj$fits$numerator$censoring[[regime]]}.
+#' @noRd
+.fit_baseline_numerator <- function(obj, regime, model_type = c("treatment", "censoring"),
+                                     learners = NULL, verbose = TRUE) {
+  model_type <- match.arg(model_type)
+  nodes <- obj$nodes
+  id_col <- nodes$id
+  baseline_covs <- nodes$baseline
+
+  if (length(baseline_covs) == 0) {
+    warning("No baseline covariates available; baseline numerator equals marginal.",
+            call. = FALSE)
+  }
+
+  if (is.null(learners)) learners <- "SL.glm"
+
+  cf_enabled <- isTRUE(obj$crossfit$enabled)
+
+  if (model_type == "treatment") {
+    obj <- .fit_baseline_numerator_treatment(obj, regime, baseline_covs,
+                                              learners, cf_enabled, verbose)
+  } else {
+    obj <- .fit_baseline_numerator_censoring(obj, regime, baseline_covs,
+                                              learners, cf_enabled, verbose)
+  }
+  obj
+}
+
+#' @noRd
+.fit_baseline_numerator_treatment <- function(obj, regime, baseline_covs,
+                                               learners, cf_enabled, verbose) {
+  nodes <- obj$nodes
+  id_col <- nodes$id
+  denom <- obj$fits$treatment[[regime]]$predictions
+  dt <- obj$data
+  time_vals <- sort(unique(denom$.time))
+
+  results <- vector("list", length(time_vals))
+
+  for (i in seq_along(time_vals)) {
+    tt <- time_vals[i]
+    # Risk set = subjects in the denominator predictions at this time
+    denom_t <- denom[denom$.time == tt, ]
+    risk_ids <- denom_t[[id_col]]
+    if (length(risk_ids) == 0) next
+
+    dt_t <- dt[dt[[nodes$time]] == tt, ]
+    # Join to get baseline covariates for risk-set subjects
+    dt_risk <- dt_t[dt_t[[id_col]] %in% risk_ids, ]
+    # Ensure same order as denom_t
+    dt_risk <- dt_risk[match(risk_ids, dt_risk[[id_col]]), ]
+
+    lag_covs <- .get_lag_covariates(nodes, i)
+    all_covs <- c(baseline_covs, lag_covs)
+    # Filter to covariates that actually exist in the data
+    all_covs <- intersect(all_covs, names(dt_risk))
+    Y <- denom_t$.treatment
+
+    if (length(all_covs) == 0 || length(unique(Y)) <= 1) {
+      # No covariates or constant outcome: use marginal
+      ow <- if (!is.null(nodes$sampling_weights)) dt_risk[[nodes$sampling_weights]] else NULL
+      p_num <- rep(if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y),
+                   length(Y))
+    } else if (cf_enabled) {
+      p_num <- .cf_fit_numerator_one_time(
+        dt_risk, Y, all_covs, nodes, learners, obj$crossfit, verbose, tt, "g_A_num")
+    } else {
+      X <- as.data.frame(dt_risk[, all_covs, with = FALSE])
+      ow <- if (!is.null(nodes$sampling_weights)) dt_risk[[nodes$sampling_weights]] else NULL
+      ctx <- sprintf("g_A_num, time=%d, n=%d", tt, length(Y))
+      fit <- .safe_sl(Y = Y, X = X, learners = learners,
+                      cv_folds = min(10L, length(Y)), obs_weights = ow,
+                      context = ctx, verbose = FALSE)
+      p_num <- fit$predictions
+    }
+
+    results[[i]] <- data.table::data.table(
+      .id = risk_ids,
+      .time = tt,
+      .p_num = p_num
+    )
+    data.table::setnames(results[[i]], ".id", id_col)
+
+    if (verbose) .vmsg("  g_A_num time %d: n=%d (baseline numerator)", tt, length(Y))
+  }
+
+  results <- data.table::rbindlist(results[!vapply(results, is.null, logical(1))])
+
+  if (is.null(obj$fits$numerator)) obj$fits$numerator <- list()
+  if (is.null(obj$fits$numerator$treatment)) obj$fits$numerator$treatment <- list()
+  obj$fits$numerator$treatment[[regime]] <- list(
+    predictions = results,
+    covariates = baseline_covs,
+    learners = learners
+  )
+  obj
+}
+
+#' @noRd
+.fit_baseline_numerator_censoring <- function(obj, regime, baseline_covs,
+                                               learners, cf_enabled, verbose) {
+  nodes <- obj$nodes
+  id_col <- nodes$id
+  cens_fits <- obj$fits$censoring[[regime]]
+  dt <- obj$data
+
+  if (length(cens_fits) == 0) return(obj)
+
+  if (is.null(obj$fits$numerator)) obj$fits$numerator <- list()
+  if (is.null(obj$fits$numerator$censoring)) obj$fits$numerator$censoring <- list()
+
+  all_cens_results <- list()
+
+  for (cvar in names(cens_fits)) {
+    denom <- cens_fits[[cvar]]$predictions
+    time_vals <- sort(unique(denom$.time))
+    results <- vector("list", length(time_vals))
+
+    for (i in seq_along(time_vals)) {
+      tt <- time_vals[i]
+      denom_t <- denom[denom$.time == tt, ]
+      risk_ids <- denom_t[[id_col]]
+      if (length(risk_ids) == 0) next
+
+      dt_t <- dt[dt[[nodes$time]] == tt, ]
+      dt_risk <- dt_t[dt_t[[id_col]] %in% risk_ids, ]
+      dt_risk <- dt_risk[match(risk_ids, dt_risk[[id_col]]), ]
+
+      lag_covs <- .get_lag_covariates(nodes, i)
+      all_covs <- c(baseline_covs, lag_covs)
+      all_covs <- intersect(all_covs, names(dt_risk))
+      Y <- denom_t$.censored
+
+      if (length(all_covs) == 0 || length(unique(Y)) <= 1) {
+        ow <- if (!is.null(nodes$sampling_weights)) dt_risk[[nodes$sampling_weights]] else NULL
+        p_num <- rep(if (!is.null(ow)) stats::weighted.mean(Y, ow) else mean(Y),
+                     length(Y))
+      } else if (cf_enabled) {
+        p_num <- .cf_fit_numerator_one_time(
+          dt_risk, Y, all_covs, nodes, learners, obj$crossfit, verbose, tt,
+          sprintf("g_C_num(%s)", cvar))
+      } else {
+        X <- as.data.frame(dt_risk[, all_covs, with = FALSE])
+        ow <- if (!is.null(nodes$sampling_weights)) dt_risk[[nodes$sampling_weights]] else NULL
+        ctx <- sprintf("g_C_num(%s), time=%d, n=%d", cvar, tt, length(Y))
+        fit <- .safe_sl(Y = Y, X = X, learners = learners,
+                        cv_folds = min(10L, length(Y)), obs_weights = ow,
+                        context = ctx, verbose = FALSE)
+        p_num <- fit$predictions
+      }
+
+      results[[i]] <- data.table::data.table(
+        .id = risk_ids,
+        .time = tt,
+        .p_num = p_num
+      )
+      data.table::setnames(results[[i]], ".id", id_col)
+
+      if (verbose) .vmsg("  g_C_num(%s) time %d: n=%d (baseline numerator)",
+                          cvar, tt, length(Y))
+    }
+
+    all_cens_results[[cvar]] <- list(
+      predictions = data.table::rbindlist(
+        results[!vapply(results, is.null, logical(1))]),
+      covariates = baseline_covs,
+      learners = learners
+    )
+  }
+
+  obj$fits$numerator$censoring[[regime]] <- all_cens_results
+  obj
+}
+
+#' Cross-fitted numerator model for one time point
+#' @noRd
+.cf_fit_numerator_one_time <- function(dt_risk, Y, covs, nodes, learners,
+                                        crossfit_info, verbose, tt, label) {
+  fold_col <- crossfit_info$fold_id
+  n_folds <- crossfit_info$n_folds
+  id_col <- nodes$id
+  folds <- dt_risk[[fold_col]]
+  X <- as.data.frame(dt_risk[, covs, with = FALSE])
+  ow_all <- if (!is.null(nodes$sampling_weights)) dt_risk[[nodes$sampling_weights]] else NULL
+
+  p_num <- rep(NA_real_, length(Y))
+
+  for (k in seq_len(n_folds)) {
+    val_idx <- which(folds == k)
+    train_idx <- which(folds != k)
+    if (length(val_idx) == 0) next
+
+    Y_train <- Y[train_idx]
+    X_train <- X[train_idx, , drop = FALSE]
+    X_val <- X[val_idx, , drop = FALSE]
+    ow_train <- if (!is.null(ow_all)) ow_all[train_idx] else NULL
+
+    if (length(unique(Y_train)) > 1 && length(train_idx) >= 20L) {
+      ctx <- sprintf("CF %s, time=%d, fold=%d/%d, n=%d",
+                     label, tt, k, n_folds, length(Y_train))
+      fit <- .safe_sl(Y = Y_train, X = X_train, learners = learners,
+                      cv_folds = min(10L, length(Y_train)),
+                      obs_weights = ow_train, context = ctx, verbose = FALSE)
+      p_num[val_idx] <- .predict_from_fit(fit, X_val)
+    } else {
+      marg_train <- if (!is.null(ow_train)) {
+        stats::weighted.mean(Y_train, ow_train)
+      } else {
+        mean(Y_train)
+      }
+      p_num[val_idx] <- rep(marg_train, length(val_idx))
+    }
+  }
+  p_num
+}
+
 #' Compute Inverse Probability Weights
 #'
 #' Combines treatment, censoring, and observation model predictions into
@@ -171,6 +407,15 @@
 #'   models already fit.
 #' @param regime Character. Name of the regime.
 #' @param stabilized Logical. Use stabilized weights (numerator = marginal probability).
+#' @param stabilization Character. Controls the numerator of stabilized weights.
+#'   \code{"marginal"} (default) uses unconditional marginal rates.
+#'   \code{"baseline"} fits models using only baseline covariates, which can
+#'   reduce weight variability when baseline covariates are strong treatment
+#'   predictors. Ignored when \code{stabilized = FALSE}.
+#' @param numerator_learners Character vector. SuperLearner library for
+#'   baseline numerator models when \code{stabilization = "baseline"}.
+#'   Default \code{NULL} uses \code{"SL.glm"} only. Ignored when
+#'   \code{stabilization = "marginal"}.
 #' @param bounds Numeric(2). Bounds for the unstabilized cumulative
 #'   treatment-censoring product (cumprod of g_a * g_c) after cumulation.
 #'   Default \code{c(0.01, 1)}. Set to NULL to skip bounding.
@@ -180,14 +425,19 @@
 #'   quantile. Applied after \code{truncation} if both specified.
 #' @param recompute Logical. If FALSE (default), errors when weights are already
 #'   computed for the requested regime(s). Set to TRUE to re-compute.
+#' @param verbose Logical. Print progress for numerator model fitting.
+#'   Default TRUE.
 #'
 #' @return Modified `longy_data` object with weights stored.
 #' @export
 compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
+                            stabilization = c("marginal", "baseline"),
+                            numerator_learners = NULL,
                             bounds = c(0.01, 1),
                             truncation = NULL, truncation_quantile = NULL,
-                            recompute = FALSE) {
+                            recompute = FALSE, verbose = TRUE) {
   obj <- .as_longy_data(obj)
+  stabilization <- match.arg(stabilization)
   regime <- .resolve_regimes(obj, regime)
 
   if (!recompute) {
@@ -307,8 +557,64 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
   # .sw_a and .sw_c remain from raw probabilities (for diagnostics).
   # .csw_ac is derived from the bounded cumulative product.
   if (stabilized) {
-    w[, .marg_cum_ac := cumprod(.marg_g_a * .marg_g_c), by = c(id_col)]
-    w[, .csw_ac := .marg_cum_ac / .g_cum_ac]
+    if (stabilization == "baseline") {
+      # Baseline-stabilized: numerator = P(A=d|baseline) * P(C=0|baseline)
+      # Fit on-demand if not already fitted
+      if (is.null(obj$fits$numerator$treatment[[rname]])) {
+        if (verbose) .vmsg("Fitting baseline numerator models for regime '%s'...", rname)
+        obj <- .fit_baseline_numerator(obj, rname, "treatment",
+                                        learners = numerator_learners,
+                                        verbose = verbose)
+      }
+      if (length(obj$fits$censoring[[rname]]) > 0 &&
+          is.null(obj$fits$numerator$censoring[[rname]])) {
+        obj <- .fit_baseline_numerator(obj, rname, "censoring",
+                                        learners = numerator_learners,
+                                        verbose = verbose)
+      }
+
+      # Merge treatment numerator predictions
+      num_trt <- obj$fits$numerator$treatment[[rname]]$predictions
+      w <- merge(w, num_trt[, c(id_col, ".time", ".p_num"), with = FALSE],
+                 by = c(id_col, ".time"), all.x = TRUE)
+      # Transform by regime direction
+      if (reg$type == "static") {
+        w[, .d_num := .resolve_static_at_time(reg$value, .time)]
+        w[, .num_g_a := ifelse(.d_num == 1L, .p_num, 1 - .p_num)]
+        w[, .d_num := NULL]
+      } else {
+        w[, .num_g_a := .p_num]
+      }
+      w[, .p_num := NULL]
+
+      # Merge censoring numerator predictions (product of all causes)
+      if (!is.null(obj$fits$numerator$censoring[[rname]])) {
+        num_cens <- obj$fits$numerator$censoring[[rname]]
+        w[, .num_g_c := 1]
+        for (cvar in names(num_cens)) {
+          nc <- num_cens[[cvar]]$predictions
+          # Censoring numerator: P(C=0|baseline) = 1 - P(C=1|baseline)
+          nc_col <- data.table::copy(nc[, c(id_col, ".time", ".p_num"), with = FALSE])
+          data.table::setnames(nc_col, ".p_num", ".p_num_c")
+          w <- merge(w, nc_col, by = c(id_col, ".time"), all.x = TRUE)
+          w[is.na(.p_num_c), .p_num_c := 1]
+          w[, .num_g_c := .num_g_c * (1 - .p_num_c)]
+          w[, .p_num_c := NULL]
+        }
+      } else {
+        w[, .num_g_c := 1]
+      }
+
+      # Fill NA numerator predictions with marginal (subjects not in numerator risk set)
+      w[is.na(.num_g_a), .num_g_a := .marg_g_a]
+
+      w[, .num_cum_ac := cumprod(.num_g_a * .num_g_c), by = c(id_col)]
+      w[, .csw_ac := .num_cum_ac / .g_cum_ac]
+    } else {
+      # Marginal stabilization (default)
+      w[, .marg_cum_ac := cumprod(.marg_g_a * .marg_g_c), by = c(id_col)]
+      w[, .csw_ac := .marg_cum_ac / .g_cum_ac]
+    }
   } else {
     w[, .csw_ac := 1 / .g_cum_ac]
   }
@@ -379,6 +685,8 @@ compute_weights <- function(obj, regime = NULL, stabilized = TRUE,
     regime = rname,
     weights_dt = w,
     stabilized = stabilized,
+    stabilization = stabilization,
+    numerator_learners = numerator_learners,
     bounds = bounds,
     truncation = truncation,
     truncation_quantile = truncation_quantile

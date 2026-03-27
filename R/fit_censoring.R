@@ -39,6 +39,13 @@
 #' @param verbose Logical. Progress messages.
 #' @param refit Logical. If FALSE (default), errors when censoring is already
 #'   fitted for the requested regime(s). Set to TRUE to re-fit.
+#' @param fit_numerator Logical. If TRUE, also fits baseline-only numerator
+#'   models for use with baseline-stabilized weights
+#'   (\code{stabilization = "baseline"} in \code{\link{compute_weights}}).
+#'   Default FALSE.
+#' @param numerator_learners Character vector. SuperLearner library for
+#'   baseline numerator models. Default \code{NULL} uses \code{"SL.glm"}.
+#'   Ignored when \code{fit_numerator = FALSE}.
 #'
 #' @return Modified \code{longy_data} object with censoring fits stored in
 #'   \code{obj$fits$censoring}, a named list keyed by internal column name
@@ -49,7 +56,9 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
                           min_obs = 50L, min_events = 20L,
                           times = NULL, use_ffSL = FALSE,
                           parallel = FALSE,
-                          verbose = TRUE, refit = FALSE) {
+                          verbose = TRUE, refit = FALSE,
+                          fit_numerator = FALSE,
+                          numerator_learners = NULL) {
   obj <- .as_longy_data(obj)
   learners <- .resolve_learners(learners, "censoring")
   regime <- .resolve_regimes(obj, regime)
@@ -289,6 +298,15 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
   # Store for all regimes (identical model)
   for (rname in regime) {
     obj$fits$censoring[[rname]] <- fit_result
+  }
+
+  # Fit baseline numerator models if requested
+  if (fit_numerator) {
+    for (rname in regime) {
+      obj <- .fit_baseline_numerator(obj, rname, "censoring",
+                                      learners = numerator_learners,
+                                      verbose = verbose)
+    }
   }
 
   obj
