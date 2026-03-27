@@ -67,6 +67,13 @@
 #'   observed value. Structural NAs at the earliest time points (where no
 #'   prior value exists) are filled with 0 for binary columns and the
 #'   column median for continuous columns.
+#' @param impute_tv Logical. When TRUE (default), applies LOCF imputation to
+#'   time-varying covariates within each subject. For each column in
+#'   \code{timevarying} that contains NAs, a binary indicator column
+#'   \code{I_<colname>} (1 = imputed, 0 = observed) is created and added to
+#'   \code{nodes$timevarying}. Structural NAs at the start (no prior value)
+#'   are filled with 0 for binary columns and the column median for continuous.
+#'   Columns with no NAs are skipped (no indicator created).
 #' @param verbose Logical. Print progress messages.
 #'
 #' @return An S3 object of class \code{"longy_data"}, a list with components:
@@ -129,6 +136,7 @@ longy_data <- function(data,
                        outcome_type = "binary",
                        competing = NULL,
                        k = 0,
+                       impute_tv = TRUE,
                        verbose = TRUE) {
 
   # --- Validate outcome_type early (used before match.arg would catch it) ---
@@ -151,6 +159,21 @@ longy_data <- function(data,
   if (anyDuplicated(dt, by = c(id, time)) > 0) {
     stop("Duplicate (id, time) pairs found. Each subject-time must be unique.",
          call. = FALSE)
+  }
+
+  # --- Validate balanced panel (no staggered entry) ---
+  time_vals <- sort(unique(dt[[time]]))
+  min_time <- time_vals[1L]
+  ids_at_start <- unique(dt[[id]][dt[[time]] == min_time])
+  all_ids <- unique(dt[[id]])
+  late_ids <- setdiff(all_ids, ids_at_start)
+  if (length(late_ids) > 0) {
+    stop(sprintf(
+      "Staggered entry detected: %d subject(s) have no row at the first time point (%s). ",
+      length(late_ids), min_time),
+      "All subjects must be present at the first time point. ",
+      "Remove late-entering subjects or restructure your data.",
+      call. = FALSE)
   }
 
   # --- Validate treatment is binary {0, 1} ---
@@ -480,6 +503,64 @@ longy_data <- function(data,
   # --- Set key ---
   data.table::setkeyv(dt, c(id, time))
 
+  # --- LOCF imputation of time-varying covariates ---
+  imputed_indicators <- character(0)
+  if (impute_tv && length(timevarying) > 0) {
+    min_t <- min(dt[[time]])
+    for (col in timevarying) {
+      col_vals <- dt[[col]]
+      na_mask <- is.na(col_vals)
+      if (!any(na_mask)) next
+
+      # Check for column name collision
+      ind_name <- paste0("I_", col)
+      if (ind_name %in% names(dt))
+        stop(sprintf(
+          "Cannot create imputation indicator '%s': column already exists in data.",
+          ind_name), call. = FALSE)
+
+      # Record missingness BEFORE imputing
+      data.table::set(dt, j = ind_name, value = as.integer(na_mask))
+      imputed_indicators <- c(imputed_indicators, ind_name)
+
+      # LOCF within subject (only fills NAs, never overwrites observed values)
+      dt[, (col) := data.table::nafill(get(col), type = "locf"), by = c(id)]
+
+      # Structural NAs (no prior value at start of subject's history)
+      remaining_na <- which(is.na(dt[[col]]))
+      if (length(remaining_na) > 0) {
+        col_vals_nona <- col_vals[!na_mask]
+        is_binary <- length(col_vals_nona) > 0 &&
+                     all(col_vals_nona %in% c(0L, 1L, 0, 1))
+        # Count subjects with NA at first time point
+        at_start <- dt[[time]][remaining_na] == min_t
+        n_struct <- length(unique(dt[[id]][remaining_na]))
+        if (is_binary) {
+          data.table::setnafill(dt, fill = 0, cols = col)
+          warning(sprintf(
+            "LOCF imputation: %d subject(s) have NA in '%s' at the first time point. Filled with 0.",
+            n_struct, col), call. = FALSE)
+        } else {
+          fill_val <- stats::median(col_vals, na.rm = TRUE)
+          if (is.na(fill_val)) fill_val <- 0
+          data.table::set(dt, i = remaining_na, j = col, value = fill_val)
+          warning(sprintf(
+            "LOCF imputation: %d subject(s) have NA in '%s' at the first time point. Filled with median (%.4g).",
+            n_struct, col, fill_val), call. = FALSE)
+        }
+      }
+    }
+
+    if (length(imputed_indicators) > 0) {
+      timevarying <- c(timevarying, imputed_indicators)
+      if (verbose) {
+        .vmsg("  LOCF imputed %d time-varying column(s), added indicators: %s",
+              length(imputed_indicators),
+              paste(imputed_indicators, collapse = ", "))
+      }
+    }
+  }
+
   # --- Add lag columns for covariate history ---
   # Columns to lag: time-varying covariates, treatment, and outcome
   lag_vars <- character(0)
@@ -593,7 +674,8 @@ longy_data <- function(data,
     outcome_type = outcome_type,
     competing = competing,
     lag_vars = lag_vars,
-    lag_k = lag_k
+    lag_k = lag_k,
+    imputed_tv = imputed_indicators
   )
 
   meta <- list(

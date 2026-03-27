@@ -125,6 +125,8 @@
 #' @param k Integer or \code{Inf}. Number of lagged time steps of covariate
 #'   history to include as additional predictors. See \code{\link{longy_data}}
 #'   for details. Default \code{0} (no lag columns).
+#' @param impute_tv Logical. LOCF imputation of time-varying covariates with
+#'   missingness indicators. See \code{\link{longy_data}}. Default TRUE.
 #' @param verbose Logical. Print progress.
 #'
 #' @return An S3 object of class \code{"longy_data"} with estimation results
@@ -235,6 +237,7 @@ longy <- function(data,
                   contrast = FALSE,
                   parallel = FALSE,
                   k = 0,
+                  impute_tv = TRUE,
                   verbose = TRUE) {
 
   # Resolve per-model learner libraries
@@ -311,7 +314,7 @@ longy <- function(data,
     baseline = baseline, timevarying = timevarying,
     cluster = cluster, sampling_weights = sampling_weights,
     outcome_type = outcome_type, competing = competing,
-    k = k, verbose = verbose
+    k = k, impute_tv = impute_tv, verbose = verbose
   )
 
   # Set up cross-fitting if requested
