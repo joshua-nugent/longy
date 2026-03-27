@@ -176,9 +176,9 @@ test_that("fit_treatment uses marginal for rare events with large dataset", {
   expect_equal(unique(t0$.method), "marginal")
 })
 
-test_that("fit_treatment still fits SL when rate > 1% even with few events", {
+test_that("fit_treatment fits model when n_minority >= min_events", {
 
-  # 50 subjects, 15 events = 30% rate -> should NOT trigger rare-events fallback
+  # 80 subjects, ~30% treatment rate -> ~24 minority events, well above min_events=5
   set.seed(100)
   n <- 80
   d <- data.frame(
@@ -195,9 +195,9 @@ test_that("fit_treatment still fits SL when rate > 1% even with few events", {
   obj <- define_regime(obj, "always", static = 1L)
 
   obj <- fit_treatment(obj, regime = "always", min_obs = 10L,
-                       min_events = 20L, verbose = FALSE)
+                       min_events = 5L, verbose = FALSE)
   t0 <- obj$fits$treatment[["always"]]$predictions[obj$fits$treatment[["always"]]$predictions$.time == 0, ]
-  # With 30% event rate and enough obs, should not be marginal
+  # With minority count well above min_events, should not be marginal
   expect_true(unique(t0$.method) != "marginal")
 })
 

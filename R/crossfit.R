@@ -118,8 +118,7 @@ NULL
       cl_train <- if (!is.null(cl_risk)) cl_risk[train_idx] else NULL
 
       n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
-      minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
-      rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
+      rare_events_train <- n_minority_train < min_events
       if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
         cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
         if (adaptive_cv) {
@@ -294,8 +293,7 @@ NULL
         cl_train <- if (!is.null(cl_risk)) cl_risk[train_idx] else NULL
 
         n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
-        minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
-        rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
+        rare_events_train <- n_minority_train < min_events
         if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
           cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
           if (adaptive_cv) {
@@ -462,8 +460,7 @@ NULL
       cl_train <- if (!is.null(cl_risk)) cl_risk[train_idx] else NULL
 
       n_minority_train <- min(sum(Y_train == 1), sum(Y_train == 0))
-      minority_rate_train <- min(mean(Y_train), 1 - mean(Y_train))
-      rare_events_train <- n_minority_train < min_events && minority_rate_train < 0.01
+      rare_events_train <- n_minority_train < min_events
       if (length(train_idx) >= min_obs && length(unique(Y_train)) > 1 && !rare_events_train) {
         cv_folds <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
         if (adaptive_cv) {

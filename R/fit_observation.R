@@ -148,8 +148,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     task_n_marginal <- 0L
     task_marginal_reason <- NULL
     n_minority <- min(sum(Y == 1), sum(Y == 0))
-    minority_rate <- min(mean(Y), 1 - mean(Y))
-    rare_events <- n_minority < min_events && minority_rate < 0.01
+    rare_events <- n_minority < min_events
     if (length(unique(Y)) > 1 && n_risk >= min_obs && !rare_events) {
       obs_rate <- mean(Y)
       ctx <- sprintf("g_R, time=%d, n=%d, obs_rate=%.3f", tt, n_risk, obs_rate)
