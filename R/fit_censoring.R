@@ -286,6 +286,8 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
       use_ffSL = use_ffSL,
       sl_control = sl_control,
       adaptive_cv = adaptive_cv,
+      min_obs = min_obs,
+      min_events = min_events,
       sl_info = sl_info
     )
   }

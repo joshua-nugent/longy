@@ -180,6 +180,10 @@ NULL
     covariates = covariates,
     learners = learners,
     use_ffSL = identical(sl_fn, "ffSL"),
+    sl_control = sl_control,
+    adaptive_cv = adaptive_cv,
+    min_obs = min_obs,
+    min_events = min_events,
     sl_info = list(),
     crossfit = TRUE,
     risk_set = risk_set
@@ -351,6 +355,10 @@ NULL
       covariates = covariates,
       learners = learners,
       use_ffSL = identical(sl_fn, "ffSL"),
+      sl_control = sl_control,
+      adaptive_cv = adaptive_cv,
+      min_obs = min_obs,
+      min_events = min_events,
       sl_info = list(),
       crossfit = TRUE
     )
@@ -517,6 +525,10 @@ NULL
     covariates = covariates,
     learners = learners,
     use_ffSL = identical(sl_fn, "ffSL"),
+    sl_control = sl_control,
+    adaptive_cv = adaptive_cv,
+    min_obs = min_obs,
+    min_events = min_events,
     sl_info = list(),
     crossfit = TRUE
   )

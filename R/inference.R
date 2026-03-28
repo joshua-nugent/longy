@@ -180,6 +180,8 @@
                              learners = trt_fit$learners,
                              sl_control = if (!is.null(trt_fit$sl_control)) trt_fit$sl_control else list(),
                              adaptive_cv = if (!is.null(trt_fit$adaptive_cv)) trt_fit$adaptive_cv else TRUE,
+                             min_obs = if (!is.null(trt_fit$min_obs)) trt_fit$min_obs else 50L,
+                             min_events = if (!is.null(trt_fit$min_events)) trt_fit$min_events else 20L,
                              risk_set = if (!is.null(trt_fit$risk_set)) trt_fit$risk_set else "all",
                              use_ffSL = FALSE,
                              verbose = FALSE)
@@ -189,10 +191,14 @@
         lrn_c <- cens_fits[[1]]$learners
         slc_c <- if (!is.null(cens_fits[[1]]$sl_control)) cens_fits[[1]]$sl_control else list()
         acv_c <- if (!is.null(cens_fits[[1]]$adaptive_cv)) cens_fits[[1]]$adaptive_cv else TRUE
+        mob_c <- if (!is.null(cens_fits[[1]]$min_obs)) cens_fits[[1]]$min_obs else 50L
+        mev_c <- if (!is.null(cens_fits[[1]]$min_events)) cens_fits[[1]]$min_events else 20L
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
                                sl_control = slc_c,
-                               adaptive_cv = acv_c, use_ffSL = FALSE,
+                               adaptive_cv = acv_c,
+                               min_obs = mob_c, min_events = mev_c,
+                               use_ffSL = FALSE,
                                verbose = FALSE)
       }
       obs_fit <- obj$fits$observation[[regime]]
@@ -202,6 +208,8 @@
                                  learners = obs_fit$learners,
                                  sl_control = if (!is.null(obs_fit$sl_control)) obs_fit$sl_control else list(),
                                  adaptive_cv = if (!is.null(obs_fit$adaptive_cv)) obs_fit$adaptive_cv else TRUE,
+                                 min_obs = if (!is.null(obs_fit$min_obs)) obs_fit$min_obs else 50L,
+                                 min_events = if (!is.null(obs_fit$min_events)) obs_fit$min_events else 20L,
                                  use_ffSL = FALSE,
                                  verbose = FALSE)
       }
@@ -364,6 +372,9 @@
       b_obj <- fit_outcome(b_obj, regime = regime,
                            covariates = outcome_fit$covariates,
                            learners = outcome_fit$learners,
+                           sl_control = if (!is.null(outcome_fit$sl_control)) outcome_fit$sl_control else list(),
+                           adaptive_cv = if (!is.null(outcome_fit$adaptive_cv)) outcome_fit$adaptive_cv else TRUE,
+                           min_obs = if (!is.null(outcome_fit$min_obs)) outcome_fit$min_obs else 50L,
                            bounds = outcome_fit$bounds,
                            risk_set = if (!is.null(outcome_fit$risk_set)) outcome_fit$risk_set else "all",
                            times = times,
