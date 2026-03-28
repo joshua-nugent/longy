@@ -1,3 +1,105 @@
+#' Build a bootstrap resample of the data
+#'
+#' When clustering is specified, resamples clusters (with replacement) and
+#' includes all subjects within each selected cluster. Otherwise resamples
+#' subjects. Returns a data.table with reassigned IDs.
+#'
+#' @param data data.table. Original data.
+#' @param id_col Character. ID column name.
+#' @param cluster Character or NULL. Cluster column name.
+#' @return data.table with resampled data and reassigned subject IDs.
+#' @noRd
+.bootstrap_resample <- function(data, id_col, cluster = NULL) {
+  if (!is.null(cluster)) {
+    # Cluster-level resampling: sample clusters with replacement,
+    # then include all subjects within each selected cluster
+    id_cl <- unique(data[, c(id_col, cluster), with = FALSE])
+    clusters <- unique(id_cl[[cluster]])
+    n_cl <- length(clusters)
+    boot_clusters <- sample(clusters, n_cl, replace = TRUE)
+
+    # Map each sampled cluster to new subject IDs
+    # For each cluster occurrence, get all subjects and assign new IDs
+    boot_dt_list <- vector("list", n_cl)
+    new_id <- 0L
+    for (i in seq_len(n_cl)) {
+      cl_val <- boot_clusters[i]
+      cl_subjects <- id_cl[[id_col]][id_cl[[cluster]] == cl_val]
+      cl_data <- data[data[[id_col]] %in% cl_subjects, ]
+      # Assign new sequential subject IDs
+      old_ids <- unique(cl_data[[id_col]])
+      id_map <- data.table::data.table(
+        .old_id = old_ids,
+        .new_id = seq(new_id + 1L, new_id + length(old_ids))
+      )
+      new_id <- new_id + length(old_ids)
+      data.table::setnames(id_map, ".old_id", id_col)
+      cl_data <- merge(cl_data, id_map, by = id_col, allow.cartesian = TRUE)
+      cl_data[[id_col]] <- cl_data$.new_id
+      cl_data[, .new_id := NULL]
+      boot_dt_list[[i]] <- cl_data
+    }
+    data.table::rbindlist(boot_dt_list)
+  } else {
+    # Subject-level resampling
+    ids <- unique(data[[id_col]])
+    n <- length(ids)
+    boot_ids <- sample(ids, n, replace = TRUE)
+    boot_map <- data.table::data.table(
+      .boot_orig = boot_ids,
+      .boot_new = seq_len(n)
+    )
+    data.table::setnames(boot_map, ".boot_orig", id_col)
+    boot_dt <- merge(boot_map, data, by = id_col, allow.cartesian = TRUE)
+    boot_dt[[id_col]] <- boot_dt$.boot_new
+    boot_dt[, .boot_new := NULL]
+    boot_dt
+  }
+}
+
+#' Compute SE from influence curves with optional cluster aggregation
+#'
+#' When \code{cluster_ids} is provided, sums ICs within clusters, pads with
+#' zeros for clusters not represented, and computes SE at the cluster level.
+#' Otherwise computes the standard individual-level SE.
+#'
+#' @param ic Numeric vector. Per-subject influence curve values.
+#' @param ids Subject IDs corresponding to \code{ic} (same length).
+#' @param cluster_col Character or NULL. Cluster column name.
+#' @param obj longy_data object (used to get all clusters from full data).
+#' @return Numeric scalar SE, or NA_real_ if degenerate.
+#' @noRd
+.ic_se <- function(ic, ids = NULL, cluster_col = NULL, obj = NULL) {
+  n_i <- length(ic)
+  if (n_i < 2) return(NA_real_)
+
+  if (!is.null(cluster_col) && !is.null(obj) && !is.null(ids) &&
+      cluster_col %in% names(obj$data)) {
+    # Map subject IDs to their cluster
+    id_col <- obj$nodes$id
+    id_cl <- unique(obj$data[, c(id_col, cluster_col), with = FALSE])
+    cl_map <- id_cl[[cluster_col]]
+    names(cl_map) <- as.character(id_cl[[id_col]])
+    cl_for_ic <- cl_map[as.character(ids)]
+
+    # Sum ICs within clusters
+    cl_IC <- tapply(ic, cl_for_ic, sum)
+    # Pad with zeros for clusters not represented
+    all_clusters <- unique(obj$data[[cluster_col]])
+    N_cl <- length(all_clusters)
+    missing_cl <- setdiff(as.character(all_clusters), names(cl_IC))
+    cl_IC_full <- c(as.numeric(cl_IC), rep(0, length(missing_cl)))
+
+    if (length(cl_IC_full) < 2) return(NA_real_)
+    se <- sqrt(stats::var(cl_IC_full) / N_cl)
+  } else {
+    se <- sqrt(stats::var(ic) / n_i)
+  }
+
+  if (!is.na(se) && se == 0) se <- NA_real_
+  se
+}
+
 #' Dispatch bootstrap replicates via future.apply (if available) or lapply
 #'
 #' When \code{future.apply} is installed and a non-sequential
@@ -148,18 +250,11 @@
   # Use original censoring column name (not internal binary col names)
   cens_col <- nodes$censoring_col  # NULL if no censoring
 
-  one_boot <- function(b) {
-    boot_ids <- sample(ids, n, replace = TRUE)
+  # Capture as local var so future.apply serializes it for parallel workers
+  resample_fn <- .bootstrap_resample
 
-    # Efficient bootstrap: single data.table join instead of n copies + rbind
-    boot_map <- data.table::data.table(
-      .boot_orig = boot_ids,
-      .boot_new = seq_len(n)
-    )
-    data.table::setnames(boot_map, ".boot_orig", id_col)
-    boot_dt <- merge(boot_map, obj$data, by = id_col, allow.cartesian = TRUE)
-    boot_dt[[id_col]] <- boot_dt$.boot_new
-    boot_dt[, .boot_new := NULL]
+  one_boot <- function(b) {
+    boot_dt <- resample_fn(obj$data, id_col, nodes$cluster)
 
     boot_obj <- tryCatch({
       b_obj <- longy_data(
@@ -341,18 +436,11 @@
   # Use original censoring column name (not internal binary col names)
   cens_col <- nodes$censoring_col  # NULL if no censoring
 
-  one_boot <- function(b) {
-    boot_ids <- sample(ids, n, replace = TRUE)
+  # Capture as local var so future.apply serializes it for parallel workers
+  resample_fn <- .bootstrap_resample
 
-    # Efficient bootstrap: single data.table join instead of n copies + rbind
-    boot_map <- data.table::data.table(
-      .boot_orig = boot_ids,
-      .boot_new = seq_len(n)
-    )
-    data.table::setnames(boot_map, ".boot_orig", id_col)
-    boot_dt <- merge(boot_map, obj$data, by = id_col, allow.cartesian = TRUE)
-    boot_dt[[id_col]] <- boot_dt$.boot_new
-    boot_dt[, .boot_new := NULL]
+  one_boot <- function(b) {
+    boot_dt <- resample_fn(obj$data, id_col, nodes$cluster)
 
     boot_obj <- tryCatch({
       b_obj <- longy_data(
@@ -471,18 +559,11 @@
   # Use original censoring column name (not internal binary col names)
   cens_col <- nodes$censoring_col  # NULL if no censoring
 
-  one_boot <- function(b) {
-    boot_ids <- sample(ids, n, replace = TRUE)
+  # Capture as local var so future.apply serializes it for parallel workers
+  resample_fn <- .bootstrap_resample
 
-    # Efficient bootstrap: single data.table join instead of n copies + rbind
-    boot_map <- data.table::data.table(
-      .boot_orig = boot_ids,
-      .boot_new = seq_len(n)
-    )
-    data.table::setnames(boot_map, ".boot_orig", id_col)
-    boot_dt <- merge(boot_map, obj$data, by = id_col, allow.cartesian = TRUE)
-    boot_dt[[id_col]] <- boot_dt$.boot_new
-    boot_dt[, .boot_new := NULL]
+  one_boot <- function(b) {
+    boot_dt <- resample_fn(obj$data, id_col, nodes$cluster)
 
     boot_est <- tryCatch({
       b_obj <- longy_data(

@@ -88,6 +88,13 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
       sw_i <- dt_t[[nodes$sampling_weights]][keep][not_na]
     }
 
+    # Extract aligned cluster IDs for cluster-robust SEs
+    cl_i <- NULL
+    has_cl <- !is.null(nodes$cluster)
+    if (has_cl) {
+      cl_i <- dt_t[[nodes$cluster]][keep][not_na]
+    }
+
     if (n > 0) {
       psi_hat <- if (!is.null(sw_i)) stats::weighted.mean(yi, sw_i) else mean(yi)
       # SE: use Kish's effective sample size when sampling weights are present
@@ -99,6 +106,17 @@ estimate_unadjusted <- function(obj, regime = NULL, times = NULL,
           w_var <- sum(sw_i * (yi - psi_hat)^2) / sum(sw_i)
           se <- sqrt(w_var / n_eff)
         }
+      } else if (has_cl) {
+        # Cluster-robust SE: compute cluster-level means, then variance of
+        # cluster means around psi_hat
+        n_eff <- n
+        cl_means <- tapply(yi, cl_i, mean)
+        all_clusters <- unique(obj$data[[nodes$cluster]])
+        N_cl <- length(all_clusters)
+        # Pad with psi_hat for clusters not in this risk set (contribute 0 IC)
+        missing_cl <- setdiff(as.character(all_clusters), names(cl_means))
+        cl_means_full <- c(as.numeric(cl_means), rep(psi_hat, length(missing_cl)))
+        se <- sqrt(stats::var(cl_means_full) / N_cl)
       } else {
         n_eff <- n
         if (nodes$outcome_type %in% c("binary", "survival")) {

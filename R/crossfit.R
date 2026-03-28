@@ -1137,11 +1137,11 @@ NULL
       }
 
       n_i <- length(D_i)
-      if (n_i >= 2 && stats::var(D_i) > 0) {
-        se <- sqrt(stats::var(D_i) / n_i)
-      } else {
-        se <- NA_real_
-      }
+      # Cluster-robust SE when cluster is specified
+      cluster_col <- nodes$cluster
+      all_ids_eif <- unique(dt[[id_col]])
+      se <- .ic_se(as.numeric(D_i), ids = all_ids_eif,
+                   cluster_col = cluster_col, obj = obj)
 
       # Store EIF decomposition
       if (!is.null(init_raw) && !is.null(aug_raw)) {

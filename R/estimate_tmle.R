@@ -25,6 +25,8 @@
 #'   models at each backward step. \code{"all"} (default) uses all uncensored
 #'   subjects. \code{"followers"} restricts to regime-followers, matching
 #'   \code{fit_outcome(risk_set = "followers")}.
+#' @param cluster Character. Column name for cluster-robust EIF SEs. Defaults
+#'   to \code{obj$nodes$cluster} if set.
 #' @param parallel Logical. If TRUE and a non-sequential \code{future::plan()}
 #'   is active, dispatches target-time backward passes in parallel via
 #'   \code{future.apply::future_lapply()}. Default FALSE.
@@ -45,6 +47,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
                           ci_level = 0.95, n_boot = 200L,
                           g_bounds = c(0.01, 1), outcome_range = NULL,
                           risk_set = "all",
+                          cluster = NULL,
                           parallel = FALSE,
                           verbose = TRUE) {
   obj <- .as_longy_data(obj)
@@ -53,6 +56,11 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
 
   if (ci_level <= 0 || ci_level >= 1)
     stop("ci_level must be between 0 and 1.", call. = FALSE)
+
+  # Default cluster from nodes if not explicitly provided
+  if (is.null(cluster) && !is.null(obj$nodes$cluster)) {
+    cluster <- obj$nodes$cluster
+  }
 
   for (rname in regime) {
 
@@ -572,12 +580,10 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       )
       data.table::setnames(ic_dt_target, ".id", id_col)
 
+      # Cluster-robust SE when cluster is specified
       n_i <- length(D_i)
-      if (n_i >= 2 && stats::var(D_i) > 0) {
-        se <- sqrt(stats::var(D_i) / n_i)
-      } else {
-        se <- NA_real_
-      }
+      se <- .ic_se(as.numeric(D_i), ids = all_ids_eif,
+                   cluster_col = cluster, obj = obj)
 
       # EIF variance decomposition diagnostics
       if (!is.null(init_raw) && !is.null(aug_raw)) {
@@ -616,7 +622,8 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       "is_survival", "has_competing", "id_col", "a_col",
       "risk_set", "covariates", "learners", "worker_ffSL", "min_obs",
       "adaptive_cv", "sl_control",
-      "eps", "nodes", "g_cum_dt", "obj", "rname", "inference", "ci_level"
+      "eps", "nodes", "g_cum_dt", "obj", "rname", "inference", "ci_level",
+      "cluster"
     ))
   }
 

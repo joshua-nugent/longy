@@ -144,6 +144,7 @@ contrast <- function(obj, regime, ref = NULL, estimator = NULL,
 
   z <- stats::qnorm(1 - (1 - ci_level) / 2)
   id_col <- obj$nodes$id
+  cluster_col <- obj$nodes$cluster  # NULL if no clustering
 
   if (has_ic) {
     inference_method <- "delta_method"
@@ -169,7 +170,6 @@ contrast <- function(obj, regime, ref = NULL, estimator = NULL,
 
       d1 <- merged_ic$.ic_1
       d2 <- merged_ic$.ic_2
-      n_i <- nrow(merged_ic)
 
       # Delta method IC for the contrast
       ic_contrast <- switch(scale,
@@ -184,11 +184,9 @@ contrast <- function(obj, regime, ref = NULL, estimator = NULL,
         }
       )
 
-      if (all(is.finite(ic_contrast)) && stats::var(ic_contrast) > 0) {
-        se_k <- sqrt(stats::var(ic_contrast) / n_i)
-      } else {
-        se_k <- NA_real_
-      }
+      # Cluster-robust SE when cluster is specified
+      se_k <- .ic_se(ic_contrast, ids = merged_ic[[id_col]],
+                     cluster_col = cluster_col, obj = obj)
 
       se_vec[k] <- se_k
 

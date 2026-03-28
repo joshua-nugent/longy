@@ -467,6 +467,7 @@ longy <- function(data,
                          n_boot = n_boot, g_bounds = g_bounds,
                          outcome_range = outcome_range,
                          risk_set = risk_set_outcome,
+                         cluster = cluster,
                          parallel = parallel,
                          verbose = verbose)
     cur_step <- cur_step + 1L
@@ -896,6 +897,7 @@ add_regime <- function(obj, name, static = NULL, shifted = NULL,
                          n_boot = n_boot, g_bounds = g_bounds,
                          outcome_range = outcome_range,
                          risk_set = risk_set_outcome,
+                         cluster = cluster,
                          parallel = parallel, verbose = verbose)
   }
 
