@@ -499,9 +499,16 @@
 
       # Force sequential SL inside bootstrap to prevent nested parallelism
       # (ffSL spawns futures inside future workers → resource explosion)
+      # Replay all fit parameters to match original estimation
+      trt_fit <- obj$fits$treatment[[regime]]
       b_obj <- fit_treatment(b_obj, regime = regime,
-                             covariates = obj$fits$treatment[[regime]]$covariates,
-                             learners = obj$fits$treatment[[regime]]$learners,
+                             covariates = trt_fit$covariates,
+                             learners = trt_fit$learners,
+                             sl_control = if (!is.null(trt_fit$sl_control)) trt_fit$sl_control else list(),
+                             adaptive_cv = if (!is.null(trt_fit$adaptive_cv)) trt_fit$adaptive_cv else TRUE,
+                             min_obs = if (!is.null(trt_fit$min_obs)) trt_fit$min_obs else 50L,
+                             min_events = if (!is.null(trt_fit$min_events)) trt_fit$min_events else 20L,
+                             risk_set = if (!is.null(trt_fit$risk_set)) trt_fit$risk_set else "all",
                              use_ffSL = FALSE,
                              verbose = FALSE)
 
@@ -510,17 +517,42 @@
       if (length(cens_fits_tmle) > 0) {
         cov_c <- cens_fits_tmle[[1]]$covariates
         lrn_c <- cens_fits_tmle[[1]]$learners
+        slc_c <- if (!is.null(cens_fits_tmle[[1]]$sl_control)) cens_fits_tmle[[1]]$sl_control else list()
+        acv_c <- if (!is.null(cens_fits_tmle[[1]]$adaptive_cv)) cens_fits_tmle[[1]]$adaptive_cv else TRUE
+        mob_c <- if (!is.null(cens_fits_tmle[[1]]$min_obs)) cens_fits_tmle[[1]]$min_obs else 50L
+        mev_c <- if (!is.null(cens_fits_tmle[[1]]$min_events)) cens_fits_tmle[[1]]$min_events else 20L
         b_obj <- fit_censoring(b_obj, regime = regime,
                                covariates = cov_c, learners = lrn_c,
+                               sl_control = slc_c,
+                               adaptive_cv = acv_c,
+                               min_obs = mob_c, min_events = mev_c,
                                use_ffSL = FALSE,
                                verbose = FALSE)
+      }
+
+      # Fit observation model (if present in original)
+      obs_fit_tmle <- obj$fits$observation[[regime]]
+      if (!is.null(obs_fit_tmle)) {
+        b_obj <- fit_observation(b_obj, regime = regime,
+                                 covariates = obs_fit_tmle$covariates,
+                                 learners = obs_fit_tmle$learners,
+                                 sl_control = if (!is.null(obs_fit_tmle$sl_control)) obs_fit_tmle$sl_control else list(),
+                                 adaptive_cv = if (!is.null(obs_fit_tmle$adaptive_cv)) obs_fit_tmle$adaptive_cv else TRUE,
+                                 min_obs = if (!is.null(obs_fit_tmle$min_obs)) obs_fit_tmle$min_obs else 50L,
+                                 min_events = if (!is.null(obs_fit_tmle$min_events)) obs_fit_tmle$min_events else 20L,
+                                 use_ffSL = FALSE,
+                                 verbose = FALSE)
       }
 
       # Fit outcome model
       b_obj <- fit_outcome(b_obj, regime = regime,
                            covariates = outcome_fit$covariates,
                            learners = outcome_fit$learners,
+                           sl_control = if (!is.null(outcome_fit$sl_control)) outcome_fit$sl_control else list(),
+                           adaptive_cv = if (!is.null(outcome_fit$adaptive_cv)) outcome_fit$adaptive_cv else TRUE,
+                           min_obs = if (!is.null(outcome_fit$min_obs)) outcome_fit$min_obs else 50L,
                            bounds = outcome_fit$bounds,
+                           risk_set = if (!is.null(outcome_fit$risk_set)) outcome_fit$risk_set else "all",
                            times = times,
                            use_ffSL = FALSE,
                            verbose = FALSE)

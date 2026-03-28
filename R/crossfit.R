@@ -1018,12 +1018,14 @@ NULL
           X_all <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])[all_Q_idx, , drop = FALSE]
 
           cl_all <- if (!is.null(cl_risk)) cl_risk[all_Q_idx] else NULL
+          ow_all <- if (!is.null(ow_risk)) ow_risk[all_Q_idx] else NULL
           if (length(Y_all) >= min_obs && length(unique(Y_all)) > 1) {
             cens_cv <- if (!is.null(sl_control$cvControl$V)) sl_control$cvControl$V else 10L
             cens_fit <- .safe_sl(Y = Y_all, X = X_all,
                                  family = step_family,
                                  learners = learners,
                                  cv_folds = min(cens_cv, length(Y_all)),
+                                 obs_weights = ow_all,
                                  cluster_ids = cl_all,
                                  sl_control = sl_control,
                                  use_ffSL = identical(sl_fn, "ffSL"),
@@ -1031,7 +1033,8 @@ NULL
                                  verbose = FALSE)
             Q_bar_cens <- .predict_from_fit(cens_fit, X_cens_cf)
           } else {
-            Q_bar_cens <- rep(mean(Y_all), n_newly_cens)
+            marg_cens <- if (!is.null(ow_all)) stats::weighted.mean(Y_all, ow_all) else mean(Y_all)
+            Q_bar_cens <- rep(marg_cens, n_newly_cens)
           }
 
           Q_bar_cens <- .bound(Q_bar_cens, eps, 1 - eps)
