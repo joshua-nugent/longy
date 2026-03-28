@@ -287,7 +287,7 @@ fit_outcome <- function(obj, regime = NULL, covariates = NULL, learners = NULL,
       if (n_train > 0) {
         time_index <- match(tt, all_time_vals)
         lag_covs <- .get_lag_covariates(nodes, time_index)
-        all_covs <- c(covariates, lag_covs)
+        all_covs <- unique(c(covariates, lag_covs))
 
         if (worker_verbose) {
           q_base <- nodes$baseline

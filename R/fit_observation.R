@@ -69,6 +69,9 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     return(obj)
   }
 
+  # Ensure tracking columns are cleaned up on error (covers both crossfit and non-crossfit paths)
+  on.exit(.remove_tracking_columns(obj$data), add = TRUE)
+
   # g_R models are fit on observed data regardless of regime (risk set uses
   # uncensored status only, not regime consistency). Fit once, then replicate
   # the result for all requested regimes.
@@ -95,7 +98,6 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
   }
 
   dt <- .add_tracking_columns(dt, nodes, reg)
-  on.exit(.remove_tracking_columns(obj$data), add = TRUE)
 
   # Snapshot data for parallel safety
   if (parallel) dt <- data.table::copy(dt)
@@ -129,7 +131,7 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
     }
 
     lag_covs <- .get_lag_covariates(nodes, i)
-    all_covs <- c(covariates, lag_covs)
+    all_covs <- unique(c(covariates, lag_covs))
     X <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     Y <- dt_t[[nodes$observation]][still_in]
 
@@ -273,10 +275,12 @@ fit_observation <- function(obj, regime = NULL, covariates = NULL, learners = NU
 
   } # end if/else crossfit
 
-  # Store for all regimes (identical model, only regime label differs)
+  # Store for all regimes (copy predictions to avoid shared data.table references)
   for (rname in regime) {
-    obj$fits$observation[[rname]] <- fit_result
-    obj$fits$observation[[rname]]$regime <- rname
+    fr <- fit_result
+    fr$predictions <- data.table::copy(fit_result$predictions)
+    fr$regime <- rname
+    obj$fits$observation[[rname]] <- fr
   }
 
   obj

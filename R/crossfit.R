@@ -77,7 +77,7 @@ NULL
 
     ids_risk <- dt_t[[id_col]][still_in]
     lag_covs <- .get_lag_covariates(nodes, i)
-    all_covs <- c(covariates, lag_covs)
+    all_covs <- unique(c(covariates, lag_covs))
     X_risk <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     Y_risk <- dt_t[[nodes$treatment]][still_in]
     folds_risk <- dt_t[[fold_col]][still_in]
@@ -133,12 +133,8 @@ NULL
                         use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
-        marg_train <- if (!is.null(ow_train)) {
-          stats::weighted.mean(Y_train, ow_train)
-        } else {
-          mean(Y_train)
-        }
-        preds_val <- rep(marg_train, length(val_idx))
+        # Use full-sample marginal (population constant), not fold-specific
+        preds_val <- rep(marg_a, length(val_idx))
       }
 
       p_a[val_idx] <- preds_val
@@ -260,7 +256,7 @@ NULL
 
       ids_risk <- dt_t[[id_col]][still_in]
       lag_covs <- .get_lag_covariates(nodes, i)
-      all_covs <- c(covariates, lag_covs)
+      all_covs <- unique(c(covariates, lag_covs))
       X_risk <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
       Y_risk <- 1L - dt_t[[cvar]][still_in]  # P(uncensored)
       folds_risk <- dt_t[[fold_col]][still_in]
@@ -312,12 +308,8 @@ NULL
                           use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
           preds_val <- .predict_from_fit(fit, X_val)
         } else {
-          marg_train <- if (!is.null(ow_train)) {
-            stats::weighted.mean(Y_train, ow_train)
-          } else {
-            mean(Y_train)
-          }
-          preds_val <- rep(marg_train, length(val_idx))
+          # Use full-sample marginal (population constant), not fold-specific
+          preds_val <- rep(marg_c, length(val_idx))
         }
 
         p_c[val_idx] <- preds_val
@@ -431,7 +423,7 @@ NULL
 
     ids_risk <- dt_t[[id_col]][still_in]
     lag_covs <- .get_lag_covariates(nodes, i)
-    all_covs <- c(covariates, lag_covs)
+    all_covs <- unique(c(covariates, lag_covs))
     X_risk <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     Y_risk <- dt_t[[nodes$observation]][still_in]
     folds_risk <- dt_t[[fold_col]][still_in]
@@ -483,12 +475,8 @@ NULL
                         use_ffSL = identical(sl_fn, "ffSL"), context = ctx, verbose = FALSE)
         preds_val <- .predict_from_fit(fit, X_val)
       } else {
-        marg_train <- if (!is.null(ow_train)) {
-          stats::weighted.mean(Y_train, ow_train)
-        } else {
-          mean(Y_train)
-        }
-        preds_val <- rep(marg_train, length(val_idx))
+        # Use full-sample marginal (population constant), not fold-specific
+        preds_val <- rep(marg_r, length(val_idx))
       }
 
       p_r[val_idx] <- preds_val
@@ -870,7 +858,7 @@ NULL
       if (n_train > 0) {
         time_index <- match(tt, all_time_vals)
         lag_covs <- .get_lag_covariates(nodes, time_index)
-        all_covs <- c(covariates, lag_covs)
+        all_covs <- unique(c(covariates, lag_covs))
         X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])
         folds_risk <- dt_t[[fold_col]][at_risk]
 

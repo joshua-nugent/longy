@@ -276,7 +276,7 @@ estimate_tmle <- function(obj, regime = NULL, times = NULL, inference = "eif",
       if (n_train > 0) {
         time_index <- match(tt, all_time_vals)
         lag_covs <- .get_lag_covariates(nodes, time_index)
-        all_covs <- c(covariates, lag_covs)
+        all_covs <- unique(c(covariates, lag_covs))
         X_risk <- as.data.frame(dt_t[at_risk, all_covs, with = FALSE])
         X_train <- X_risk[has_Q, , drop = FALSE]
         Y_train <- Q_at_t[has_Q]

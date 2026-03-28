@@ -139,7 +139,7 @@
 #' @return data.table with se, ci_lower, ci_upper
 #' @noRd
 .bootstrap_inference <- function(obj, regime, times, n_boot = 200L,
-                                 ci_level = 0.95, verbose = FALSE) {
+                                 ci_level = 0.95, verbose = TRUE) {
   nodes <- obj$nodes
   id_col <- nodes$id
   ids <- unique(obj$data[[id_col]])

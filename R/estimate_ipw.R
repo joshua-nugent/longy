@@ -42,10 +42,10 @@
 #' @param bounds Numeric(2) or NULL. Bounds for the cumulative AC product
 #'   (cumprod of g_a * g_c), passed to \code{\link{compute_weights}()}.
 #'   Default \code{c(0.01, 1)}. Only applies when weights are auto-computed.
-#' @param truncation Numeric(2) or NULL. Hard bounds for weight truncation,
+#' @param truncation Numeric or NULL. Hard upper bound for weight truncation,
 #'   passed to \code{\link{compute_weights}()}. Only applies when weights are
 #'   auto-computed.
-#' @param truncation_quantile Numeric(2) or NULL. Quantile bounds for weight
+#' @param truncation_quantile Numeric in (0,1) or NULL. Quantile upper bound for weight
 #'   truncation, passed to \code{\link{compute_weights}()}. Only applies when
 #'   weights are auto-computed.
 #'

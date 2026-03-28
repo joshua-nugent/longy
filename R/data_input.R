@@ -225,6 +225,15 @@ longy_data <- function(data,
                         value = as.integer(c_vals == lvl))
         internal_cols[j] <- col_name
       }
+      if (anyDuplicated(internal_cols)) {
+        dups <- internal_cols[duplicated(internal_cols)]
+        stop(sprintf(
+          "Censoring level name collision: levels %s map to the same internal column '%s'. ",
+          paste(sQuote(censoring_levels[internal_cols %in% dups]), collapse = " and "),
+          dups[1]),
+          "Rename censoring levels to avoid ambiguity.",
+          call. = FALSE)
+      }
       censoring <- internal_cols
 
       # Validate censoring is absorbing: once censored, must stay censored
@@ -786,7 +795,15 @@ set_crossfit <- function(obj, n_folds = 5L, fold_column = NULL, seed = NULL) {
           n_folds, n_cl, n_cl), call. = FALSE)
         n_folds <- n_cl
       }
-      if (!is.null(seed)) set.seed(seed)
+      if (!is.null(seed)) {
+        if (exists(".Random.seed", envir = globalenv())) {
+          old_seed <- get(".Random.seed", envir = globalenv())
+          on.exit(assign(".Random.seed", old_seed, envir = globalenv()), add = TRUE)
+        } else {
+          on.exit(rm(".Random.seed", envir = globalenv()), add = TRUE)
+        }
+        set.seed(seed)
+      }
       cl_folds <- sample(rep(seq_len(n_folds), length.out = n_cl))
       cl_fold_dt <- data.table::data.table(V1 = clusters, .longy_fold = cl_folds)
       data.table::setnames(cl_fold_dt, "V1", cl_col)
@@ -797,7 +814,15 @@ set_crossfit <- function(obj, n_folds = 5L, fold_column = NULL, seed = NULL) {
     } else {
       ids <- unique(obj$data[[id_col]])
       n <- length(ids)
-      if (!is.null(seed)) set.seed(seed)
+      if (!is.null(seed)) {
+        if (exists(".Random.seed", envir = globalenv())) {
+          old_seed <- get(".Random.seed", envir = globalenv())
+          on.exit(assign(".Random.seed", old_seed, envir = globalenv()), add = TRUE)
+        } else {
+          on.exit(rm(".Random.seed", envir = globalenv()), add = TRUE)
+        }
+        set.seed(seed)
+      }
       folds <- sample(rep(seq_len(n_folds), length.out = n))
       fold_dt <- data.table::data.table(V1 = ids, .longy_fold = folds)
       data.table::setnames(fold_dt, "V1", id_col)

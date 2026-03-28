@@ -84,6 +84,9 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     return(obj)
   }
 
+  # Ensure tracking columns are cleaned up on error (covers both crossfit and non-crossfit paths)
+  on.exit(.remove_tracking_columns(obj$data), add = TRUE)
+
   # g_C models are fit on observed data regardless of regime (risk set uses
   # uncensored status only, not regime consistency). Fit once, then replicate
   # the result for all requested regimes.
@@ -110,7 +113,6 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
   }
 
   dt <- .add_tracking_columns(dt, nodes, reg)
-  on.exit(.remove_tracking_columns(obj$data), add = TRUE)
 
   # Snapshot data for parallel safety
   if (parallel) dt <- data.table::copy(dt)
@@ -147,7 +149,7 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     }
 
     lag_covs <- .get_lag_covariates(nodes, i)
-    all_covs <- c(covariates, lag_covs)
+    all_covs <- unique(c(covariates, lag_covs))
     X <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     # Model P(uncensored) = P(C=0) => Y = 1 - C
     Y <- 1L - dt_t[[cvar]][still_in]
@@ -296,9 +298,13 @@ fit_censoring <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   } # end if/else crossfit
 
-  # Store for all regimes (identical model)
+  # Store for all regimes (copy predictions to avoid shared data.table references)
   for (rname in regime) {
-    obj$fits$censoring[[rname]] <- fit_result
+    fr <- fit_result
+    for (cv in names(fr)) {
+      fr[[cv]]$predictions <- data.table::copy(fit_result[[cv]]$predictions)
+    }
+    obj$fits$censoring[[rname]] <- fr
   }
 
   # Fit baseline numerator models if requested

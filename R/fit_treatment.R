@@ -87,6 +87,9 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   for (fit_rname in fit_regimes) {
 
+  # Ensure tracking columns are cleaned up on error (covers both crossfit and non-crossfit paths)
+  on.exit(.remove_tracking_columns(obj$data), add = TRUE)
+
   if (isTRUE(obj$crossfit$enabled)) {
     sl_fn_cf <- if (use_ffSL) "ffSL" else "SuperLearner"
     obj <- .cf_fit_treatment(obj, fit_rname, covariates = covariates,
@@ -120,7 +123,6 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   # Build cumulative regime-consistency and uncensored tracking
   dt <- .add_tracking_columns(dt, nodes, reg)
-  on.exit(.remove_tracking_columns(obj$data), add = TRUE)
 
   # Snapshot data for parallel safety (by-reference semantics)
   if (parallel) dt <- data.table::copy(dt)
@@ -158,7 +160,7 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
     }
 
     lag_covs <- .get_lag_covariates(nodes, i)
-    all_covs <- c(covariates, lag_covs)
+    all_covs <- unique(c(covariates, lag_covs))
     X <- as.data.frame(dt_t[still_in, all_covs, with = FALSE])
     Y <- dt_t[[nodes$treatment]][still_in]
 
@@ -319,11 +321,13 @@ fit_treatment <- function(obj, regime = NULL, covariates = NULL, learners = NULL
 
   } # end if/else crossfit
 
-  # Store fit result
+  # Store fit result (copy predictions to avoid shared data.table references)
   if (risk_set == "all") {
     for (rname in regime) {
-      obj$fits$treatment[[rname]] <- fit_result
-      obj$fits$treatment[[rname]]$regime <- rname
+      fr <- fit_result
+      fr$predictions <- data.table::copy(fit_result$predictions)
+      fr$regime <- rname
+      obj$fits$treatment[[rname]] <- fr
     }
   } else {
     obj$fits$treatment[[fit_rname]] <- fit_result
